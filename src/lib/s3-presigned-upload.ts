@@ -29,9 +29,13 @@
  */
 
 import { randomUUID } from 'crypto';
-import { PutObjectCommand, GetObjectCommand, HeadObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { getS3Client } from './s3-storage';
+import { getS3Client, getS3Sdk } from './s3-storage';
+
+// Loaded on first use (see getS3Sdk in s3-storage.ts for why).
+function getPresigner(): typeof import('@aws-sdk/s3-request-presigner') {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return require('@aws-sdk/s3-request-presigner');
+}
 import { logger } from './logger';
 
 const RAW_UPLOAD_PREFIX = 'incoming';
@@ -64,13 +68,13 @@ export async function createPresignedRawUploadUrl(params: {
   const key = `${RAW_UPLOAD_PREFIX}/${params.ownerUserId}/${uploadId}`;
   const expiresInSeconds = params.expiresInSeconds ?? DEFAULT_EXPIRES_SECONDS;
 
-  const command = new PutObjectCommand({
+  const command = new (getS3Sdk().PutObjectCommand)({
     Bucket: getBucket(),
     Key: key,
     ContentType: params.contentType || 'application/octet-stream',
   });
 
-  const url = await getSignedUrl(getS3Client(), command, { expiresIn: expiresInSeconds });
+  const url = await getPresigner().getSignedUrl(getS3Client(), command, { expiresIn: expiresInSeconds });
 
   logger.debug('[Storage] Minted presigned raw-upload URL', { ownerUserId: params.ownerUserId, uploadId });
   return { uploadId, key, url, expiresInSeconds };
@@ -84,7 +88,7 @@ export async function createPresignedRawUploadUrl(params: {
  */
 export async function headRawUpload(key: string): Promise<{ sizeBytes: number; contentType?: string } | null> {
   try {
-    const head = await getS3Client().send(new HeadObjectCommand({ Bucket: getBucket(), Key: key }));
+    const head = await getS3Client().send(new (getS3Sdk().HeadObjectCommand)({ Bucket: getBucket(), Key: key }));
     if (typeof head.ContentLength !== 'number') return null;
     return { sizeBytes: head.ContentLength, contentType: head.ContentType };
   } catch {
@@ -99,7 +103,7 @@ export async function headRawUpload(key: string): Promise<{ sizeBytes: number; c
  * Buffer comes from does (S3 GetObject instead of fs.readFile(req.file.path)).
  */
 export async function fetchRawUpload(key: string): Promise<Buffer> {
-  const result = await getS3Client().send(new GetObjectCommand({ Bucket: getBucket(), Key: key }));
+  const result = await getS3Client().send(new (getS3Sdk().GetObjectCommand)({ Bucket: getBucket(), Key: key }));
   if (!result.Body) throw new Error(`S3 raw-upload fetch failed: no data for ${key}`);
   const chunks: Uint8Array[] = [];
   for await (const chunk of result.Body as AsyncIterable<Uint8Array>) chunks.push(chunk);

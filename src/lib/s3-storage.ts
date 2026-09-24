@@ -12,15 +12,21 @@
  * Terraform/CDK, not runtime code (see docs/PINIT-DNA_ECS_Production_Readiness_Audit.pdf, §5).
  */
 
-import {
-  S3Client,
-  PutObjectCommand,
-  GetObjectCommand,
-  DeleteObjectCommand,
-  HeadObjectCommand,
-  HeadBucketCommand,
-} from '@aws-sdk/client-s3';
+import type { S3Client } from '@aws-sdk/client-s3';
 import { logger } from './logger';
+
+type S3Sdk = typeof import('@aws-sdk/client-s3');
+let _sdk: S3Sdk | null = null;
+
+/**
+ * The AWS SDK is loaded on first use, not at import time. It is large, and most
+ * processes (Supabase backend, unit tests, the API before any S3 call) never
+ * touch S3 — loading it eagerly taxed every process start for nothing.
+ */
+export function getS3Sdk(): S3Sdk {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return (_sdk ??= require('@aws-sdk/client-s3') as S3Sdk);
+}
 
 let _client: S3Client | null = null;
 
@@ -33,7 +39,7 @@ function getBucket(): string {
 export function getS3Client(): S3Client {
   if (_client) return _client;
   const region = process.env['AWS_REGION']?.trim() || 'ap-south-1';
-  _client = new S3Client({ region });
+  _client = new (getS3Sdk().S3Client)({ region });
   logger.info('[Storage] S3 client initialised', { region });
   return _client;
 }
@@ -59,7 +65,7 @@ export function normalizeVaultStoragePath(storedPath: string, vaultId: string): 
 export async function uploadVaultFile(vaultId: string, buffer: Buffer, ownerUserId?: string): Promise<string> {
   const storagePath = ownerUserId ? `${ownerUserId}/${vaultId}.enc` : `${vaultId}.enc`;
   try {
-    await getS3Client().send(new PutObjectCommand({
+    await getS3Client().send(new (getS3Sdk().PutObjectCommand)({
       Bucket: getBucket(),
       Key: storagePath,
       Body: buffer,
@@ -77,7 +83,7 @@ export async function uploadVaultFile(vaultId: string, buffer: Buffer, ownerUser
 export async function downloadVaultFileByPath(storagePath: string): Promise<Buffer> {
   const bucket = getBucket();
   try {
-    const result = await getS3Client().send(new GetObjectCommand({ Bucket: bucket, Key: storagePath }));
+    const result = await getS3Client().send(new (getS3Sdk().GetObjectCommand)({ Bucket: bucket, Key: storagePath }));
     if (!result.Body) throw new Error(`no data for ${storagePath}`);
     const chunks: Uint8Array[] = [];
     // Body is a Node Readable at runtime for @aws-sdk/client-s3 on Node targets.
@@ -133,7 +139,7 @@ export async function deleteVaultFile(
 
   for (const storagePath of paths) {
     try {
-      await getS3Client().send(new DeleteObjectCommand({ Bucket: bucket, Key: storagePath }));
+      await getS3Client().send(new (getS3Sdk().DeleteObjectCommand)({ Bucket: bucket, Key: storagePath }));
       logger.debug('[Storage] Deleted vault file from S3', { vaultId, storagePath });
       return;
     } catch {
@@ -157,7 +163,7 @@ export async function findVaultFileInS3(
 
   for (const storagePath of paths) {
     try {
-      const head = await getS3Client().send(new HeadObjectCommand({ Bucket: bucket, Key: storagePath }));
+      const head = await getS3Client().send(new (getS3Sdk().HeadObjectCommand)({ Bucket: bucket, Key: storagePath }));
       return { exists: true, size: head.ContentLength ?? null, storagePath };
     } catch {
       // not found at this key, try the next
@@ -171,7 +177,7 @@ export async function findVaultFileInS3(
  * not runtime code, unlike Supabase Storage's ensureBucket(). */
 export async function checkS3BucketReachable(): Promise<boolean> {
   try {
-    await getS3Client().send(new HeadBucketCommand({ Bucket: getBucket() }));
+    await getS3Client().send(new (getS3Sdk().HeadBucketCommand)({ Bucket: getBucket() }));
     return true;
   } catch (err) {
     logger.warn('[Storage] S3 bucket HEAD check failed', {

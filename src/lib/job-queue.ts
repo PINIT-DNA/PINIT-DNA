@@ -26,7 +26,17 @@
  */
 
 import { randomUUID } from 'crypto';
-import { SQSClient, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
+import type { SQSClient } from '@aws-sdk/client-sqs';
+
+type SqsSdk = typeof import('@aws-sdk/client-sqs');
+let _sqsSdk: SqsSdk | null = null;
+
+/** Loaded on first use, not at import — the API process never talks to SQS
+ * unless BACKGROUND_JOBS_USE_QUEUE is on, so it should not pay for the SDK. */
+function sqsSdk(): SqsSdk {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  return (_sqsSdk ??= require('@aws-sdk/client-sqs') as SqsSdk);
+}
 import { logger } from './logger';
 
 export type JobType = 'video_protect' | 'pdf_protect' | 'advanced_layers' | 'auto_index';
@@ -116,7 +126,7 @@ class SqsJobQueue implements JobQueueClient {
   private getClient(): SQSClient {
     if (!this.client) {
       const region = process.env['AWS_REGION']?.trim() || 'ap-south-1';
-      this.client = new SQSClient({ region });
+      this.client = new (sqsSdk().SQSClient)({ region });
     }
     return this.client;
   }
@@ -129,7 +139,7 @@ class SqsJobQueue implements JobQueueClient {
 
   async publish(type: JobType, payload: Record<string, unknown>): Promise<void> {
     const message: Omit<JobMessage, 'attempt'> = { id: randomUUID(), type, payload };
-    await this.getClient().send(new SendMessageCommand({
+    await this.getClient().send(new (sqsSdk().SendMessageCommand)({
       QueueUrl: this.getQueueUrl(),
       MessageBody: JSON.stringify(message),
     }));
@@ -137,7 +147,7 @@ class SqsJobQueue implements JobQueueClient {
   }
 
   async receive(maxMessages = 1): Promise<ReceivedJob[]> {
-    const result = await this.getClient().send(new ReceiveMessageCommand({
+    const result = await this.getClient().send(new (sqsSdk().ReceiveMessageCommand)({
       QueueUrl: this.getQueueUrl(),
       MaxNumberOfMessages: Math.min(Math.max(maxMessages, 1), 10),
       WaitTimeSeconds: 10,
@@ -155,7 +165,7 @@ class SqsJobQueue implements JobQueueClient {
   }
 
   async deleteMessage(receiptHandle: string): Promise<void> {
-    await this.getClient().send(new DeleteMessageCommand({
+    await this.getClient().send(new (sqsSdk().DeleteMessageCommand)({
       QueueUrl: this.getQueueUrl(),
       ReceiptHandle: receiptHandle,
     }));
