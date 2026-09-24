@@ -139,7 +139,10 @@ export function emitDuplicateUploadBlocked(params: {
     fileName: params.filename,
     dnaRecordId: params.dnaRecordId,
     skipAudit: true,
-    dedupeKey: `dup_upload:${params.dnaRecordId}:${uploader}:${Date.now().toString(36)}`,
+    // Deterministic — no timestamp — so an at-least-once redelivery of the same
+    // block event (e.g. once this dispatch moves behind a queue) is a no-op
+    // rather than a second, indistinguishable notification.
+    dedupeKey: `dup_upload:${params.dnaRecordId}:${uploader}`,
     payload: { matchType: params.matchType, uploaderShortId: params.uploaderLabel, crossUser: cross },
   });
 }
@@ -169,7 +172,9 @@ export function emitDuplicateUploadAdminAlert(params: {
     fileName: params.filename,
     dnaRecordId: params.dnaRecordId,
     skipAudit: true,
-    dedupeKey: `dup_admin:${params.dnaRecordId}:${uploader}:${Date.now().toString(36)}`,
+    // Deterministic per admin recipient (userId scopes the dedupe check) — see
+    // the comment on emitDuplicateUploadBlocked's dedupeKey above.
+    dedupeKey: `dup_admin:${params.dnaRecordId}:${uploader}`,
     payload: {
       matchType: params.matchType,
       ownerShortId: params.ownerShortId,

@@ -11,11 +11,27 @@ import { prisma } from './prisma';
 import { vaultScheduler } from '../services/scheduler/vault-scheduler.service';
 import { markPythonShuttingDown, stopPythonAI } from './python-ai-process';
 
-const SHUTDOWN_TIMEOUT_MS = 30_000;
+// Keep this below whatever the platform's own hard-kill timeout is (ECS task
+// `stopTimeout` defaults to 30s too) so the app's own clean-exit path wins
+// before the platform force-SIGKILLs. Override with SHUTDOWN_TIMEOUT_MS.
+const SHUTDOWN_TIMEOUT_MS = parseInt(process.env['SHUTDOWN_TIMEOUT_MS'] ?? '', 10) || 30_000;
+
+// Behind an ALB, ECS sends SIGTERM to the container at roughly the same time
+// it asks the ALB to deregister the target. Waiting this long before closing
+// the HTTP server lets already-in-flight ALB-routed requests keep being
+// accepted just long enough for the ALB to stop sending new ones. Defaults to
+// 0 (no behavior change on the current, non-ALB deployment target); set
+// SHUTDOWN_DRAIN_MS to 5000-10000 once running behind an ALB, and keep the
+// target group's deregistration delay <= (ECS stopTimeout - this value).
+const SHUTDOWN_DRAIN_MS = parseInt(process.env['SHUTDOWN_DRAIN_MS'] ?? '', 10) || 0;
 
 let activeServer: http.Server | null = null;
 let handlersRegistered = false;
 let isShuttingDown = false;
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 export function setActiveServer(server: http.Server): void {
   activeServer = server;
@@ -38,6 +54,11 @@ export function registerGracefulShutdown(): void {
     }, SHUTDOWN_TIMEOUT_MS);
 
     try {
+      if (SHUTDOWN_DRAIN_MS > 0) {
+        logger.info(`Draining for ${SHUTDOWN_DRAIN_MS}ms before closing the HTTP server`);
+        await delay(SHUTDOWN_DRAIN_MS);
+      }
+
       if (activeServer) {
         await new Promise<void>((resolve, reject) => {
           activeServer!.close((err) => (err ? reject(err) : resolve()));

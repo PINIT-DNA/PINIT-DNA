@@ -38,7 +38,7 @@ jest.mock('fs', () => {
 const touchedKeys = new Set<string>([
   'NODE_ENV', 'FAIL_ON_INSECURE_SECRETS', 'JWT_SECRET', 'VAULT_MASTER_SECRET',
   'LSB_SIGNATURE_SECRET', 'EXCHANGE_BRIDGE_SECRET', 'SPATIAL_AUTH_SECRET',
-  'DNA_VNEXT_SECRET', 'BLOCK_DNA_SECRET', 'DATABASE_URL',
+  'DNA_VNEXT_SECRET', 'BLOCK_DNA_SECRET', 'SHARE_HMAC_SECRET', 'DATABASE_URL',
 ]);
 const savedEnv: Record<string, string | undefined> = {};
 
@@ -73,6 +73,7 @@ function setSecureBaseline() {
   process.env['LSB_SIGNATURE_SECRET'] = 'a-real-random-lsb-secret-not-the-default';
   process.env['EXCHANGE_BRIDGE_SECRET'] = 'a-real-random-bridge-secret';
   process.env['SPATIAL_AUTH_SECRET'] = 'a-real-random-spatial-secret';
+  process.env['SHARE_HMAC_SECRET'] = 'a-real-random-share-hmac-secret';
 }
 
 describe('checkProductionSecretSafety', () => {
@@ -133,6 +134,18 @@ describe('checkProductionSecretSafety', () => {
     checkProductionSecretSafety();
     expect(logger.error).toHaveBeenCalledWith(
       expect.stringContaining('EXCHANGE_BRIDGE_SECRET is INSECURE in production'),
+    );
+  });
+
+  test('SHARE_HMAC_SECRET unset is flagged — it signs every Secure Share token and has a public default', () => {
+    process.env['NODE_ENV'] = 'production';
+    setSecureBaseline();
+    delete process.env['SHARE_HMAC_SECRET'];
+
+    const { checkProductionSecretSafety, logger } = loadFresh();
+    expect(() => checkProductionSecretSafety()).not.toThrow();
+    expect(logger.error).toHaveBeenCalledWith(
+      expect.stringContaining('SHARE_HMAC_SECRET is INSECURE in production'),
     );
   });
 

@@ -13,7 +13,7 @@ import sharp from 'sharp';
 type AnyAsync = (...args: unknown[]) => Promise<unknown>;
 
 jest.mock('../../src/lib/prisma', () => ({
-  prisma: { dctWatermarkLayer: { create: jest.fn(async () => ({})) } },
+  prisma: { dctWatermarkLayer: { upsert: jest.fn(async () => ({})) } },
 }));
 
 jest.mock('../../src/lib/logger', () => ({
@@ -23,15 +23,15 @@ jest.mock('../../src/lib/logger', () => ({
 import { prisma } from '../../src/lib/prisma';
 import { processLayer12 } from '../../src/services/layers/layers-11-15.service';
 
-const dctCreate = prisma.dctWatermarkLayer.create as unknown as jest.Mock<AnyAsync>;
+const dctUpsert = prisma.dctWatermarkLayer.upsert as unknown as jest.Mock<AnyAsync>;
 
 beforeEach(() => {
-  dctCreate.mockReset();
-  dctCreate.mockResolvedValue({});
+  dctUpsert.mockReset();
+  dctUpsert.mockResolvedValue({});
 });
 
 function dataOf(call: unknown) {
-  return (call as { data: Record<string, unknown> }).data;
+  return (call as { create: Record<string, unknown> }).create;
 }
 
 describe('Layer 12 — honest DNA-B capability check', () => {
@@ -42,7 +42,7 @@ describe('Layer 12 — honest DNA-B capability check', () => {
 
     await processLayer12('dna-1', image, 'image/jpeg', 'owner-1');
 
-    const data = dataOf(dctCreate.mock.calls[0]![0]);
+    const data = dataOf(dctUpsert.mock.calls[0]![0]);
     expect(data['embedded']).toBe(true);
     expect(data['method']).toContain('dna-b-patchwork-v1');
     expect(data['strength']).toBeGreaterThan(0);
@@ -56,7 +56,7 @@ describe('Layer 12 — honest DNA-B capability check', () => {
 
     await processLayer12('dna-2', tiny, 'image/png', 'owner-2');
 
-    const data = dataOf(dctCreate.mock.calls[0]![0]);
+    const data = dataOf(dctUpsert.mock.calls[0]![0]);
     expect(data['embedded']).toBe(false);
     expect(data['strength']).toBe(0);
     expect(data['survivalScore']).toBe(0);
@@ -65,7 +65,7 @@ describe('Layer 12 — honest DNA-B capability check', () => {
   test('a non-image file is marked not-applicable, not silently "embedded"', async () => {
     await processLayer12('dna-3', Buffer.from('pdf bytes'), 'application/pdf', 'owner-3');
 
-    const data = dataOf(dctCreate.mock.calls[0]![0]);
+    const data = dataOf(dctUpsert.mock.calls[0]![0]);
     expect(data['embedded']).toBe(false);
     expect(data['method']).toBe('not-applicable');
   });
@@ -77,7 +77,7 @@ describe('Layer 12 — honest DNA-B capability check', () => {
 
     await processLayer12('dna-4', image, 'image/jpeg', 'owner-4');
 
-    const data = dataOf(dctCreate.mock.calls[0]![0]);
+    const data = dataOf(dctUpsert.mock.calls[0]![0]);
     // Every transform in the real matrix survives since the canonical-frame
     // resize fix (see robust-watermark-transcode.test.ts) — kept at 0.9, not
     // 1.0, since the test matrix doesn't cover every real-world transform.

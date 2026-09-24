@@ -11,7 +11,7 @@ import { describe, test, expect, jest, beforeEach } from '@jest/globals';
 type AnyAsync = (...args: unknown[]) => Promise<unknown>;
 
 jest.mock('../../src/lib/prisma', () => ({
-  prisma: { deepfakeLayer: { create: jest.fn(async () => ({})) } },
+  prisma: { deepfakeLayer: { upsert: jest.fn(async () => ({})) } },
 }));
 
 jest.mock('../../src/lib/logger', () => ({
@@ -26,17 +26,17 @@ import { prisma } from '../../src/lib/prisma';
 import { processLayer11 } from '../../src/services/layers/layers-11-15.service';
 import { aiService } from '../../src/services/ai/ai-embeddings.service';
 
-const deepfakeCreate = prisma.deepfakeLayer.create as unknown as jest.Mock<AnyAsync>;
+const deepfakeUpsert = prisma.deepfakeLayer.upsert as unknown as jest.Mock<AnyAsync>;
 const analyzeAuthenticity = aiService.analyzeAuthenticity as unknown as jest.Mock<AnyAsync>;
 
 beforeEach(() => {
-  deepfakeCreate.mockReset();
+  deepfakeUpsert.mockReset();
   analyzeAuthenticity.mockReset();
-  deepfakeCreate.mockResolvedValue({});
+  deepfakeUpsert.mockResolvedValue({});
 });
 
 function dataOf(call: unknown) {
-  return (call as { data: Record<string, unknown> }).data;
+  return (call as { create: Record<string, unknown> }).create;
 }
 
 describe('Layer 11 — real ensemble wiring', () => {
@@ -55,7 +55,7 @@ describe('Layer 11 — real ensemble wiring', () => {
 
     await processLayer11('dna-1', Buffer.from('fake jpeg bytes'), 'image/jpeg');
 
-    const data = dataOf(deepfakeCreate.mock.calls[0]![0]);
+    const data = dataOf(deepfakeUpsert.mock.calls[0]![0]);
     expect(data['deepfakeScore']).toBe(78.4);
     expect(data['isDeepfake']).toBe(true);
     expect(data['flagged']).toBe(true);
@@ -70,7 +70,7 @@ describe('Layer 11 — real ensemble wiring', () => {
     const result = await processLayer11('dna-2', Buffer.from('fake jpeg bytes'), 'image/jpeg');
 
     expect(result).toBe(true);
-    const data = dataOf(deepfakeCreate.mock.calls[0]![0]);
+    const data = dataOf(deepfakeUpsert.mock.calls[0]![0]);
     expect(data['analysisMethod']).toBe('decoded-pixel-multi-factor-fallback');
     expect(typeof data['deepfakeScore']).toBe('number');
   });
@@ -90,7 +90,7 @@ describe('Layer 11 — real ensemble wiring', () => {
 
     await processLayer11('dna-3', Buffer.from('real photo bytes'), 'image/jpeg');
 
-    const data = dataOf(deepfakeCreate.mock.calls[0]![0]);
+    const data = dataOf(deepfakeUpsert.mock.calls[0]![0]);
     expect(data['deepfakeScore']).toBe(8.2);
     expect(data['isDeepfake']).toBe(false);
     expect(data['flagged']).toBe(false);
@@ -100,7 +100,7 @@ describe('Layer 11 — real ensemble wiring', () => {
     await processLayer11('dna-4', Buffer.from('mp4 bytes'), 'video/mp4');
 
     expect(analyzeAuthenticity).not.toHaveBeenCalled();
-    const data = dataOf(deepfakeCreate.mock.calls[0]![0]);
+    const data = dataOf(deepfakeUpsert.mock.calls[0]![0]);
     expect(data['analysisMethod']).toBe('byte-heuristic-fallback');
   });
 
@@ -108,7 +108,7 @@ describe('Layer 11 — real ensemble wiring', () => {
     await processLayer11('dna-5', Buffer.from('pdf bytes'), 'application/pdf');
 
     expect(analyzeAuthenticity).not.toHaveBeenCalled();
-    const data = dataOf(deepfakeCreate.mock.calls[0]![0]);
+    const data = dataOf(deepfakeUpsert.mock.calls[0]![0]);
     expect(data['deepfakeScore']).toBe(0);
     expect(data['confidence']).toBe(0);
   });

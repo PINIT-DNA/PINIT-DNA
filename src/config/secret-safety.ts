@@ -86,6 +86,12 @@ function buildChecks(): SecretCheck[] {
       note: 'Not independently set (borrowing JWT_SECRET via fallback). Authenticates every Hub<->Exchange service call (listing assets, confirming sales, minting licensed shares, silent protect-on-behalf-of). The always-accepted hardcoded-default backdoor in verifyServiceBridgeSecret() was fixed 2026-09-23 — only the real configured secret is now accepted (constant-time compare) — but this must still be independently set (not left on the JWT_SECRET fallback) on both Hub and Exchange in every environment.',
     },
     {
+      envVar: 'SHARE_HMAC_SECRET',
+      insecure: config.share.hmacSecret === 'pinit-dna-dev-secret-change-me',
+      severity: 'high',
+      note: 'Signs every Secure Share link token — forgeable by anyone who reads the public default in this repo.',
+    },
+    {
       envVar: 'SPATIAL_AUTH_SECRET',
       insecure: !process.env['SPATIAL_AUTH_SECRET'],
       severity: 'high',

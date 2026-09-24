@@ -23,7 +23,7 @@ export interface VaultIntegrityResult {
   storedSize: number;
   actualSize: number | null;
   status: 'HEALTHY' | 'FILE_MISSING' | 'SIZE_MISMATCH' | 'ERROR';
-  storageSource: 'supabase' | 'local';
+  storageSource: 'supabase' | 's3' | 'local';
   checkedAt: string;
 }
 

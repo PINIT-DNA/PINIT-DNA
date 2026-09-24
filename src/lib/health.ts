@@ -13,7 +13,7 @@ import path from 'path';
 import os   from 'os';
 import { prisma } from './prisma';
 import { config } from '../config';
-import { isSupabaseStorageConfigured } from './supabase-storage';
+import { isCloudStorageConfigured, activeStorageBackend } from './vault-storage-backend';
 
 export interface ComponentHealth {
   status:  'healthy' | 'degraded' | 'unhealthy';
@@ -111,20 +111,35 @@ function checkEncryptionConfig(): ComponentHealth {
   return { status: 'healthy', message: 'Encryption configuration valid' };
 }
 
+// Key stays 'supabase' below for backward compatibility with any dashboard
+// reading this specific field, even though it now reports whichever object
+// storage backend (Supabase or S3) is actually active — see config.storage.backend.
 function checkSupabaseStorage(): ComponentHealth {
+  const backend = activeStorageBackend();
+  const requiredVarsMessage = backend === 's3'
+    ? 'S3_BUCKET (and AWS credentials) are required in production for share links and vault retrieval'
+    : 'SUPABASE_URL and SUPABASE_SERVICE_KEY are required in production for share links and vault retrieval';
+
   if (process.env['NODE_ENV'] !== 'production') {
-    return isSupabaseStorageConfigured()
-      ? { status: 'healthy', message: 'Supabase Storage configured (dev)' }
-      : { status: 'healthy', message: 'Supabase not set — using local vault disk (dev)' };
+    return isCloudStorageConfigured()
+      ? { status: 'healthy', message: `${backend === 's3' ? 'S3' : 'Supabase'} Storage configured (dev)` }
+      : { status: 'healthy', message: 'No cloud storage set — using local vault disk (dev)' };
   }
-  if (!isSupabaseStorageConfigured()) {
-    return {
-      status: 'unhealthy',
-      message: 'SUPABASE_URL and SUPABASE_SERVICE_KEY are required in production for share links and vault retrieval',
-    };
+  if (!isCloudStorageConfigured()) {
+    return { status: 'unhealthy', message: requiredVarsMessage };
   }
-  return { status: 'healthy', message: 'Supabase Storage configured' };
+  return { status: 'healthy', message: `${backend === 's3' ? 'S3' : 'Supabase'} Storage configured` };
 }
+
+// Absolute-MB thresholds only make sense relative to how much memory this
+// process is actually allocated — a fixed 512MB "degraded" floor is fine on a
+// multi-GB host but would permanently degrade a small ECS task sized to,
+// say, 512MB total. Override via env once the real ECS task memory is known;
+// defaults below match this app's original Render-tuned values (no behavior
+// change until the overrides are set).
+const MEMORY_CRITICAL_FREE_MB = parseInt(process.env['HEALTH_MEMORY_CRITICAL_FREE_MB'] ?? '', 10) || 96;
+const MEMORY_DEGRADED_FREE_MB = parseInt(process.env['HEALTH_MEMORY_DEGRADED_FREE_MB'] ?? '', 10) || 512;
+const MEMORY_DEGRADED_USED_PCT = parseInt(process.env['HEALTH_MEMORY_DEGRADED_USED_PCT'] ?? '', 10) || 90;
 
 function checkMemory(): ComponentHealth {
   const totalMem = os.totalmem();
@@ -135,10 +150,10 @@ function checkMemory(): ComponentHealth {
   // Windows reports a high used-% while the working set still has hundreds of
   // MB free. Treating that as unhealthy made GET /health 503, and the Hub UI
   // showed "Backend starting" even though ping and dashboard APIs were 200.
-  if (freeMb < 96) {
+  if (freeMb < MEMORY_CRITICAL_FREE_MB) {
     return { status: 'unhealthy', message: `Memory critical: ${usedPct}% used, ${freeMb}MB free` };
   }
-  if (usedPct > 90 || freeMb < 512) {
+  if (usedPct > MEMORY_DEGRADED_USED_PCT || freeMb < MEMORY_DEGRADED_FREE_MB) {
     return { status: 'degraded',  message: `Memory high: ${usedPct}% used, ${freeMb}MB free` };
   }
   return { status: 'healthy', message: `Memory OK: ${usedPct}% used, ${freeMb}MB free` };

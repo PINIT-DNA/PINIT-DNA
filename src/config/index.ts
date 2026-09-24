@@ -141,8 +141,40 @@ export const config = {
     storageDir: path.resolve(optional('VAULT_STORAGE_DIR', './vault/encrypted')),
   },
 
+  /**
+   * Object storage backend selection. Defaults to 'supabase' — the current,
+   * unchanged production path. Set STORAGE_BACKEND=s3 only once a real S3
+   * bucket exists (see src/lib/s3-storage.ts); flipping this without a
+   * provisioned bucket/credentials will fail every vault store/retrieve.
+   */
+  storage: {
+    backend: optional('STORAGE_BACKEND', 'supabase') as 'supabase' | 's3',
+    s3Bucket: optional('S3_BUCKET', ''),
+    awsRegion: optional('AWS_REGION', 'ap-south-1'),
+  },
+
+  /**
+   * Background job dispatch. Defaults to false — the current, unchanged
+   * in-process fire-and-forget path (vault.service.ts calling
+   * upgradePdfInBackground/protectVideoFrames directly). Set
+   * BACKGROUND_JOBS_USE_QUEUE=true only once a real worker process
+   * (src/worker.ts) is actually running and consuming JOB_QUEUE_BACKEND —
+   * flipping this with no consumer running means PDF/video background
+   * protection is published but never processed.
+   */
+  jobs: {
+    useQueue: optional('BACKGROUND_JOBS_USE_QUEUE', 'false').toLowerCase() === 'true',
+  },
+
   jwt: {
     secret: optional('JWT_SECRET', 'dev_jwt_secret_change_in_prod_min_32_chars_long!!'),
+  },
+
+  share: {
+    // `||` (not `optional`) on purpose: matches the pre-existing behavior in
+    // share-link.service.ts, where an EMPTY env var also fell back to the default
+    // rather than becoming an empty HMAC key.
+    hmacSecret: process.env['SHARE_HMAC_SECRET'] || 'pinit-dna-dev-secret-change-me',
   },
 
   webauthn: {

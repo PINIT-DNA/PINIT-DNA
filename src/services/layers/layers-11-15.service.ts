@@ -64,22 +64,27 @@ export async function processLayer11(
       analysisMethod = 'byte-heuristic-fallback';
     }
 
-    await prisma.deepfakeLayer.create({
-      data: {
-        dnaRecordId,
-        deepfakeScore,
-        isDeepfake: deepfakeScore > 55,
-        confidence: isMedia ? confidence : 0,
-        modelVersion: '3.0-authenticity-ensemble',
-        analysisMethod,
-        flagged: deepfakeScore > 55,
-        metadata: {
-          fileType: mimeType,
-          analyzed: isMedia,
-          processingMs: Date.now() - start,
-          ...metadata,
-        },
+    const layer11Data = {
+      deepfakeScore,
+      isDeepfake: deepfakeScore > 55,
+      confidence: isMedia ? confidence : 0,
+      modelVersion: '3.0-authenticity-ensemble',
+      analysisMethod,
+      flagged: deepfakeScore > 55,
+      metadata: {
+        fileType: mimeType,
+        analyzed: isMedia,
+        processingMs: Date.now() - start,
+        ...metadata,
       },
+    };
+    // upsert, not create: dnaRecordId is @unique, so an at-least-once redelivery
+    // of this dispatch (e.g. once it moves behind a queue) is a no-op success
+    // instead of a caught P2002 that gets logged as "Layer 11 failed".
+    await prisma.deepfakeLayer.upsert({
+      where: { dnaRecordId },
+      create: { dnaRecordId, ...layer11Data },
+      update: layer11Data,
     });
 
     logger.info('Layer 11 — Deepfake detection complete', {
@@ -267,16 +272,19 @@ export async function processLayer12(
     const watermarkHash = crypto.createHash('sha256').update(payload).digest('hex');
     const strength = capable ? DNA_B_MEASURED_SURVIVAL_RATE : 0;
 
-    await prisma.dctWatermarkLayer.create({
-      data: {
-        dnaRecordId,
-        watermarkHash,
-        ownerIdEncoded: crypto.createHash('sha256').update(ownerUserId).digest('hex').slice(0, 32),
-        method,
-        strength,
-        embedded: capable,
-        survivalScore: strength * 100,
-      },
+    const layer12Data = {
+      watermarkHash,
+      ownerIdEncoded: crypto.createHash('sha256').update(ownerUserId).digest('hex').slice(0, 32),
+      method,
+      strength,
+      embedded: capable,
+      survivalScore: strength * 100,
+    };
+    // upsert — see the Layer 11 comment above for why (redelivery-safety).
+    await prisma.dctWatermarkLayer.upsert({
+      where: { dnaRecordId },
+      create: { dnaRecordId, ...layer12Data },
+      update: layer12Data,
     });
 
     logger.info('Layer 12 — DNA-B capability check complete', {
@@ -323,16 +331,22 @@ export async function processLayer13(
       .update(JSON.stringify(custodyEntry))
       .digest('hex');
 
-    await prisma.custodyLayer.create({
-      data: {
-        dnaRecordId,
-        custodyChain: [custodyEntry],
-        dmcaReady: true,
-        evidenceHash,
-        legalTimestamp: timestamp,
-        jurisdiction: 'IN',
-        courtAdmissible: true,
-      },
+    const layer13Data = {
+      custodyChain: [custodyEntry],
+      dmcaReady: true,
+      evidenceHash,
+      legalTimestamp: timestamp,
+      jurisdiction: 'IN',
+      courtAdmissible: true,
+    };
+    // upsert with an EMPTY update — first write wins. Unlike Layers 11/12/15
+    // (recomputed from the same inputs, so overwriting is harmless), this row
+    // is the legal registration record: legalTimestamp and evidenceHash must
+    // keep the ORIGINAL moment, so a redelivered job must not overwrite them.
+    await prisma.custodyLayer.upsert({
+      where: { dnaRecordId },
+      create: { dnaRecordId, ...layer13Data },
+      update: {},
     });
 
     logger.info('Layer 13 — Legal custody chain created', {
@@ -395,15 +409,20 @@ export async function processLayer14(
       proofCipher.final(),
     ]).toString('hex') + ':' + proofCipher.getAuthTag().toString('hex');
 
-    await prisma.zkProofLayer.create({
-      data: {
-        dnaRecordId,
-        commitmentHash,
-        proofData,
-        publicKey,
-        verified: true,
-        proofType: 'hash-commitment',
-      },
+    const layer14Data = {
+      commitmentHash,
+      proofData,
+      publicKey,
+      verified: true,
+      proofType: 'hash-commitment',
+    };
+    // upsert with an EMPTY update — first write wins. The secret above is
+    // freshly random per call, so overwriting on a redelivered job would
+    // replace the original commitment with an unrelated one.
+    await prisma.zkProofLayer.upsert({
+      where: { dnaRecordId },
+      create: { dnaRecordId, ...layer14Data },
+      update: {},
     });
 
     logger.info('Layer 14 — ZK proof created', {
@@ -434,10 +453,20 @@ export async function processLayer15(
     });
 
     if (!user?.faceRegistered || !user.faceEmbedding?.length) {
-      // No face registered — create record with empty biometric
-      await prisma.biometricBindLayer.create({
-        data: {
+      // No face registered — upsert a record with empty biometric. upsert, not
+      // create: dnaRecordId is @unique, so an at-least-once redelivery of this
+      // dispatch is a no-op success instead of a caught P2002 logged as a failure.
+      await prisma.biometricBindLayer.upsert({
+        where: { dnaRecordId },
+        create: {
           dnaRecordId,
+          biometricHash: 'NOT_REGISTERED',
+          biometricType: 'none',
+          bindMethod: 'none',
+          userId: ownerUserId,
+          embeddedInFile: false,
+        },
+        update: {
           biometricHash: 'NOT_REGISTERED',
           biometricType: 'none',
           bindMethod: 'none',
@@ -456,15 +485,18 @@ export async function processLayer15(
       .update(embeddingStr)
       .digest('hex');
 
-    await prisma.biometricBindLayer.create({
-      data: {
-        dnaRecordId,
-        biometricHash,
-        biometricType: 'face-embedding',
-        bindMethod: 'hmac-sha256',
-        userId: ownerUserId,
-        embeddedInFile: true,
-      },
+    const layer15Data = {
+      biometricHash,
+      biometricType: 'face-embedding',
+      bindMethod: 'hmac-sha256',
+      userId: ownerUserId,
+      embeddedInFile: true,
+    };
+    // upsert — see the branch above for why (redelivery-safety).
+    await prisma.biometricBindLayer.upsert({
+      where: { dnaRecordId },
+      create: { dnaRecordId, ...layer15Data },
+      update: layer15Data,
     });
 
     logger.info('Layer 15 — Biometric bound to file', {

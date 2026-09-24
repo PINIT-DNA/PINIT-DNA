@@ -8,6 +8,7 @@
 
 import crypto   from 'crypto';
 import axios    from 'axios';
+import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
 import { logger }  from '../../lib/logger';
 import { assertRecordOwner } from '../../lib/tenant-scope';
@@ -19,7 +20,7 @@ import { VaultService } from '../vault/vault.service';
 import { isLocalShareHost, isProductionShareEnv, resolveShareViewerOrigin } from '../../lib/share-viewer-url';
 
 // ─── HMAC token signing (integrity layer — detects tampered/guessed tokens) ──
-const HMAC_SECRET = process.env['SHARE_HMAC_SECRET'] || 'pinit-dna-dev-secret-change-me';
+const HMAC_SECRET = config.share.hmacSecret;
 
 function signToken(token: string): string {
   return crypto.createHmac('sha256', HMAC_SECRET).update(token).digest('hex');

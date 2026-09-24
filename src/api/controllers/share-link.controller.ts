@@ -24,7 +24,7 @@ import { auditService }     from '../../services/audit/audit.service';
 import { resolveClientIp, buildShareUrl, dumpIpHeaders, resolvePublicBaseUrl } from '../../lib/request-utils';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
 import { getAuthUserId } from '../../lib/tenant-scope';
-import { isSupabaseStorageConfigured } from '../../lib/supabase-storage';
+import { isCloudStorageConfigured } from '../../lib/vault-storage-backend';
 import { AppError } from '../middleware/error.middleware';
 
 /**
@@ -736,10 +736,10 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
     }
 
     // Audit file delivery — client POST /access records the tracked VIEWED event with GPS
-    if (process.env['NODE_ENV'] === 'production' && !isSupabaseStorageConfigured()) {
+    if (process.env['NODE_ENV'] === 'production' && !isCloudStorageConfigured()) {
       throw new AppError(
         503,
-        'Vault storage is not configured on the server. Set SUPABASE_URL and SUPABASE_SERVICE_KEY in Render environment variables.',
+        'Vault storage is not configured on the server. Set SUPABASE_URL/SUPABASE_SERVICE_KEY (or S3_BUCKET, if STORAGE_BACKEND=s3) in the deployment environment.',
       );
     }
 

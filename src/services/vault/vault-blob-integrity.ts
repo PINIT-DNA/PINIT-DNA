@@ -3,15 +3,16 @@
  */
 import fs from 'fs/promises';
 import {
-  findVaultFileInSupabase,
-  isSupabaseStorageConfigured,
-} from '../../lib/supabase-storage';
+  findVaultFileInCloudStorage,
+  isCloudStorageConfigured,
+  activeStorageBackend,
+} from '../../lib/vault-storage-backend';
 import { vaultEncryptedLooksLikeLocalPath } from './vault-storage-path';
 
 export type VaultBlobCheck = {
   exists: boolean;
   actualSize: number | null;
-  source: 'supabase' | 'local';
+  source: 'supabase' | 's3' | 'local';
 };
 
 export async function checkVaultEncryptedBlob(params: {
@@ -32,25 +33,25 @@ export async function checkVaultEncryptedBlob(params: {
       const stat = await fs.stat(encryptedFilePath);
       return { exists: true, actualSize: stat.size, source: 'local' };
     } catch {
-      // The path claims local but nothing is there. Fall through to Supabase when
-      // it is available: a file uploaded to the cloud after a local write still
-      // counts as present, and reporting it missing would be the same false alarm
-      // in the other direction.
-      if (!isSupabaseStorageConfigured()) {
+      // The path claims local but nothing is there. Fall through to cloud storage
+      // when it is available: a file uploaded to the cloud after a local write
+      // still counts as present, and reporting it missing would be the same
+      // false alarm in the other direction.
+      if (!isCloudStorageConfigured()) {
         return { exists: false, actualSize: null, source: 'local' };
       }
     }
   }
 
-  if (isSupabaseStorageConfigured()) {
-    const found = await findVaultFileInSupabase(vaultId, {
+  if (isCloudStorageConfigured()) {
+    const found = await findVaultFileInCloudStorage(vaultId, {
       ownerUserId: ownerUserId ?? undefined,
       storedPath: encryptedFilePath,
     });
     return {
       exists: found.exists,
       actualSize: found.size,
-      source: 'supabase',
+      source: activeStorageBackend(),
     };
   }
 

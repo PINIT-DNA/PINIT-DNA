@@ -29,12 +29,14 @@ import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
 import { encrypt, decrypt } from './encryption.service';
 import { cachedRetrieve } from './investigation-retrieval-cache';
-import { uploadVaultFile, downloadVaultFile, deleteVaultFile, findVaultFileInSupabase, isSupabaseStorageConfigured, isSupabaseStorageRestricted } from '../../lib/supabase-storage';
+import { uploadVaultFile, downloadVaultFile, deleteVaultFile, findVaultFileInCloudStorage, isCloudStorageConfigured, isCloudStorageRestricted } from '../../lib/vault-storage-backend';
 import { vaultEncryptedLooksLikeLocalPath } from './vault-storage-path';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 import { documentPageProtectionService } from '../documents/document-page-protection.service';
 import { videoPageProtectionService } from '../videos/video-page-protection.service';
+import { config } from '../../config';
+import { getJobQueue } from '../../lib/job-queue';
 
 // Local disk in development by default. Supabase is often quota-limited locally;
 // set VAULT_USE_SUPABASE=true to force cloud storage in non-production.
@@ -274,7 +276,7 @@ export class VaultService {
       logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
       // Share links open on pinithub.com (production API). Local-only files
       // 404 there. Mirror to Supabase whenever credentials exist.
-      if (isSupabaseStorageConfigured()) {
+      if (isCloudStorageConfigured()) {
         try {
           const cloudPath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
           encryptedFilePath = cloudPath;
@@ -294,7 +296,7 @@ export class VaultService {
         encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
         logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
       } catch (uploadErr) {
-        if (process.env['NODE_ENV'] !== 'production' && isSupabaseStorageRestricted(uploadErr)) {
+        if (process.env['NODE_ENV'] !== 'production' && isCloudStorageRestricted(uploadErr)) {
           encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
           logger.warn('Vault — Supabase storage restricted; stored locally for this session', {
             vaultId,
@@ -388,22 +390,43 @@ export class VaultService {
     // Fire-and-forget so this multi-minute, multi-page job never blocks the
     // response (see note above). The raw PDF is already safely vaulted; this
     // swaps in the protected version once ready.
+    //
+    // config.jobs.useQueue (default false — unchanged in-process path):
+    // publishes a reference {vaultId, dnaRecordId, ownerUserId} instead of
+    // running inline. The queued consumer (src/worker.ts) fetches the bytes
+    // via VaultService.retrieve() rather than closing over `imageBuffer` —
+    // no file bytes are put on the queue, per the ECS readiness audit §6.
+    // Note this means the queued path re-protects the bytes already sitting
+    // in the vault (post identity-embedding) rather than the pre-embedding
+    // raw upload the in-process path uses — the only durable, by-reference
+    // source available without inventing a separate raw-bytes staging area.
     if (originalMimeType === 'application/pdf' || /\.pdf$/i.test(originalFileName)) {
-      void this.upgradePdfInBackground({
-        vaultId,
-        dnaRecordId,
-        ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
-        rawBuffer: imageBuffer,
-        originalFileName,
-        originalMimeType,
-        certificateId,
-      }).catch((err) => {
-        logger.warn('Vault — PDF background upgrade failed (raw PDF remains vaulted)', {
+      const pdfOwnerUserId = dnaRecord.ownerUserId ?? ownerUserId;
+      if (config.jobs.useQueue) {
+        void getJobQueue().publish('pdf_protect', {
+          vaultId, dnaRecordId, ownerUserId: pdfOwnerUserId, originalFileName, originalMimeType, certificateId,
+        }).catch((err) => {
+          logger.warn('Vault — PDF protection job publish failed (raw PDF remains vaulted)', {
+            vaultId, dnaRecordId, error: String(err),
+          });
+        });
+      } else {
+        void this.upgradePdfInBackground({
           vaultId,
           dnaRecordId,
-          error: String(err),
+          ownerUserId: pdfOwnerUserId,
+          rawBuffer: imageBuffer,
+          originalFileName,
+          originalMimeType,
+          certificateId,
+        }).catch((err) => {
+          logger.warn('Vault — PDF background upgrade failed (raw PDF remains vaulted)', {
+            vaultId,
+            dnaRecordId,
+            error: String(err),
+          });
         });
-      });
+      }
     }
 
     // ── Video: sample frames and pixel-protect each one in the background ──
@@ -411,19 +434,32 @@ export class VaultService {
     // only enrolls per-frame DnaRecords for later investigation. Same
     // fire-and-forget rationale: sampling + protecting every frame of even a
     // short video is a multi-minute job that must never block this response.
+    // Same config.jobs.useQueue branching and reference-not-bytes rationale
+    // as the PDF branch above.
     if (originalMimeType.startsWith('video/') || /\.(mp4|mov|avi|mkv|webm|mpeg|mpg)$/i.test(originalFileName)) {
-      void videoPageProtectionService.protectVideoFrames({
-        videoDnaRecordId: dnaRecordId,
-        buffer: imageBuffer,
-        originalName: originalFileName,
-        ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
-      }).catch((err) => {
-        logger.warn('Vault — video frame protection failed (video remains vaulted, unprotected per-frame)', {
-          vaultId,
-          dnaRecordId,
-          error: String(err),
+      const videoOwnerUserId = dnaRecord.ownerUserId ?? ownerUserId;
+      if (config.jobs.useQueue) {
+        void getJobQueue().publish('video_protect', {
+          videoDnaRecordId: dnaRecordId, vaultId, ownerUserId: videoOwnerUserId, originalName: originalFileName,
+        }).catch((err) => {
+          logger.warn('Vault — video protection job publish failed (video remains vaulted, unprotected per-frame)', {
+            vaultId, dnaRecordId, error: String(err),
+          });
         });
-      });
+      } else {
+        void videoPageProtectionService.protectVideoFrames({
+          videoDnaRecordId: dnaRecordId,
+          buffer: imageBuffer,
+          originalName: originalFileName,
+          ownerUserId: videoOwnerUserId,
+        }).catch((err) => {
+          logger.warn('Vault — video frame protection failed (video remains vaulted, unprotected per-frame)', {
+            vaultId,
+            dnaRecordId,
+            error: String(err),
+          });
+        });
+      }
     }
 
     try {
@@ -535,7 +571,13 @@ export class VaultService {
    * and updating the vault record in place. Runs after store() has already
    * returned, so a multi-minute multi-page job never blocks the response.
    */
-  private async upgradePdfInBackground(params: {
+  /**
+   * Not private: src/worker.ts calls this directly when handling a queued
+   * 'pdf_protect' job (config.jobs.useQueue), the same way it calls
+   * VaultService.retrieve() — both are real production entrypoints now, not
+   * just internal helpers of store().
+   */
+  async upgradePdfInBackground(params: {
     vaultId: string;
     dnaRecordId: string;
     ownerUserId: string;
@@ -656,7 +698,7 @@ export class VaultService {
       attempts.push(() => fs.readFile(storedPath));
     }
     attempts.push(() => readLocal(vaultId));
-    if (isSupabaseStorageConfigured()) {
+    if (isCloudStorageConfigured()) {
       attempts.push(() => downloadVaultFile(vaultId, ownerUserId, storedPath ? [storedPath] : []));
     }
 
@@ -752,7 +794,7 @@ export class VaultService {
       try {
         if (USE_LOCAL) {
           await fs.unlink(path.join(LOCAL_DIR, `${vaultId}.enc`)).catch(() => {});
-        } else if (isSupabaseStorageConfigured()) {
+        } else if (isCloudStorageConfigured()) {
           await deleteVaultFile(vaultId, {
             ownerUserId: storageOwner,
             storedPath: encryptedFilePath,
@@ -904,8 +946,8 @@ export class VaultService {
     assertRecordOwner(record.dnaRecord?.ownerUserId, ownerUserId, 'Vault');
     const owner = record.dnaRecord?.ownerUserId ?? ownerUserId;
 
-    if (isSupabaseStorageConfigured()) {
-      const found = await findVaultFileInSupabase(vaultId, {
+    if (isCloudStorageConfigured()) {
+      const found = await findVaultFileInCloudStorage(vaultId, {
         ownerUserId: owner,
         storedPath: record.encryptedFilePath,
       });
@@ -936,7 +978,7 @@ export class VaultService {
       }
     }
 
-    if (!buf || !isSupabaseStorageConfigured()) {
+    if (!buf || !isCloudStorageConfigured()) {
       throw new Error(
         'This protected file is not in cloud storage. Protect the file again, then create a new share link.',
       );
