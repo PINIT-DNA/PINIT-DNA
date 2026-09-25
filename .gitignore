@@ -81,3 +81,6 @@ scratch/
 # Separate repository — a Hugging Face Space with its own remote.
 # Committing it here would embed a pointer, not the code.
 pinit-ai-service/
+
+# Private project documents — kept locally, never published to GitHub.
+docs/
