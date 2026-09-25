@@ -84,3 +84,15 @@ pinit-ai-service/
 
 # Private project documents — kept locally, never published to GitHub.
 docs/
+
+# Local encrypted vault files and private business documents — kept on disk, never committed.
+/vault/
+/PINIT_DNA_Work_Report_Ashwitha.docx
+/Pinit-Exchange-Field-Report*.docx
+/Pinit-Marketing-Video-Playbook.docx
+/PINIT-DNA_SmartLinks_Audit_Report.pdf
+/exchange/PinIT_Exchange_Builder_Guide.docx
+/exchange/guide_text.txt
+/exchange/guide_formatted.txt
+/client/tmp-tw-out.css
+/client/BUSINESS_ACCOUNT_UX_SPEC.html
