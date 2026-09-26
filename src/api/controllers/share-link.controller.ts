@@ -20,6 +20,7 @@ import { getOrCreateRecipient } from '../../services/watermark/watermark.service
 import { VaultService }     from '../../services/vault/vault.service';
 import { logger }           from '../../lib/logger';
 import { prisma }           from '../../lib/prisma';
+import { correctImageMime, userContentHeaders } from '../../lib/user-content-headers';
 import { auditService }     from '../../services/audit/audit.service';
 import { resolveClientIp, buildShareUrl, dumpIpHeaders, resolvePublicBaseUrl } from '../../lib/request-utils';
 import { sanitizeCoordinatePair } from '../../lib/geo-coords';
@@ -809,6 +810,9 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       // Prevent browser from caching — ensures policy checks run every time
       'Pragma':              'no-cache',
       'Expires':             '0',
+      // Share recipients are strangers to the uploader: uploaded HTML/SVG/XML must not
+      // be able to run script from the API origin.
+      ...userContentHeaders(fullLink.mimeType),
     });
     // ── TEP v3.0 — Tracked Export Package (per-recipient forensic attribution) ─
     let fileBuffer = result.originalBuffer;
@@ -845,6 +849,8 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       logger.warn('[TEP] Generation failed — serving vault file without TEP', { error: (tepErr as Error).message });
     }
 
+    // Identity embedding may have re-encoded the image; label the bytes actually sent.
+    res.set('Content-Type', correctImageMime(fullLink.mimeType, fileBuffer));
     res.send(fileBuffer);
   } catch (err) { next(err); }
 }

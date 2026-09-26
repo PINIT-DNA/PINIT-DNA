@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import type { CommentKind, CommentStatus } from '@prisma/client';
 import { getAuthUserId } from '../../lib/tenant-scope';
+import { userContentHeaders } from '../../lib/user-content-headers';
 import { getOrganizationIdForUser } from '../../services/organization/org-access.service';
 import { clientService } from '../../services/organization/client.service';
 import { campaignService } from '../../services/organization/campaign.service';
@@ -531,6 +532,7 @@ export const businessController = {
         'Content-Disposition': `${download ? 'attachment' : 'inline'}; filename="${safeName}"`,
         'Cache-Control': 'private, no-store',
         'X-Version-Id': req.params.versionId as string,
+        ...userContentHeaders(file.mimeType),
       });
       res.status(200).send(file.buffer);
     } catch (err) { next(err); }

@@ -13,6 +13,7 @@ import { VaultService } from '../../services/vault/vault.service';
 import { AppError } from '../middleware/error.middleware';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { logger } from '../../lib/logger';
+import { correctImageMime, userContentHeaders } from '../../lib/user-content-headers';
 import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
 import { protectedDownloadService } from '../../services/vault/protected-download.service';
@@ -569,12 +570,17 @@ export async function previewVaultFile(
       }
     }
 
+    // The stored bytes may have been re-encoded by identity embedding; label what is sent.
+    contentType = correctImageMime(contentType, body);
+
     res.set({
       'Content-Type':        contentType,
       'Content-Length':      String(body.length),
       'Content-Disposition': `inline; filename="${result.originalFileName}"`,
       'X-Vault-Id':          result.vaultId,
       'Cache-Control':       'private, max-age=300',
+      // Uploaded HTML/SVG/XML must not be able to run script from the API origin.
+      ...userContentHeaders(contentType),
     });
 
     res.status(200).send(body);
