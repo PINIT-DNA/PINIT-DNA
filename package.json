@@ -79,7 +79,7 @@
     "pdf-parse": "^1.1.1",
     "qrcode": "^1.5.4",
     "razorpay": "^2.9.8",
-    "sharp": "^0.34.5",
+    "sharp": "^0.35.4",
     "tesseract.js": "^7.0.0",
     "uuid": "^10.0.0",
     "vectra": "^0.15.0",

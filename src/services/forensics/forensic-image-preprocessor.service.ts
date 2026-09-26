@@ -35,7 +35,7 @@ export class ForensicImagePreprocessor {
 
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      const sharp = require('sharp') as typeof import('sharp');
+      const sharp = require('sharp') as typeof import('sharp').default;
       const meta = await sharp(buffer).metadata();
       const w = meta.width ?? 0;
       const h = meta.height ?? 0;

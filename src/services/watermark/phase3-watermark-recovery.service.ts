@@ -184,7 +184,7 @@ export class Phase3WatermarkRecoveryService {
     if (mimeType.startsWith('image/')) {
       try {
         // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const sharp = require('sharp') as typeof import('sharp');
+        const sharp = require('sharp') as typeof import('sharp').default;
         const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
         const extracted = extractImageDctWatermark(data, info.width, info.height);
         if (extracted?.includes('PINIT-IDT')) return extracted;

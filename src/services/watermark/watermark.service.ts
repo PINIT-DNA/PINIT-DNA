@@ -231,7 +231,7 @@ async function watermarkImage(
     const { image, tail } = splitAttributionTails(fileBuffer);
     // Dynamic import of sharp — only available if installed
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sharp = require('sharp') as typeof import('sharp');
+    const sharp = require('sharp') as typeof import('sharp').default;
     const encoded = encodePayload(payload);
 
     // Embed watermark in EXIF/metadata using sharp
@@ -409,7 +409,7 @@ async function extractFromPdf(fileBuffer: Buffer): Promise<{ watermarkCode: stri
 async function extractFromImage(fileBuffer: Buffer): Promise<{ watermarkCode: string | null; payload: object | null; method: string }> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sharp = require('sharp') as typeof import('sharp');
+    const sharp = require('sharp') as typeof import('sharp').default;
     const metadata = await sharp(fileBuffer).metadata();
     const exif = (metadata as any).exif;
     if (exif) {

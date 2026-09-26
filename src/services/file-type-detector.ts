@@ -17,6 +17,7 @@
 
 import path from 'path';
 import { fromBuffer } from 'file-type';
+import { looksLikeAsf } from '../lib/asf-guard';
 import { logger } from '../lib/logger';
 import {
   SupportedFileTypeConfig,
@@ -112,6 +113,10 @@ export class FileTypeDetector {
     declaredMime: string
   ): Promise<DetectionResult | null> {
     let detectedMime: string | undefined;
+
+    // file-type's ASF parser can loop forever on a crafted file (npm audit, moderate).
+    // ASF/WMV/WMA never reaches it; the MIME and extension layers below classify it.
+    if (looksLikeAsf(buffer)) return null;
 
     try {
       const ftResult = await fromBuffer(buffer);
