@@ -17,7 +17,7 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 
 from config import SERVICE_NAME, SERVICE_VERSION, EMBEDDING_MODEL, EMBEDDING_DIMENSION
@@ -122,6 +122,10 @@ class SearchRequest(BaseModel):
     query:     str
     topK:      Optional[int]   = 10
     threshold: Optional[float] = 0.50   # Phase 5: default 50% minimum
+    # Owner scoping. When provided, ONLY these dnaRecordIds can be returned, and the
+    # filter is applied inside the search (over the whole index) rather than after a
+    # global top-K — so other tenants' documents can never crowd out the caller's.
+    allowedIds: Optional[List[str]] = None
 
 class HybridSearchRequest(BaseModel):
     query:          str
@@ -129,6 +133,7 @@ class HybridSearchRequest(BaseModel):
     threshold:      Optional[float] = 0.50
     keywordWeight:  Optional[float] = 0.40  # Phase 4
     semanticWeight: Optional[float] = 0.60  # Phase 4
+    allowedIds:     Optional[List[str]] = None  # see SearchRequest.allowedIds
 
 class DuplicateRequest(BaseModel):
     text:      str
@@ -169,6 +174,9 @@ def health():
         "model":     EMBEDDING_MODEL,
         "dimension": DIMENSION,
         "indexed":   index.ntotal,
+        # Unique live documents — what a re-index should compare against, since
+        # `indexed` also counts every superseded vector left behind by re-indexing.
+        "liveDocuments": _live_document_count(),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         # Enterprise extensions (additive — existing clients ignore unknown keys)
         "pythonVersion": diag.get("pythonVersion"),
@@ -238,14 +246,30 @@ def index_document(req: IndexRequest):
 
 # ── Phase 1: Semantic Search with confidence threshold ────────────────────────
 
+def _allowed_set(ids: Optional[List[str]]) -> Optional[set]:
+    """None = unscoped (legacy callers). A list, even an empty one, scopes the search."""
+    return None if ids is None else set(ids)
+
+
+def _live_document_count() -> int:
+    """Unique, non-deleted documents. index.ntotal also counts superseded vectors."""
+    return len({m["dnaRecordId"] for m in metadata if not m.get("_deleted")})
+
+
 @app.post("/search")
 def semantic_search(req: SearchRequest):
     if not req.query.strip(): raise HTTPException(400, "query must not be empty")
     if index.ntotal == 0: return { "results": [], "query": req.query, "totalIndexed": 0, "count": 0 }
 
+    allowed = _allowed_set(req.allowedIds)
+    if allowed is not None and not allowed:
+        return { "results": [], "query": req.query, "totalIndexed": index.ntotal, "count": 0 }
+
     start = time.time()
     vec   = encode_one(req.query)
-    k     = min(req.topK * 4, index.ntotal)
+    # IndexFlatL2 scans every vector anyway, so when scoped to an owner search the
+    # whole index and filter — a fixed top-K over all tenants would drop their hits.
+    k     = index.ntotal if allowed is not None else min(req.topK * 4, index.ntotal)
     D, I  = index.search(np.array([vec], dtype=np.float32), k)
 
     results, seen = [], set()
@@ -254,6 +278,7 @@ def semantic_search(req: SearchRequest):
         meta = metadata[idx_pos]
         if meta.get("_deleted"): continue
         rid = meta["dnaRecordId"]
+        if allowed is not None and rid not in allowed: continue
         if rid in seen: continue
         seen.add(rid)
 
@@ -295,11 +320,15 @@ def hybrid_search(req: HybridSearchRequest):
     if not req.query.strip(): raise HTTPException(400, "query must not be empty")
     if index.ntotal == 0: return { "results": [], "query": req.query, "totalIndexed": 0, "count": 0 }
 
+    allowed = _allowed_set(req.allowedIds)
+    if allowed is not None and not allowed:
+        return { "results": [], "query": req.query, "totalIndexed": index.ntotal, "count": 0 }
+
     start = time.time()
 
     # Step 1: Get semantic results (lower threshold to get more candidates)
     vec  = encode_one(req.query)
-    k    = min(req.topK * 6, index.ntotal)
+    k    = index.ntotal if allowed is not None else min(req.topK * 6, index.ntotal)
     D, I = index.search(np.array([vec], dtype=np.float32), k)
 
     results, seen = [], set()
@@ -308,6 +337,7 @@ def hybrid_search(req: HybridSearchRequest):
         meta = metadata[idx_pos]
         if meta.get("_deleted"): continue
         rid = meta["dnaRecordId"]
+        if allowed is not None and rid not in allowed: continue
         if rid in seen: continue
         seen.add(rid)
 
@@ -815,6 +845,11 @@ def debug_index():
         "filenameOnly":  sum(1 for r in result if not r["hasRealContent"]),
         "documents":     sorted(result, key=lambda x: x["textLength"], reverse=True),
     }
+
+@app.get("/index/ids")
+def live_index_ids():
+    """Ids of every live (non-deleted) document — lets the backend re-index only what is missing."""
+    return { "ids": sorted({m["dnaRecordId"] for m in metadata if not m.get("_deleted")}) }
 
 @app.delete("/index/{dna_record_id}")
 def remove_from_index(dna_record_id: str):

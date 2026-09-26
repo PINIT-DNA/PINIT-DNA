@@ -130,26 +130,32 @@ export class DocumentLineageService {
   /**
    * Get the full lineage graph for a specific DNA record.
    */
-  async getLineage(dnaRecordId: string): Promise<LineageGraph> {
+  async getLineage(dnaRecordId: string, ownerUserId?: string): Promise<LineageGraph> {
     try {
       const [outgoing, incoming] = await Promise.all([
         prisma.documentLineage.findMany({
           where:   { fromDnaRecordId: dnaRecordId },
           include: {
-            fromDnaRecord: { select: { id: true, imageFilename: true, fileType: true, createdAt: true } },
-            toDnaRecord:   { select: { id: true, imageFilename: true, fileType: true, createdAt: true } },
+            fromDnaRecord: { select: { id: true, imageFilename: true, fileType: true, createdAt: true, ownerUserId: true } },
+            toDnaRecord:   { select: { id: true, imageFilename: true, fileType: true, createdAt: true, ownerUserId: true } },
           },
         }),
         prisma.documentLineage.findMany({
           where:   { toDnaRecordId: dnaRecordId },
           include: {
-            fromDnaRecord: { select: { id: true, imageFilename: true, fileType: true, createdAt: true } },
-            toDnaRecord:   { select: { id: true, imageFilename: true, fileType: true, createdAt: true } },
+            fromDnaRecord: { select: { id: true, imageFilename: true, fileType: true, createdAt: true, ownerUserId: true } },
+            toDnaRecord:   { select: { id: true, imageFilename: true, fileType: true, createdAt: true, ownerUserId: true } },
           },
         }),
       ]);
 
-      const allEdges   = [...outgoing, ...incoming];
+      // When an owner is given, drop every edge that touches a record owned by
+      // someone else — otherwise a duplicate recorded from another account
+      // would expose that account's filename and ID to this user.
+      const allEdges = [...outgoing, ...incoming].filter((e) =>
+        !ownerUserId ||
+        (e.fromDnaRecord.ownerUserId === ownerUserId && e.toDnaRecord.ownerUserId === ownerUserId),
+      );
       const nodeMap    = new Map<string, LineageNode>();
       const edges: LineageEdge[] = [];
 
@@ -207,8 +213,8 @@ export class DocumentLineageService {
           toDnaRecordId: { in: ownedIds },
         },
         include: {
-          fromDnaRecord: { select: { id: true, imageFilename: true, fileType: true, createdAt: true } },
-          toDnaRecord:   { select: { id: true, imageFilename: true, fileType: true, createdAt: true } },
+          fromDnaRecord: { select: { id: true, imageFilename: true, fileType: true, createdAt: true, ownerUserId: true } },
+          toDnaRecord:   { select: { id: true, imageFilename: true, fileType: true, createdAt: true, ownerUserId: true } },
         },
       });
 

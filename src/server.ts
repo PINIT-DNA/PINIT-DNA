@@ -103,56 +103,13 @@ async function onServerReady(): Promise<void> {
     }
   }, 3000);
 
-  setTimeout(async () => {
-    // Dev auto-reindex of every DNA row floods AI + DB — only run in production unless forced.
-    if (process.env['NODE_ENV'] !== 'production' && process.env['AI_AUTO_REINDEX'] !== 'true') {
-      logger.info('Skipping startup AI reindex in development (set AI_AUTO_REINDEX=true to force)');
-      return;
-    }
-    try {
-      const { prisma: db } = await import('./lib/prisma');
-      const { aiService } = await import('./services/ai/ai-embeddings.service');
-
-      const online = await aiService.isOnline();
-      if (!online) return;
-
-      const records = await db.dnaRecord.findMany({
-        select: {
-          id: true,
-          imageFilename: true,
-          fileType: true,
-          ocrRecord: { select: { extractedText: true } },
-        },
-        take: 200,
-      });
-
-      let indexed = 0;
-      const BATCH = 5;
-      for (let i = 0; i < records.length; i += BATCH) {
-        await Promise.all(records.slice(i, i + BATCH).map(async (r) => {
-          try {
-            const ocrText = r.ocrRecord?.extractedText;
-            const text = ocrText && ocrText.length > 50
-              ? `${r.imageFilename} ${ocrText}`
-              : r.imageFilename.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ').trim();
-
-            await aiService.indexDocument({
-              dnaRecordId: r.id,
-              filename: r.imageFilename,
-              fileType: r.fileType ?? 'IMAGE',
-              text,
-            });
-            indexed++;
-          } catch {
-            /* non-fatal */
-          }
-        }));
-      }
-      logger.info(`Auto-reindex complete: ${indexed}/${records.length} documents indexed silently`);
-    } catch (err) {
-      logger.debug('Auto-reindex failed (non-fatal)', { error: String(err) });
-    }
-  }, 20_000);
+  // Keep the AI search index in step with the database (the AI service's disk is
+  // ephemeral and it restarts independently of this process). Dev skips it unless forced.
+  if (process.env['NODE_ENV'] !== 'production' && process.env['AI_AUTO_REINDEX'] !== 'true') {
+    logger.info('Skipping AI index sync in development (set AI_AUTO_REINDEX=true to force)');
+  } else {
+    void import('./services/ai/ai-index-sync.service').then(({ startAiIndexSync }) => startAiIndexSync());
+  }
 
   if (process.env['NODE_ENV'] === 'production' && process.env['RENDER_EXTERNAL_URL']) {
     const keepAliveUrl = `${process.env['RENDER_EXTERNAL_URL']}/api/v1/health`;

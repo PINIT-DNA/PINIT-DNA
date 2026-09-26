@@ -19,7 +19,6 @@ export async function tikaHealth(_req: Request, res: Response, next: NextFunctio
     res.status(available ? 200 : 503).json({
       success:   available,
       available,
-      url:       process.env['TIKA_URL'] ?? 'http://localhost:9998',
       message:   available ? 'Apache Tika is running' : 'Apache Tika is not available',
     });
   } catch (err) { next(err); }
@@ -38,6 +37,9 @@ export async function extractTikaMetadata(req: Request, res: Response, next: Nex
     const userId = getAuthUserId(req);
     const retrieved = await vaultService.retrieve(record.vaultRecord.id, userId);
     const result    = await tikaService.extract(retrieved.originalBuffer, record.imageMimeType);
+    if (!result.available) {
+      return next(new AppError(503, 'Apache Tika is not available right now — metadata extraction is disabled. Try again shortly.'));
+    }
     const normalized = tikaService.normalize(result.metadata);
 
     res.status(200).json({

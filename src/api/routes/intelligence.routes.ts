@@ -14,7 +14,6 @@ import {
   exportAuditCsv,
   getIntelligenceReport,
 } from '../controllers/document-intelligence.controller';
-import { debugIndexed }          from '../controllers/debug-index.controller';
 import { tikaHealth, extractTikaMetadata } from '../controllers/tika.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireDnaOwnership, requireVaultOwnership } from '../middleware/ownership.middleware';
@@ -47,9 +46,6 @@ router.get('/report/:vaultId', requireAuth, requireVaultOwnership, getIntelligen
 
 /** GET  /intelligence/stats           — Intelligence statistics */
 router.get('/stats', requireAuth, getIntelligenceStats);
-
-/** GET  /intelligence/debug/indexed   — Show exactly what text is in FAISS */
-router.get('/debug/indexed', requireAuth, debugIndexed);
 
 /** GET  /intelligence/tika/health     — Apache Tika status */
 router.get('/tika/health', tikaHealth);   // public health check
