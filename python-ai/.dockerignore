@@ -1,0 +1,21 @@
+# Keep the AI-service image small and free of local-only state.
+# Build with `docker build python-ai` (context = python-ai/).
+
+# Local virtualenv (multi-GB) — dependencies are installed from requirements.txt
+.venv
+venv
+
+# Python caches
+__pycache__
+*.pyc
+.pytest_cache
+
+# Local FAISS indexes and metadata. Never bake a developer's index into an
+# image; the Dockerfile creates an empty ./data and the backend re-indexes
+# missing documents itself.
+data
+
+# Not needed at runtime
+tests
+setup-venv.bat
+start.bat
