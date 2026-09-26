@@ -34,6 +34,7 @@
     "build:start": "npm run build:all && npm run start:prod",
     "test": "jest --coverage",
     "test:watch": "jest --watch",
+    "typecheck:tests": "tsc --noEmit -p tests/tsconfig.json",
     "lint": "eslint src --ext .ts",
     "lint:fix": "eslint src --ext .ts --fix",
     "db:generate": "prisma generate",
