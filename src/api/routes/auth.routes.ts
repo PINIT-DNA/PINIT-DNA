@@ -21,7 +21,16 @@ const biometricLimiter = rateLimit({
   message: { success: false, message: 'Too many authentication attempts. Please try again later.' },
 });
 
-authRouter.post('/create',  authController.createAccount);
+/** Account creation: the global limiter alone let one IP mass-create accounts. */
+const createAccountLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: process.env['NODE_ENV'] === 'production' ? 20 : 500,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, message: 'Too many accounts created from this network. Please try again later.' },
+});
+
+authRouter.post('/create',  createAccountLimiter, authController.createAccount);
 authRouter.post('/login',   authController.login);
 authRouter.post('/refresh', authController.refresh);
 authRouter.post('/logout',  authController.logout);

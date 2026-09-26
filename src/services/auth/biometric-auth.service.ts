@@ -36,6 +36,7 @@ import {
   type FusionResult,
 } from './biometric-matching.service';
 import { logSecurityEvent, logLoginHistory } from './biometric-audit.service';
+import { loginThrottle } from './login-throttle.service';
 import { toRootPinitId } from '../../lib/pinit-identity';
 import {
   consumePadEvidence,
@@ -912,7 +913,45 @@ export const biometricAuthService = {
     return { ok: true, ...session };
   },
 
+  /**
+   * Sign in with a face against a claimed account. Wraps the verification in a
+   * failed-attempt throttle (see login-throttle.service.ts): repeated failures for
+   * the same claimed ID lock further attempts for a while, so the client-supplied
+   * face vector cannot be guessed or iterated indefinitely.
+   */
   async login(input: BiometricLoginInput): Promise<
+    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult }
+    | { ok: false; matched: false; message: string }
+  > {
+    const claim = (input.claimedShortId || input.claimedUserId || '').trim();
+    const clientIp = input.ip || 'unknown';
+
+    if (claim) {
+      const state = loginThrottle.check(claim, clientIp);
+      if (state.locked) {
+        await logSecurityEvent('FACE_LOGIN_FAILED', {
+          ip: input.ip, userAgent: input.userAgent, success: false,
+          detail: { reason: 'throttled', retryAfterSeconds: Math.ceil(state.retryAfterMs / 1000) },
+        });
+        // Same wording family as every other denial; no distance, no account hint.
+        return {
+          ok: false as const,
+          matched: false as const,
+          message: 'Too many unsuccessful attempts. Please wait a few minutes before trying again.',
+        };
+      }
+    }
+
+    const result = await biometricAuthService.loginUnthrottled(input);
+
+    if (claim) {
+      if (result.ok) loginThrottle.recordSuccess(claim, clientIp);
+      else loginThrottle.recordFailure(claim, clientIp);
+    }
+    return result;
+  },
+
+  async loginUnthrottled(input: BiometricLoginInput): Promise<
     | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult }
     | { ok: false; matched: false; message: string }
   > {
