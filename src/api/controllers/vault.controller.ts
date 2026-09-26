@@ -262,7 +262,7 @@ export async function storeInVault(
     }
 
     // Fire-and-forget: OCR + auto-index in FAISS after vault store
-    autoIndexer.indexAfterVaultStore({
+    void autoIndexer.indexAfterVaultStore({
       dnaRecordId: result.dnaRecordId,
       vaultId:     result.vaultId,
       filename:    result.originalFileName,
@@ -628,7 +628,7 @@ export async function retrieveFromVault(
       'X-PINIT-Identity-Embedded': String(embedded.identityEmbedded),
     });
 
-    auditService.log({
+    void auditService.log({
       eventType: 'VAULT_RETRIEVED', vaultId: id,
       dnaRecordId: result.dnaRecordId,
       filename: result.originalFileName, fileType: result.originalMimeType,
@@ -668,7 +668,7 @@ export async function prepareProtectedDownload(
     const userId = getAuthUserId(req);
     const result = await protectedDownloadService.prepare(id, userId);
 
-    auditService.log({
+    void auditService.log({
       eventType: 'PROTECTED_DOWNLOAD_PREPARED' as never,
       vaultId: id,
       dnaRecordId: result.dnaRecordId,
@@ -849,7 +849,7 @@ export async function protectedDownloadFromVault(
       ...(tepTrackingFailed ? { 'X-PINIT-TEP-Tracking': 'partial' } : { 'X-PINIT-TEP-Tracking': tepCode ? 'full' : 'off' }),
     });
 
-    auditService.log({
+    void auditService.log({
       eventType: 'PROTECTED_DOWNLOAD' as never,
       vaultId: id,
       dnaRecordId: result.dnaRecordId,

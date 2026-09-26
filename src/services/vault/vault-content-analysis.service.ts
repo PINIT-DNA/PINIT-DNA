@@ -191,7 +191,7 @@ async function runMetadataEngine(
 ): Promise<MetaResult> {
   const evidence: AuthenticityEvidence[] = [];
   let software: string | null = null;
-  let camera: string | null = null;
+  const camera: string | null = null;
   let missing = false;
   let aiSoftwareHint = false;
   let editSoftwareHint = false;
@@ -453,7 +453,7 @@ function fuseVerdict(input: {
     : 0;
   if (aiGeneratedPercent >= 50) editedPercent = clampPct(editedPercent * 0.35);
 
-  let tamperedPercent = (input.doubleJpegHint && elaElevated) || (input.elaMean != null && input.elaMean > 0.18)
+  const tamperedPercent = (input.doubleJpegHint && elaElevated) || (input.elaMean != null && input.elaMean > 0.18)
     ? clampPct(Math.max(tamperScore * 0.4, 15))
     : 0;
   const recompressedPercent = input.doubleJpegHint && elaElevated ? 25 : 0;
@@ -1252,7 +1252,7 @@ export const vaultContentAnalysisService = {
       contentAnalyzedAt: true,
       dnaRecord: { select: { fileAnalysis: true, fileAnalysisLabel: true } },
     } as const;
-    let row = await prisma.vaultRecord.findUnique({
+    const row = await prisma.vaultRecord.findUnique({
       where: { id: vaultId },
       select: selectFull,
     }).catch(() => prisma.vaultRecord.findUnique({

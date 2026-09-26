@@ -1021,7 +1021,7 @@ export async function getMaskedText(req: Request, res: Response, next: NextFunct
     }
 
     if (isUnmasked) {
-      auditService.log({ eventType: 'UNMASK_VIEWED', filename: fullLink.filename, req });
+      void auditService.log({ eventType: 'UNMASK_VIEWED', filename: fullLink.filename, req });
     }
 
     res.json({ success: true, text: displayText, isUnmasked, filename: fullLink.filename, mimeType: mime });
@@ -1065,7 +1065,7 @@ export async function requestUnmask(req: Request, res: Response, next: NextFunct
       },
     });
 
-    auditService.log({ eventType: 'UNMASK_REQUESTED', filename: fullLink.filename, req,
+    void auditService.log({ eventType: 'UNMASK_REQUESTED', filename: fullLink.filename, req,
       detail: { shareToken: token, sessionId, recipientName } });
 
     res.status(201).json({ success: true, requestId: unmaskReq.id, status: 'PENDING' });
@@ -1142,7 +1142,7 @@ export async function reviewUnmaskRequest(req: Request, res: Response, next: Nex
       include: { shareLink: { select: { filename: true } } },
     });
 
-    auditService.log({
+    void auditService.log({
       eventType: action === 'approve' ? 'UNMASK_APPROVED' : 'UNMASK_REJECTED',
       filename: updated.shareLink.filename,
       req,
@@ -1192,7 +1192,7 @@ export async function postShareViewerMessage(req: Request, res: Response, next: 
       },
     });
 
-    auditService.log({
+    void auditService.log({
       eventType: 'SHARE_VIEWER_MESSAGE',
       filename: fullLink.filename,
       req,
@@ -1250,7 +1250,7 @@ export async function replyShareViewerMessage(req: Request, res: Response, next:
       },
     });
 
-    auditService.log({
+    void auditService.log({
       eventType: 'SHARE_VIEWER_MESSAGE_REPLY',
       filename: existing.shareLink.filename,
       req,

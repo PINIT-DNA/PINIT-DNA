@@ -114,7 +114,7 @@ async function onServerReady(): Promise<void> {
   if (process.env['NODE_ENV'] === 'production' && process.env['RENDER_EXTERNAL_URL']) {
     const keepAliveUrl = `${process.env['RENDER_EXTERNAL_URL']}/api/v1/health`;
     setInterval(() => {
-      import('https').then(({ default: https }) =>
+      void import('https').then(({ default: https }) =>
         https.get(keepAliveUrl, () => {}).on('error', () => {}),
       );
     }, 14 * 60 * 1000);

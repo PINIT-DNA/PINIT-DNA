@@ -305,7 +305,15 @@ describe('enterprise-investigation-pipeline (Milestone G)', () => {
   );
 
   it('ENTERPRISE_PIPELINE_V2 defaults OFF', () => {
-    expect(isEnterprisePipelineV2Enabled()).toBe(false);
+    // The default is what matters here, not whatever a developer's local .env sets
+    // (a local .env with ENTERPRISE_PIPELINE_V2=true used to make this fail).
+    const saved = process.env['ENTERPRISE_PIPELINE_V2'];
+    delete process.env['ENTERPRISE_PIPELINE_V2'];
+    try {
+      expect(isEnterprisePipelineV2Enabled()).toBe(false);
+    } finally {
+      if (saved !== undefined) process.env['ENTERPRISE_PIPELINE_V2'] = saved;
+    }
   });
 
   it('executes each stage once and builds unified report', async () => {

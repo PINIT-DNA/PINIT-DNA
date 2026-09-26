@@ -1437,7 +1437,7 @@ export class ShareLinkService {
     // see a viewer's precise location or network identity.
     if (link.assetId && (input.action === 'VIEWED' || input.action === 'DOWNLOADED')) {
       import('../assets/asset-activity.service').then(({ recordAssetActivity }) => {
-        recordAssetActivity({
+        void recordAssetActivity({
           assetId: link.assetId,
           eventType: input.action === 'VIEWED' ? 'SHARE_VIEWED' : 'SHARE_DOWNLOADED',
           title: input.action === 'VIEWED' ? 'Shared link viewed' : 'Shared file downloaded',

@@ -164,7 +164,7 @@ export function hline(ctx: DrawCtx, y: number, color: RGB = C.lightGray) {
 }
 
 export function sectionHeader(ctx: DrawCtx, title: string, icon?: string): DrawCtx {
-  let c = needsPage(ctx, 36);
+  const c = needsPage(ctx, 36);
   c.y -= 14;
   rect(c, MARGIN, c.y - 2, CONTENT_W, 22, C.navy);
   const label = winAnsi(icon ? `${icon}  ${title}` : title);
@@ -288,7 +288,7 @@ export function drawFooters(ctx: DrawCtx, reportId: string) {
 // ── Table helper ──────────────────────────────────────────────────────────────
 
 export function tableRow(ctx: DrawCtx, cols: { text: string; width: number; color?: RGB; mono?: boolean }[], rowColor?: RGB): DrawCtx {
-  let c = needsPage(ctx, 18);
+  const c = needsPage(ctx, 18);
   const rowH = 16;
   let x = MARGIN;
 
@@ -305,7 +305,7 @@ export function tableRow(ctx: DrawCtx, cols: { text: string; width: number; colo
 }
 
 export function tableHeader(ctx: DrawCtx, cols: { label: string; width: number }[]): DrawCtx {
-  let c = needsPage(ctx, 20);
+  const c = needsPage(ctx, 20);
   rect(c, MARGIN, c.y - 14, CONTENT_W, 18, C.navyLight);
   let x = MARGIN;
   for (const col of cols) {
@@ -511,7 +511,7 @@ async function drawShareLinkPolicy(ctx: DrawCtx, shareLink: any): Promise<DrawCt
 // ── Integrity block ───────────────────────────────────────────────────────────
 
 export function drawIntegrityBlock(ctx: DrawCtx, reportId: string, hash: string): DrawCtx {
-  let c = needsPage(ctx, 100);
+  const c = needsPage(ctx, 100);
   c.y -= 16;
 
   rect(c, MARGIN, c.y - 72, CONTENT_W, 78, C.navy);

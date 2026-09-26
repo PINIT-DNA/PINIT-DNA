@@ -310,7 +310,7 @@ export async function generateDna(
     })();
 
     // Fire-and-forget: auto-index in FAISS for semantic search
-    autoIndexer.indexAfterDnaGeneration({
+    void autoIndexer.indexAfterDnaGeneration({
       dnaRecordId: result.dnaRecordId,
       filename:    req.file?.originalname ?? '',
       mimeType:    req.file?.mimetype ?? '',
@@ -323,7 +323,7 @@ export async function generateDna(
       .catch((err: unknown) => logger.warn('[Monitor] Auto-start failed', { error: String(err) }));
 
     // Fire-and-forget audit log
-    auditService.log({
+    void auditService.log({
       eventType: 'DNA_GENERATED', dnaRecordId: result.dnaRecordId,
       filename: req.file?.originalname, fileType: result.fileType,
       detail: { status: result.status, layers: result.layerSummary }, req,

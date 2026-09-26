@@ -63,7 +63,7 @@ export class ContentExtractorService {
     await this.upsertOcr(dnaRecordId, 'PROCESSING', '', 0, 0);
 
     try {
-      let profile = this.emptyProfile(dnaRecordId, filename, fileType, mimeType);
+      const profile = this.emptyProfile(dnaRecordId, filename, fileType, mimeType);
 
       // ── Try Tika first (metadata-rich) ─────────────────────────────────────
       if (record.vaultRecord && await tikaService.isAvailable()) {
