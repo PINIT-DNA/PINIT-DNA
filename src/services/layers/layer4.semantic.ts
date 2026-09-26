@@ -40,6 +40,7 @@
 import sharp from 'sharp';
 import { ImageInput, SemanticLayerResult, DominantColor } from '../../types/dna.types';
 import { logger } from '../../lib/logger';
+import { computeSemanticCore } from './layer4.core';
 
 // Number of bins as specified in the PDF ("8 groups")
 const SPEC_BINS = 8;
@@ -67,37 +68,18 @@ export class SemanticLayer {
 
       const totalPixels = info.width * info.height;
 
-      // ── Step 2: Build 256-bin RGB histograms ──────────────────────────────
-      const histR = new Array<number>(FULL_BINS).fill(0);
-      const histG = new Array<number>(FULL_BINS).fill(0);
-      const histB = new Array<number>(FULL_BINS).fill(0);
-
-      // ── Step 3: Build HSV histograms + dominant colour tracking ───────────
-      const histH = new Array<number>(360).fill(0);
-      const histS = new Array<number>(100).fill(0);
-
-      // Quantized colour map for dominant colour extraction (4 bits per channel)
-      const colorMap = new Map<number, number>();
-
-      for (let i = 0; i < raw.length; i += 3) {
-        const r = raw[i];
-        const g = raw[i + 1];
-        const b = raw[i + 2];
-
-        histR[r]++;
-        histG[g]++;
-        histB[b]++;
-
-        // RGB → HSV conversion
-        const { h, s } = this.rgbToHsv(r, g, b);
-        histH[Math.floor(h)]++;
-        histS[Math.min(99, Math.floor(s))]++;
-
-        // Quantize to 4-bit colour (16 levels per channel) for dominant colours
-        const quantKey =
-          ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4);
-        colorMap.set(quantKey, (colorMap.get(quantKey) ?? 0) + 1);
-      }
+      // ── Steps 2-3: RGB + HSV histograms and the quantised colour map ───────
+      // The per-pixel loop lives in layer4.core.ts and runs in a worker thread for
+      // large images, so it no longer blocks the event loop (every other request used
+      // to stall for over a second on a big photo). Same code, so the fingerprint is
+      // byte-identical.
+      const core = await computeSemanticCore(raw, totalPixels);
+      const histR = core.histR;
+      const histG = core.histG;
+      const histB = core.histB;
+      const histH = core.histH;
+      const histS = core.histS;
+      const colorMap = new Map<number, number>(core.colorEntries);
 
       // ── Step 4: Compress to 8-bin histograms (per spec) ───────────────────
       // Each bin sums 32 consecutive full-resolution bins
@@ -294,34 +276,5 @@ export class SemanticLayer {
       });
   }
 
-  /**
-   * Convert RGB (0–255 each) to HSV.
-   * Returns h in 0–359, s in 0–99, v in 0–99.
-   */
-  private rgbToHsv(r: number, g: number, b: number): { h: number; s: number; v: number } {
-    const rN = r / 255;
-    const gN = g / 255;
-    const bN = b / 255;
-
-    const max = Math.max(rN, gN, bN);
-    const min = Math.min(rN, gN, bN);
-    const delta = max - min;
-
-    let h = 0;
-    if (delta > 0) {
-      if (max === rN) h = 60 * (((gN - bN) / delta) % 6);
-      else if (max === gN) h = 60 * ((bN - rN) / delta + 2);
-      else h = 60 * ((rN - gN) / delta + 4);
-      if (h < 0) h += 360;
-    }
-
-    const s = max === 0 ? 0 : delta / max;
-    const v = max;
-
-    return {
-      h: Math.floor(h) % 360,
-      s: Math.floor(s * 99),
-      v: Math.floor(v * 99),
-    };
-  }
+  // RGB -> HSV lives with the per-pixel loop in ./layer4.core.ts (it runs off the main thread).
 }

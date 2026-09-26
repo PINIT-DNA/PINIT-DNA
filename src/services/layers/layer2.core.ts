@@ -9,9 +9,7 @@
  * own source text. Same code, same arithmetic order => byte-identical output —
  * the stored DNA fingerprints must not change.
  */
-import os from 'os';
-import { Worker } from 'worker_threads';
-import { logger } from '../../lib/logger';
+import { runPixelJob } from '../../lib/pixel-worker';
 
 export interface StructuralCoreResult {
   /** 3-channel (R=G=B) normalised gradient magnitude, width*height*3 bytes. */
@@ -129,60 +127,20 @@ export function structuralCore(rawRgb: Uint8Array, width: number, height: number
 
 /** Below this many pixels the ~30 ms worker start-up costs more than it saves. */
 const WORKER_MIN_PIXELS = parseInt(process.env['LAYER2_WORKER_MIN_PIXELS'] ?? '1000000', 10);
-const WORKERS_ENABLED = (process.env['LAYER2_WORKER'] ?? 'true').toLowerCase() !== 'false';
-const MAX_CONCURRENT_WORKERS = Math.max(1, Math.min(4, os.cpus().length - 1));
-
-let active = 0;
-const waiting: Array<() => void> = [];
-
-async function acquireSlot(): Promise<void> {
-  if (active < MAX_CONCURRENT_WORKERS) { active++; return; }
-  await new Promise<void>((resolve) => waiting.push(resolve));
-  active++;
-}
-
-function releaseSlot(): void {
-  active--;
-  const next = waiting.shift();
-  if (next) next();
-}
-
-function runInWorker(rawRgb: Uint8Array, width: number, height: number): Promise<StructuralCoreResult> {
-  const source = `
-    const { parentPort, workerData } = require('worker_threads');
-    const core = ${structuralCore.toString()};
-    const r = core(workerData.rawRgb, workerData.width, workerData.height);
-    parentPort.postMessage(r, [r.normalisedRgb.buffer]);
-  `;
-  return new Promise<StructuralCoreResult>((resolve, reject) => {
-    // workerData is structured-cloned: the caller keeps its own pixel buffer.
-    const worker = new Worker(source, { eval: true, workerData: { rawRgb, width, height } });
-    worker.once('message', (r: StructuralCoreResult) => resolve(r));
-    worker.once('error', reject);
-    worker.once('exit', (code) => { if (code !== 0) reject(new Error(`Layer 2 worker exited with code ${code}`)); });
-  });
-}
+const LAYER2_WORKER_ENABLED = (process.env['LAYER2_WORKER'] ?? 'true').toLowerCase() !== 'false';
 
 /**
- * Run the Layer 2 pixel math. Large images go to a worker thread so the event
- * loop stays free; small images, a disabled flag, or any worker failure run it
- * inline (same function, same result).
+ * Run the Layer 2 pixel math. Large images go to a worker thread so the event loop stays
+ * free; small images, LAYER2_WORKER=false, or any worker failure run it inline (same
+ * function, same result). The worker plumbing is shared: see lib/pixel-worker.ts.
  */
 export async function computeStructuralCore(
   rawRgb: Uint8Array,
   width: number,
   height: number,
 ): Promise<StructuralCoreResult> {
-  if (!WORKERS_ENABLED || width * height < WORKER_MIN_PIXELS) {
-    return structuralCore(rawRgb, width, height);
-  }
-  await acquireSlot();
-  try {
-    return await runInWorker(rawRgb, width, height);
-  } catch (err) {
-    logger.warn('Layer 2 worker failed — computing inline', { error: String(err) });
-    return structuralCore(rawRgb, width, height);
-  } finally {
-    releaseSlot();
-  }
+  return runPixelJob(structuralCore, [rawRgb, width, height], {
+    offload: LAYER2_WORKER_ENABLED && width * height >= WORKER_MIN_PIXELS,
+    label: 'Layer 2',
+  });
 }
