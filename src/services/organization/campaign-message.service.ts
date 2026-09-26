@@ -38,6 +38,7 @@ export function campaignChannel(campaignId: string): string {
 
 export function cleanMessageBody(raw: unknown): string {
   if (typeof raw !== 'string') throw new AppError(400, 'A message cannot be empty');
+  // eslint-disable-next-line no-control-regex -- intentional: matches/strips control characters
   const text = raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim();
   if (!text) throw new AppError(400, 'A message cannot be empty');
   if (text.length > MAX_BODY) throw new AppError(400, `A message cannot be longer than ${MAX_BODY} characters`);

@@ -147,6 +147,7 @@ function encodePayload(payload: string): string {
 
 function buildMarkerText(encodedPayload: string): string {
   // Zero-width characters used to encode bits (invisible in rendered output)
+  // eslint-disable-next-line no-irregular-whitespace -- intentional: zero-width characters are the watermark payload
   // ​ = zero-width space (0), ‌ = zero-width non-joiner (1)
   let bits = '';
   for (const char of encodedPayload) {
@@ -188,6 +189,7 @@ export async function watermarkPdf(
         opacity: 0,
       });
       // Also embed in page annotations metadata
+      // eslint-disable-next-line no-irregular-whitespace -- intentional: zero-width characters are the watermark payload
       page.drawText(`​${watermarkCode}‌`, {
         x: width / 2,
         y: 1,

@@ -237,7 +237,7 @@ export class CrawlerEngineService {
     for (const w of text.toLowerCase().match(/[a-z]{4,}/g) ?? []) {
       words.set(w, (words.get(w) ?? 0) + 1);
     }
-    for (const w of filename.toLowerCase().replace(/\.[^.]+$/, '').split(/[_\-\s\.]/)) {
+    for (const w of filename.toLowerCase().replace(/\.[^.]+$/, '').split(/[_\-\s.]/)) {
       if (w.length > 3) words.set(w, (words.get(w) ?? 0) + 5);
     }
     const stop = new Set(['that', 'this', 'with', 'from', 'have', 'been']);

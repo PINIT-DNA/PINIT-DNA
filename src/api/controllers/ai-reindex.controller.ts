@@ -64,7 +64,7 @@ export async function reindexAll(req: Request, res: Response, next: NextFunction
             // Fallback: clean filename
             indexText = record.imageFilename
               .replace(/\.[^.]+$/, '')
-              .replace(/[_\-\.]/g, ' ')
+              .replace(/[_\-.]/g, ' ')
               .replace(/([a-z])([A-Z])/g, '$1 $2')
               .trim();
             method    = 'filename';

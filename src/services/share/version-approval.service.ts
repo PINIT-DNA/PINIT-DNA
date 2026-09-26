@@ -194,6 +194,7 @@ function label(raw: unknown, fallback: string): string {
  */
 function cleanComment(raw: unknown, decision: ApprovalDecision): string | null {
   const s = typeof raw === 'string'
+    // eslint-disable-next-line no-control-regex -- intentional: matches/strips control characters
     ? raw.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '').trim()
     : '';
   if (decision === 'CHANGES_REQUESTED' && !s) {

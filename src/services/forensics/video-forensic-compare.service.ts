@@ -178,11 +178,9 @@ export async function compareVideoInvestigation(
   };
 
   let weighted = 0;
-  let wSum = 0;
   for (const l of videoLayers) {
     const w = weights[l.layer] ?? 0;
     weighted += l.similarityScore * w;
-    wSum += w;
   }
 
   const mergedLayers: LayerComparisonResult[] = [];
@@ -202,6 +200,11 @@ export async function compareVideoInvestigation(
     }
   }
 
+  // REVIEW (scoring, not changed here): the reduce below starts from `weighted`, which already
+  // holds the layer 1-5 contribution, and then adds those same layers again from
+  // `mergedLayers` — so layers 1-5 are counted twice and `rawScore` can reach ~2x the true
+  // weighted similarity before the Math.min(100, ...) clamp. Fixing it would lower video
+  // confidence scores and can change verdicts, so it needs a product decision and tests.
   const rawScore = mergedLayers.reduce((sum, l) => {
     const w = weights[l.layer] ?? (l.layer <= 6 ? 0.05 : 0);
     return sum + l.similarityScore * w;

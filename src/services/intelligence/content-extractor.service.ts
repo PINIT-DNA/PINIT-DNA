@@ -182,7 +182,7 @@ export class ContentExtractorService {
   private cleanFilename(filename: string): string {
     return filename
       .replace(/\.[^.]+$/, '')        // remove extension
-      .replace(/[_\-\.]/g, ' ')       // separators → spaces
+      .replace(/[_\-.]/g, ' ')       // separators → spaces
       .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → words
       .replace(/\d{6,}/g, '')         // remove long numbers (timestamps)
       .replace(/\s+/g, ' ').trim();

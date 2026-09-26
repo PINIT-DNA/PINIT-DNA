@@ -32,7 +32,7 @@ export function buildIndexText(filename: string, ocrText?: string | null): strin
   if (ocrText && ocrText.length > 50) return `${filename} ${ocrText}`.replace(/\s+/g, ' ').trim();
   return filename
     .replace(/\.[^.]+$/, '')
-    .replace(/[_\-\.]/g, ' ')
+    .replace(/[_\-.]/g, ' ')
     .replace(/([a-z])([A-Z])/g, '$1 $2')
     .trim();
 }

@@ -176,6 +176,7 @@ export class Phase3WatermarkRecoveryService {
       ?? tail.match(/PINIT-VAULT-TAIL\|([^\n]+)/)
       ?? tail.match(/PINIT-VAULT-IMG\|([^\n]+)/)
       ?? tail.match(/PINIT-IDT\|([A-Za-z0-9_-]+)/)
+      // eslint-disable-next-line no-control-regex -- intentional: matches/strips control characters
       ?? latin.match(/PINIT-DNA-SIG:(PINIT-DNA:v1:[^\x00]+)/);
     if (tailMatch) {
       return tailMatch[0].includes('PINIT-IDT') ? tailMatch[0] : `PINIT-IDT|${tailMatch[1]}`;

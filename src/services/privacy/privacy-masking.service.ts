@@ -21,11 +21,11 @@ export interface MaskingConfig {
 
 const PATTERNS = {
   // Email: mask local part, keep domain  → ********@gmail.com
-  email: /([a-zA-Z0-9._%+\-]+)(@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})/g,
+  email: /([a-zA-Z0-9._%+-]+)(@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/g,
 
   // Indian mobile numbers (10 digits, optionally +91/0 prefix)
   // Masks middle 6 digits → 98******10
-  phone: /(?:(?:\+91|0)?[\s\-]?)?([6-9]\d{1})[\s\-]?(\d{4})[\s\-]?(\d{4})/g,
+  phone: /(?:(?:\+91|0)?[\s-]?)?([6-9]\d{1})[\s-]?(\d{4})[\s-]?(\d{4})/g,
 
   // Aadhaar: 12 digits in groups of 4 → XXXX XXXX 9012
   aadhaar: /\b(\d{4})\s?(\d{4})\s?(\d{4})\b/g,
@@ -36,7 +36,7 @@ const PATTERNS = {
   // Address — must look like an actual postal address:
   // Requires a number + address keyword (e.g. "Flat 4B, Sector 12") OR
   // classic Indian address patterns (H.No, D.No, Plot No, Door No)
-  address: /\b(?:(?:flat|plot|house|door|h\.?no|d\.?no|s\.?no|survey\s*no)[\s\.\-#]*\d+[^\n]{0,100}(?:road|street|nagar|colony|layout|sector|phase|lane|marg|vihar|enclave|circle|cross|main)\b[^\n]{0,80}|\d+[^\n]{0,30}(?:road|street|nagar|colony|layout|sector|phase|lane|marg|vihar|enclave)\b[^\n]{0,80})/gi,
+  address: /\b(?:(?:flat|plot|house|door|h\.?no|d\.?no|s\.?no|survey\s*no)[\s.\-#]*\d+[^\n]{0,100}(?:road|street|nagar|colony|layout|sector|phase|lane|marg|vihar|enclave|circle|cross|main)\b[^\n]{0,80}|\d+[^\n]{0,30}(?:road|street|nagar|colony|layout|sector|phase|lane|marg|vihar|enclave)\b[^\n]{0,80})/gi,
 };
 
 // ─── Masker functions ─────────────────────────────────────────────────────────
