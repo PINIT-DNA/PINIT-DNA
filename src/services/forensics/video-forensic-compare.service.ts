@@ -121,6 +121,34 @@ function classifyScore(overall: number, l1Exact: boolean): DnaClassification {
   return 'DIFFERENT';
 }
 
+/** Per-layer weights for the video blend (layers 1-5 sum to 1.0; base layer 6 adds 0.05). */
+export const VIDEO_LAYER_WEIGHTS: Record<number, number> = {
+  1: 0.35, 2: 0.15, 3: 0.30, 4: 0.12, 5: 0.08,
+};
+
+/**
+ * Overall video confidence, 0-100. Each merged layer contributes its similarity x weight
+ * exactly ONCE. (It used to start from a separate weighted sum of layers 1-5 and then add
+ * those same layers again, so scores were inflated up to ~2x: a pair only ~28% similar on
+ * average already reached the SIMILAR band, and ~48% reached DNA_MATCH.)
+ */
+export function videoOverallConfidence(
+  scores: Pick<VideoForensicScores, 'sha256Exact' | 'partialRecoveryScore' | 'perceptualScore' | 'matchedFrameRatio'>,
+  mergedLayers: Array<Pick<LayerComparisonResult, 'layer' | 'similarityScore'>>,
+): number {
+  if (scores.sha256Exact) return 100;
+  const blended = mergedLayers.reduce((sum, l) => {
+    const w = VIDEO_LAYER_WEIGHTS[l.layer] ?? (l.layer <= 6 ? 0.05 : 0);
+    return sum + l.similarityScore * w;
+  }, 0);
+  return Math.min(100, Math.round(Math.max(
+    scores.partialRecoveryScore,
+    blended * 100,
+    scores.perceptualScore * 100,
+    scores.matchedFrameRatio * 85,
+  )));
+}
+
 /**
  * Build a full 15-layer comparison result for video probes (investigation only).
  */
@@ -173,16 +201,6 @@ export async function compareVideoInvestigation(
     layerResult(5, l5, 'vault-audio-meta', 'probe-audio-meta', scores.audioScore > 0 ? `Audio track ${Math.round(l5 * 100)}%` : 'Metadata / duration proxy'),
   ];
 
-  const weights: Record<number, number> = {
-    1: 0.35, 2: 0.15, 3: 0.30, 4: 0.12, 5: 0.08,
-  };
-
-  let weighted = 0;
-  for (const l of videoLayers) {
-    const w = weights[l.layer] ?? 0;
-    weighted += l.similarityScore * w;
-  }
-
   const mergedLayers: LayerComparisonResult[] = [];
   for (let i = 1; i <= 15; i++) {
     const videoLayer = videoLayers.find((l) => l.layer === i);
@@ -200,24 +218,7 @@ export async function compareVideoInvestigation(
     }
   }
 
-  // REVIEW (scoring, not changed here): the reduce below starts from `weighted`, which already
-  // holds the layer 1-5 contribution, and then adds those same layers again from
-  // `mergedLayers` — so layers 1-5 are counted twice and `rawScore` can reach ~2x the true
-  // weighted similarity before the Math.min(100, ...) clamp. Fixing it would lower video
-  // confidence scores and can change verdicts, so it needs a product decision and tests.
-  const rawScore = mergedLayers.reduce((sum, l) => {
-    const w = weights[l.layer] ?? (l.layer <= 6 ? 0.05 : 0);
-    return sum + l.similarityScore * w;
-  }, weighted);
-
-  const overallConfidenceScore = scores.sha256Exact
-    ? 100
-    : Math.min(100, Math.round(Math.max(
-      scores.partialRecoveryScore,
-      rawScore * 100,
-      scores.perceptualScore * 100,
-      scores.matchedFrameRatio * 85,
-    )));
+  const overallConfidenceScore = videoOverallConfidence(scores, mergedLayers);
 
   const classification = classifyScore(overallConfidenceScore, scores.sha256Exact);
   const tamperingDetected = !scores.sha256Exact && overallConfidenceScore < 95;
