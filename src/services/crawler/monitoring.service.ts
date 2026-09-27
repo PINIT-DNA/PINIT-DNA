@@ -772,7 +772,7 @@ export class MonitoringService {
     const words = new Map<string, number>();
     const textWords = text.toLowerCase().match(/[a-z]{4,}/g) ?? [];
     for (const w of textWords) words.set(w, (words.get(w) ?? 0) + 1);
-    const nameWords = filename.toLowerCase().replace(/\.[^.]+$/, '').split(/[_\-\s\.]/);
+    const nameWords = filename.toLowerCase().replace(/\.[^.]+$/, '').split(/[_\-\s.]/);
     for (const w of nameWords) if (w.length > 3) words.set(w, (words.get(w) ?? 0) + 5);
     const stop = new Set(['that','this','with','from','have','been','they','their','what','will','when','more','than','your','also','which','into','then','some']);
     return [...words.entries()].filter(([w]) => !stop.has(w)).sort((a,b) => b[1]-a[1]).slice(0,10).map(([w]) => w);

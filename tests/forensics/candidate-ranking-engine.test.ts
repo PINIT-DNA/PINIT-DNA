@@ -54,12 +54,22 @@ function vector(id: string, composite: number, orb = 50): VaultSimilarityVector 
   };
 }
 
+/**
+ * `l3` is the measured layer-3 (perceptual) similarity. The ranking engine FAILS CLOSED:
+ * a "possible match" without a measured L3 (>= POSSIBLE_L3_MIN_WITHOUT_PATCH) is rejected,
+ * because mid-band scores without it are often lookalikes. Candidates that are meant to
+ * win must therefore carry a measured L3; the ones meant to lose need not.
+ */
 function deep(
   id: string,
   score: number,
   classification: string,
+  l3?: number,
 ): DeepCompareResult {
   return {
+    ...(l3 !== undefined
+      ? { layerComparisons: [{ layer: 3, name: 'perceptual', similarityPercent: l3, matched: true }] }
+      : {}),
     vaultId: `vault-${id}`,
     dnaRecordId: `dna-${id}`,
     overallConfidenceScore: score,
@@ -90,7 +100,7 @@ describe('CandidateRankingEngine', () => {
     const vectors = [vector('wrong', 95, 90), vector('right', 70, 80)];
     const deepResults = [
       deep('wrong', 18, 'DIFFERENT'),
-      deep('right', 72, 'SIMILAR'),
+      deep('right', 72, 'SIMILAR', 75),
     ];
 
     const result = await selectWinnerByRanking({
@@ -170,7 +180,7 @@ describe('CandidateRankingEngine', () => {
       compareCandidate: async (c) => {
         compareCalls++;
         if (c.vaultId === 'vault-correct') {
-          return deep('correct', 55, 'SIMILAR');
+          return deep('correct', 55, 'SIMILAR', 72);
         }
         return deep('other', 18, 'DIFFERENT');
       },
@@ -206,7 +216,7 @@ describe('CandidateRankingEngine', () => {
       mediaType: 'image',
       compareCandidate: async (c) => {
         compareCalls++;
-        if (c.vaultId === 'vault-lead') return deep('lead', 80, 'SIMILAR');
+        if (c.vaultId === 'vault-lead') return deep('lead', 80, 'SIMILAR', 82);
         return deep(c.vaultId.replace('vault-', ''), 10, 'DIFFERENT');
       },
     });

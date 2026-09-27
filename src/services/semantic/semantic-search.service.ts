@@ -134,9 +134,17 @@ export class SemanticSearchService {
 
     try {
       const queryVector = textToVector(query);
-      const fetchK = Math.max(topK * 20, 50);
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const results     = await (this.index as any).queryItems(queryVector, fetchK) as Array<{score: number; item: {metadata: Record<string,unknown>}}>;
+      // vectra >= 0.15 signature is queryItems(vector, query, topK, filter). The
+      // old two-argument call (vector, fetchK) made topK undefined, so every
+      // search silently returned nothing. The owner filter is applied INSIDE
+      // the query, so other tenants' documents can no longer fill the top-K
+      // and push out the caller's own matches.
+      const results = await this.index.queryItems(
+        queryVector,
+        '',
+        topK,
+        { dnaRecordId: { $in: [...allowedDnaIds] } },
+      ) as Array<{ score: number; item: { metadata: Record<string, unknown> } }>;
 
       return results
         .filter(r => r.score > 0.05)
@@ -147,8 +155,8 @@ export class SemanticSearchService {
           similarity:  Math.round(r.score * 1000) / 1000,
           snippet:     r.item.metadata['snippet']    as string,
         }))
-        .filter((r) => allowedDnaIds.has(r.dnaRecordId))
-        .slice(0, topK);
+        // Defence in depth: the filter above should already guarantee this.
+        .filter((r) => allowedDnaIds.has(r.dnaRecordId));
     } catch (err) {
       logger.error('Semantic search failed', { error: String(err) });
       return [];

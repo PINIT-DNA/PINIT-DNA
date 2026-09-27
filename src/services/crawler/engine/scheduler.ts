@@ -46,7 +46,7 @@ export class CrawlerScheduler {
   }
 
   stop(): void {
-    if (this.task) { this.task.stop(); this.task = null; }
+    if (this.task) { void this.task.stop(); this.task = null; }
     if (this.intervalTimer) { clearInterval(this.intervalTimer); this.intervalTimer = null; }
   }
 

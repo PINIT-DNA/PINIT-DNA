@@ -13,6 +13,7 @@ import { VaultService } from '../../services/vault/vault.service';
 import { AppError } from '../middleware/error.middleware';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { logger } from '../../lib/logger';
+import { correctImageMime, userContentHeaders } from '../../lib/user-content-headers';
 import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
 import { protectedDownloadService } from '../../services/vault/protected-download.service';
@@ -262,7 +263,7 @@ export async function storeInVault(
     }
 
     // Fire-and-forget: OCR + auto-index in FAISS after vault store
-    autoIndexer.indexAfterVaultStore({
+    void autoIndexer.indexAfterVaultStore({
       dnaRecordId: result.dnaRecordId,
       vaultId:     result.vaultId,
       filename:    result.originalFileName,
@@ -569,12 +570,17 @@ export async function previewVaultFile(
       }
     }
 
+    // The stored bytes may have been re-encoded by identity embedding; label what is sent.
+    contentType = correctImageMime(contentType, body);
+
     res.set({
       'Content-Type':        contentType,
       'Content-Length':      String(body.length),
       'Content-Disposition': `inline; filename="${result.originalFileName}"`,
       'X-Vault-Id':          result.vaultId,
       'Cache-Control':       'private, max-age=300',
+      // Uploaded HTML/SVG/XML must not be able to run script from the API origin.
+      ...userContentHeaders(contentType),
     });
 
     res.status(200).send(body);
@@ -628,7 +634,7 @@ export async function retrieveFromVault(
       'X-PINIT-Identity-Embedded': String(embedded.identityEmbedded),
     });
 
-    auditService.log({
+    void auditService.log({
       eventType: 'VAULT_RETRIEVED', vaultId: id,
       dnaRecordId: result.dnaRecordId,
       filename: result.originalFileName, fileType: result.originalMimeType,
@@ -668,7 +674,7 @@ export async function prepareProtectedDownload(
     const userId = getAuthUserId(req);
     const result = await protectedDownloadService.prepare(id, userId);
 
-    auditService.log({
+    void auditService.log({
       eventType: 'PROTECTED_DOWNLOAD_PREPARED' as never,
       vaultId: id,
       dnaRecordId: result.dnaRecordId,
@@ -849,7 +855,7 @@ export async function protectedDownloadFromVault(
       ...(tepTrackingFailed ? { 'X-PINIT-TEP-Tracking': 'partial' } : { 'X-PINIT-TEP-Tracking': tepCode ? 'full' : 'off' }),
     });
 
-    auditService.log({
+    void auditService.log({
       eventType: 'PROTECTED_DOWNLOAD' as never,
       vaultId: id,
       dnaRecordId: result.dnaRecordId,

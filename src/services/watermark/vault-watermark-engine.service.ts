@@ -108,7 +108,7 @@ export class VaultWatermarkEngine {
 
   private async embedImage(buffer: Buffer, mimeType: string, payload: string): Promise<Omit<VaultWatermarkResult, 'watermarkHash'>> {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sharp = require('sharp') as typeof import('sharp');
+    const sharp = require('sharp') as typeof import('sharp').default;
     const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     let embedded = embedImageDctWatermark(data, info.width, info.height, payload.slice(0, 256));
     embedded = embedImageDwtWatermark(embedded, info.width, info.height, payload.slice(0, 128));

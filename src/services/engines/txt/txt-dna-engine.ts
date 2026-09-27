@@ -172,7 +172,7 @@ export class TxtDnaEngine {
     const vocabulary    = Object.keys(freq).length;
     const avgWordLen    = words.length
       ? words.reduce((s, w) => s + w.length, 0) / words.length : 0;
-    const punctCount    = (content.match(/[.,!?;:'"()\-]/g) ?? []).length;
+    const punctCount    = (content.match(/[.,!?;:'"()-]/g) ?? []).length;
     const numericCount  = (content.match(/\d/g) ?? []).length;
     const punctRatio    = content.length ? punctCount / content.length : 0;
     const numericRatio  = content.length ? numericCount / content.length : 0;

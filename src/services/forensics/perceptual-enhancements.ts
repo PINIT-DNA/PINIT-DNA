@@ -47,7 +47,7 @@ export async function computeBmHash64(buffer: Buffer): Promise<string> {
 /** Haar wavelet 1-level on 16x16 → 64-bit hash */
 export async function computeWaveletHash64(buffer: Buffer): Promise<string> {
   const size = 16;
-  let row = await toGray(buffer, size, size);
+  const row = await toGray(buffer, size, size);
   const haar1d = (signal: number[]): number[] => {
     const n = signal.length;
     if (n < 2) return signal;

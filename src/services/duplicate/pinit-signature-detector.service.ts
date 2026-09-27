@@ -60,7 +60,6 @@ export class PinitSignatureDetectorService {
   ): Promise<PinitSignatureHit> {
     const signals: string[] = [];
     let method = 'none';
-    let shareToken: string | undefined;
     let watermarkCode: string | undefined;
 
     // ── 1. Forensic metadata (EXIF / PDF creator / raw scan) ─────────────────
@@ -87,7 +86,7 @@ export class PinitSignatureDetectorService {
 
     // ── 3. Parse tokens / codes from OCR + metadata text only ────────────────
     const combinedText = [signals.join('\n'), ocrFullText].join('\n');
-    shareToken = await resolveShareTokenFromText(combinedText);
+const shareToken = await resolveShareTokenFromText(combinedText);
     if (!watermarkCode) {
       const wmMatch = combinedText.match(WATERMARK_CODE_RE);
       if (wmMatch?.[0]) watermarkCode = wmMatch[0].toUpperCase();

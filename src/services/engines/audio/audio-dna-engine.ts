@@ -15,6 +15,7 @@
 import crypto from 'crypto';
 import { config } from '../../../config';
 import { logger } from '../../../lib/logger';
+import { looksLikeAsf } from '../../../lib/asf-guard';
 import { prisma } from '../../../lib/prisma';
 import { FileInput } from '../../universal-file-router';
 import { UniversalEngineResult, UniversalLayerResult } from '../../../types/universal-engine.types';
@@ -52,6 +53,9 @@ function binaryChunkSimHash(buf: Buffer, chunks = 8, chunkSize = 4096): string {
   return simHash64(parts.join(' '));
 }
 
+// ASF files are never handed to music-metadata — see ../../../lib/asf-guard.ts.
+export { looksLikeAsf };
+
 // ─── Engine ───────────────────────────────────────────────────────────────────
 
 export class AudioDnaEngine {
@@ -67,7 +71,12 @@ export class AudioDnaEngine {
     let parseError: string | null = null;
 
     try {
-      meta = await mm.parseBuffer(buf, file.declaredMimeType, { duration: false });
+      if (looksLikeAsf(buf)) {
+        parseError = 'ASF container skipped (metadata parser not run)';
+        logger.warn('Audio file has an ASF header — skipping metadata parsing', { dnaRecordId });
+      } else {
+        meta = await mm.parseBuffer(buf, file.declaredMimeType, { duration: false });
+      }
     } catch (err) {
       parseError = err instanceof Error ? err.message : String(err);
       logger.warn('Audio metadata parse failed — continuing with binary analysis', {

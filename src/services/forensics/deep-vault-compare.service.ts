@@ -64,7 +64,7 @@ export function derivativeAwareScore(
 
   const pct = (n: number) => (layers.find((l) => l.layer === n)?.similarityPercent ?? 0) / 100;
   let l2 = pct(2);
-  let l3 = pct(3);
+  const l3 = pct(3);
   let l4 = pct(4);
   const cls = classification.toUpperCase();
   const l3Pct = Math.round(l3 * 100);

@@ -92,7 +92,7 @@ export class Phase3WatermarkEngine {
 
   private async embedImage(buffer: Buffer, mimeType: string, payload: string): Promise<Omit<Phase3EmbedResult, 'watermarkHash'>> {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const sharp = require('sharp') as typeof import('sharp');
+    const sharp = require('sharp') as typeof import('sharp').default;
     const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
     const embedded = embedImageDctWatermark(data, info.width, info.height, payload.slice(0, 256));
     const out = await sharp(embedded, {

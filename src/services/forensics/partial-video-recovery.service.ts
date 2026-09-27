@@ -519,7 +519,7 @@ export async function partialVideoVaultSearch(
 
   const clipNameScores = new Map<string, number>();
   try {
-    const query = probeName.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ').trim() || 'video';
+    const query = probeName.replace(/\.[^.]+$/, '').replace(/[_\-.]/g, ' ').trim() || 'video';
     const sem = await aiService.findSimilar(query, Math.min(videoRows.length, 20));
     for (const hit of sem.results) {
       clipNameScores.set(hit.dnaRecordId, Math.round(hit.similarity * 100));

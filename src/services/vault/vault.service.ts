@@ -869,6 +869,7 @@ export class VaultService {
     if (!trimmed || trimmed.length > 255) {
       throw new Error('Invalid file name');
     }
+    // eslint-disable-next-line no-control-regex -- intentional: matches/strips control characters
     if (/[<>:"/\\|?*\u0000-\u001f]/.test(trimmed)) {
       throw new Error('File name contains invalid characters');
     }

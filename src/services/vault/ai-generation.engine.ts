@@ -100,6 +100,7 @@ export async function probeAiGeneration(
     const exifLatin = exifBuf.toString('latin1');
     // Camera Make/Model ASCII often appears in EXIF IFD
     hasCameraExif = /(?:Canon|Nikon|Sony|Apple|iPhone|Samsung|Google|Pixel|Huawei|Xiaomi|OnePlus|Fujifilm|Olympus|Panasonic|Leica|DJI|GoPro)/i.test(exifLatin)
+      // eslint-disable-next-line no-control-regex -- intentional: matches/strips control characters
       || /\x00Make\x00|\x00Model\x00/.test(exifLatin);
 
     const noExif = !meta.exif || meta.exif.length < 32;

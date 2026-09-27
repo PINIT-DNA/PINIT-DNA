@@ -17,13 +17,22 @@ from __future__ import annotations
 
 import base64
 import io
+import logging
 import re
+import time
 from typing import Any
 
 import numpy as np
 from PIL import Image
 
 from ..base import EnterpriseAIService, ServiceResult
+
+log = logging.getLogger(__name__)
+
+# When the EfficientNet weights cannot be loaded, do not retry on every request. The
+# retry itself costs ~0.6-0.9 s per call, and this analysis runs on every protect
+# (Layer 11) and inside every forensic scan.
+EFFNET_RETRY_SECONDS = 600
 
 try:
     from ..semantic_embeddings import semantic_embeddings_service
@@ -99,10 +108,15 @@ class AuthenticityEnsembleService(EnterpriseAIService):
         except ImportError:
             return False
 
+    _effnet_failed_at = 0.0
+
     def _ensure_effnet(self) -> bool:
         if self._effnet is not None:
             return True
         if not self._effnet_available():
+            return False
+        # Negative cache: a failed load is not retried for EFFNET_RETRY_SECONDS.
+        if self._effnet_failed_at and time.time() - self._effnet_failed_at < EFFNET_RETRY_SECONDS:
             return False
         try:
             import timm
@@ -118,9 +132,19 @@ class AuthenticityEnsembleService(EnterpriseAIService):
             self._effnet_preprocess = timm.data.create_transform(**cfg, is_training=False)
             if torch.cuda.is_available():
                 self._effnet = self._effnet.cuda()
+            self._effnet_failed_at = 0.0
             return True
-        except Exception:
+        except Exception as exc:
             self._effnet = None
+            first_failure = self._effnet_failed_at == 0.0
+            self._effnet_failed_at = time.time()
+            # Say WHY, once per retry window — this used to fail silently on every call
+            # ("No pretrained weights exist for efficientnet_b7"), leaving the texture engine
+            # permanently UNAVAILABLE without any trace in the logs.
+            (log.warning if first_failure else log.debug)(
+                "EfficientNet texture engine unavailable (will retry in %ds): %s: %s",
+                EFFNET_RETRY_SECONDS, type(exc).__name__, exc,
+            )
             return False
 
     def _decode(self, image_bytes: bytes, max_dim: int = 1024) -> tuple[np.ndarray, np.ndarray] | None:

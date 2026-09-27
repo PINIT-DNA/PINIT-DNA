@@ -11,6 +11,7 @@ import {
 } from '../../services/exchange/exchange-bridge.service';
 import { config } from '../../config';
 import { logger } from '../../lib/logger';
+import { userContentHeaders } from '../../lib/user-content-headers';
 import { resolvePublicBaseUrl } from '../../lib/request-utils';
 import {
   recordAssetActivityBatch,
@@ -428,7 +429,7 @@ export async function marketplacePreviewBridge(req: Request, res: Response, next
       'Pragma': 'no-cache',
       'Cross-Origin-Resource-Policy': 'same-origin',
       'Referrer-Policy': 'no-referrer',
-      'X-Content-Type-Options': 'nosniff',
+      ...userContentHeaders(result.originalMimeType),
     });
     res.status(200).send(result.originalBuffer);
   } catch (err) {

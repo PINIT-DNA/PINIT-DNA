@@ -2,6 +2,7 @@
  * Unified Investigation orchestrator — unit tests (mocked services)
  */
 import { UnifiedInvestigationOrchestrator } from '../../src/services/forensics/unified-investigation.orchestrator';
+import { DNA_ACCEPTANCE_VERSION } from '../../src/config/dna-versions';
 
 jest.mock('../../src/services/forensics/leaked-file-verify.service', () => ({
   leakedFileVerifyService: {
@@ -38,7 +39,8 @@ describe('UnifiedInvestigationOrchestrator', () => {
     // Phase 2 — immutable manifest is single source of truth
     expect(report.manifest).toBeDefined();
     expect(report.manifest?.verdict).toBe('NOT_PINIT');
-    expect(report.manifest?.acceptancePolicyVersion).toBe('acceptance-policy-v1.0');
+    // Pinned to the shipped constant so a deliberate policy bump doesn't silently rot this test.
+    expect(report.manifest?.acceptancePolicyVersion).toBe(DNA_ACCEPTANCE_VERSION);
     expect(report.manifest?.dnaAlgorithmVersion).toBe('15-layer-v1');
     expect(report.manifest?.investigationId).toBe(report.investigationId);
     expect(Object.isFrozen(report.manifest)).toBe(true);

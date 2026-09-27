@@ -76,7 +76,7 @@ export class PptxDnaEngine {
     logger.info('PPTX DNA engine started', { dnaRecordId, file: file.originalName });
 
     let zip: JSZip | null = null;
-    let slides: SlideData[] = [];
+    const slides: SlideData[] = [];
     let coreXml   = '';
     let appXml    = '';
     let themeXml  = '';

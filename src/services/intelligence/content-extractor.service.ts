@@ -63,7 +63,7 @@ export class ContentExtractorService {
     await this.upsertOcr(dnaRecordId, 'PROCESSING', '', 0, 0);
 
     try {
-      let profile = this.emptyProfile(dnaRecordId, filename, fileType, mimeType);
+      const profile = this.emptyProfile(dnaRecordId, filename, fileType, mimeType);
 
       // ── Try Tika first (metadata-rich) ─────────────────────────────────────
       if (record.vaultRecord && await tikaService.isAvailable()) {
@@ -182,7 +182,7 @@ export class ContentExtractorService {
   private cleanFilename(filename: string): string {
     return filename
       .replace(/\.[^.]+$/, '')        // remove extension
-      .replace(/[_\-\.]/g, ' ')       // separators → spaces
+      .replace(/[_\-.]/g, ' ')       // separators → spaces
       .replace(/([a-z])([A-Z])/g, '$1 $2') // camelCase → words
       .replace(/\d{6,}/g, '')         // remove long numbers (timestamps)
       .replace(/\s+/g, ' ').trim();

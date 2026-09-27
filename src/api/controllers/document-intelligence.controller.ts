@@ -147,7 +147,9 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
 
     await auditService.log({
       eventType: 'SEMANTIC_SEARCH',
-      detail: { query, resultCount: results.length },
+      // Length only — the search text itself is user content and must not be
+      // kept in the audit log (it would also leak through the CSV export).
+      detail: { queryLength: query.length, resultCount: results.length },
       req,
     });
 
@@ -167,8 +169,9 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
 export async function getLineage(req: Request, res: Response, next: NextFunction): Promise<void> {
   const { dnaRecordId } = req.params;
   try {
-    await assertDnaOwner(dnaRecordId, getAuthUserId(req));
-    const graph = await lineageService.getLineage(dnaRecordId);
+    const userId = getAuthUserId(req);
+    await assertDnaOwner(dnaRecordId, userId);
+    const graph = await lineageService.getLineage(dnaRecordId, userId);
     res.status(200).json({ success: true, dnaRecordId, ...graph });
   } catch (err) {
     next(err);

@@ -9,7 +9,7 @@ Phase 5: /ocr, /duplicates, /similar
 Enterprise prep: modular services/, startup diagnostics, enhanced /health
 """
 
-import os, json, time, hashlib, re, logging
+import os, json, time, hashlib, re, logging, threading, functools
 
 # Silence HuggingFace / tqdm progress bars in Node dev logs (stderr → [warn])
 os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
@@ -17,7 +17,7 @@ os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
 os.environ.setdefault("TQDM_DISABLE", "1")
 
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 from datetime import datetime
 
 from config import SERVICE_NAME, SERVICE_VERSION, EMBEDDING_MODEL, EMBEDDING_DIMENSION
@@ -99,6 +99,54 @@ def save_index():
     faiss.write_index(index, str(INDEX_FILE))
     META_FILE.write_text(json.dumps(metadata, indent=2))
 
+# ── Concurrency + compaction ──────────────────────────────────────────────────
+# FastAPI runs plain `def` endpoints in a thread pool. /index does index.add() and
+# then metadata.append(); two racing calls could interleave (A adds, B adds, B
+# appends, A appends) so metadata row N no longer described vector N and a search
+# returned the WRONG document. The backend indexes 5-10 documents in parallel, so
+# every operation that reads or writes the index/metadata pair now takes this lock.
+_index_lock = threading.RLock()
+
+
+def _locked(fn):
+    """Run a sync endpoint while holding the index lock (see the note above)."""
+    @functools.wraps(fn)
+    def wrapper(*args, **kwargs):
+        with _index_lock:
+            return fn(*args, **kwargs)
+    return wrapper
+
+# Re-indexing a document marks its old row deleted and appends a new vector; the old
+# vector stays in the FAISS index forever. One real index held 579 vectors for 81
+# live documents (86% dead weight) and every /index call scans all metadata. Once
+# superseded vectors outnumber live ones the index is rebuilt from the live rows.
+COMPACT_MIN_VECTORS = int(os.environ.get("INDEX_COMPACT_MIN_VECTORS", "200"))
+COMPACT_DEAD_RATIO  = float(os.environ.get("INDEX_COMPACT_DEAD_RATIO", "0.5"))
+
+
+def compact_index_if_needed() -> bool:
+    """Rebuild the index from live rows when dead vectors dominate. Caller holds the lock."""
+    global index, metadata
+    total = index.ntotal
+    if total < COMPACT_MIN_VECTORS:
+        return False
+    live_pos = [i for i, m in enumerate(metadata) if not m.get("_deleted")]
+    if (total - len(live_pos)) / total < COMPACT_DEAD_RATIO:
+        return False
+    new_index = faiss.IndexFlatL2(DIMENSION)
+    new_meta = []
+    if live_pos:
+        vecs = np.vstack([index.reconstruct(i) for i in live_pos]).astype(np.float32)
+        new_index.add(vecs)
+        new_meta = [metadata[i] for i in live_pos]
+    log.info("Compacting index: %d vectors -> %d live documents", total, len(new_meta))
+    index, metadata = new_index, new_meta
+    save_index()
+    return True
+
+with _index_lock:
+    compact_index_if_needed()
+
 # ── FastAPI ───────────────────────────────────────────────────────────────────
 
 app = FastAPI(title=SERVICE_NAME, version=SERVICE_VERSION)
@@ -122,6 +170,10 @@ class SearchRequest(BaseModel):
     query:     str
     topK:      Optional[int]   = 10
     threshold: Optional[float] = 0.50   # Phase 5: default 50% minimum
+    # Owner scoping. When provided, ONLY these dnaRecordIds can be returned, and the
+    # filter is applied inside the search (over the whole index) rather than after a
+    # global top-K — so other tenants' documents can never crowd out the caller's.
+    allowedIds: Optional[List[str]] = None
 
 class HybridSearchRequest(BaseModel):
     query:          str
@@ -129,6 +181,7 @@ class HybridSearchRequest(BaseModel):
     threshold:      Optional[float] = 0.50
     keywordWeight:  Optional[float] = 0.40  # Phase 4
     semanticWeight: Optional[float] = 0.60  # Phase 4
+    allowedIds:     Optional[List[str]] = None  # see SearchRequest.allowedIds
 
 class DuplicateRequest(BaseModel):
     text:      str
@@ -169,6 +222,9 @@ def health():
         "model":     EMBEDDING_MODEL,
         "dimension": DIMENSION,
         "indexed":   index.ntotal,
+        # Unique live documents — what a re-index should compare against, since
+        # `indexed` also counts every superseded vector left behind by re-indexing.
+        "liveDocuments": _live_document_count(),
         "timestamp": datetime.utcnow().isoformat() + "Z",
         # Enterprise extensions (additive — existing clients ignore unknown keys)
         "pythonVersion": diag.get("pythonVersion"),
@@ -199,11 +255,6 @@ def index_document(req: IndexRequest):
     if not req.text.strip(): raise HTTPException(400, "text must not be empty")
     start = time.time()
 
-    # Remove old entries for this dnaRecordId
-    for m in metadata:
-        if m.get("dnaRecordId") == req.dnaRecordId:
-            m["_deleted"] = True
-
     # Build searchable text: title + author + keywords + body
     parts = [
         req.title    or "",
@@ -214,8 +265,8 @@ def index_document(req: IndexRequest):
     ]
     full_text = " ".join(p for p in parts if p).strip()
 
+    # Encode OUTSIDE the lock: it is the slow part and touches no shared state.
     vec = encode_one(full_text)
-    index.add(np.array([vec], dtype=np.float32))
 
     entry = {
         "dnaRecordId": req.dnaRecordId,
@@ -229,23 +280,50 @@ def index_document(req: IndexRequest):
         "indexedAt":   datetime.utcnow().isoformat() + "Z",
         "_deleted":    False,
     }
-    metadata.append(entry)
-    save_index()
+
+    # index.add + metadata.append must stay paired, so the whole mutation is locked.
+    with _index_lock:
+        # Remove old entries for this dnaRecordId
+        for m in metadata:
+            if m.get("dnaRecordId") == req.dnaRecordId:
+                m["_deleted"] = True
+        index.add(np.array([vec], dtype=np.float32))
+        metadata.append(entry)
+        save_index()
+        compact_index_if_needed()
+        total = index.ntotal
 
     ms = round((time.time()-start)*1000,1)
-    log.info(f"Indexed {req.dnaRecordId[:8]}… ({req.filename}) — total: {index.ntotal}")
-    return { "success": True, "dnaRecordId": req.dnaRecordId, "totalIndexed": index.ntotal, "processingMs": ms }
+    log.info(f"Indexed {req.dnaRecordId[:8]}… ({req.filename}) — total: {total}")
+    return { "success": True, "dnaRecordId": req.dnaRecordId, "totalIndexed": total, "processingMs": ms }
 
 # ── Phase 1: Semantic Search with confidence threshold ────────────────────────
 
+def _allowed_set(ids: Optional[List[str]]) -> Optional[set]:
+    """None = unscoped (legacy callers). A list, even an empty one, scopes the search."""
+    return None if ids is None else set(ids)
+
+
+def _live_document_count() -> int:
+    """Unique, non-deleted documents. index.ntotal also counts superseded vectors."""
+    return len({m["dnaRecordId"] for m in metadata if not m.get("_deleted")})
+
+
 @app.post("/search")
+@_locked
 def semantic_search(req: SearchRequest):
     if not req.query.strip(): raise HTTPException(400, "query must not be empty")
     if index.ntotal == 0: return { "results": [], "query": req.query, "totalIndexed": 0, "count": 0 }
 
+    allowed = _allowed_set(req.allowedIds)
+    if allowed is not None and not allowed:
+        return { "results": [], "query": req.query, "totalIndexed": index.ntotal, "count": 0 }
+
     start = time.time()
     vec   = encode_one(req.query)
-    k     = min(req.topK * 4, index.ntotal)
+    # IndexFlatL2 scans every vector anyway, so when scoped to an owner search the
+    # whole index and filter — a fixed top-K over all tenants would drop their hits.
+    k     = index.ntotal if allowed is not None else min(req.topK * 4, index.ntotal)
     D, I  = index.search(np.array([vec], dtype=np.float32), k)
 
     results, seen = [], set()
@@ -254,6 +332,7 @@ def semantic_search(req: SearchRequest):
         meta = metadata[idx_pos]
         if meta.get("_deleted"): continue
         rid = meta["dnaRecordId"]
+        if allowed is not None and rid not in allowed: continue
         if rid in seen: continue
         seen.add(rid)
 
@@ -291,15 +370,20 @@ def semantic_search(req: SearchRequest):
 # ── Phase 4: Hybrid Search (keyword + semantic) ───────────────────────────────
 
 @app.post("/search/hybrid")
+@_locked
 def hybrid_search(req: HybridSearchRequest):
     if not req.query.strip(): raise HTTPException(400, "query must not be empty")
     if index.ntotal == 0: return { "results": [], "query": req.query, "totalIndexed": 0, "count": 0 }
+
+    allowed = _allowed_set(req.allowedIds)
+    if allowed is not None and not allowed:
+        return { "results": [], "query": req.query, "totalIndexed": index.ntotal, "count": 0 }
 
     start = time.time()
 
     # Step 1: Get semantic results (lower threshold to get more candidates)
     vec  = encode_one(req.query)
-    k    = min(req.topK * 6, index.ntotal)
+    k    = index.ntotal if allowed is not None else min(req.topK * 6, index.ntotal)
     D, I = index.search(np.array([vec], dtype=np.float32), k)
 
     results, seen = [], set()
@@ -308,6 +392,7 @@ def hybrid_search(req: HybridSearchRequest):
         meta = metadata[idx_pos]
         if meta.get("_deleted"): continue
         rid = meta["dnaRecordId"]
+        if allowed is not None and rid not in allowed: continue
         if rid in seen: continue
         seen.add(rid)
 
@@ -715,6 +800,7 @@ async def document_rasterize(
 # ── Phase 6: Duplicate detection ─────────────────────────────────────────────
 
 @app.post("/duplicates")
+@_locked
 def detect_duplicates(req: DuplicateRequest):
     if index.ntotal == 0: return { "duplicates": [], "nearMatches": [] }
 
@@ -778,6 +864,7 @@ def get_stats():
     }
 
 @app.get("/debug/index")
+@_locked
 def debug_index():
     """Show exactly what text was indexed for each document."""
     active = [m for m in metadata if not m.get("_deleted")]
@@ -816,7 +903,14 @@ def debug_index():
         "documents":     sorted(result, key=lambda x: x["textLength"], reverse=True),
     }
 
+@app.get("/index/ids")
+@_locked
+def live_index_ids():
+    """Ids of every live (non-deleted) document — lets the backend re-index only what is missing."""
+    return { "ids": sorted({m["dnaRecordId"] for m in metadata if not m.get("_deleted")}) }
+
 @app.delete("/index/{dna_record_id}")
+@_locked
 def remove_from_index(dna_record_id: str):
     count = sum(1 for m in metadata if m["dnaRecordId"] == dna_record_id and not m.get("_deleted") and m.update({"_deleted": True}) is None)
     if count: save_index()
