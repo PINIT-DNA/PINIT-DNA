@@ -1,0 +1,10 @@
+# Provider binaries and plugin cache
+.terraform/
+
+# State lives in S3, never in the repo. Plan files can embed resolved values.
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+
+# .terraform.lock.hcl is intentionally NOT ignored: commit it to pin provider versions.
