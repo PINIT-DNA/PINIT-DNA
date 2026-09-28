@@ -122,6 +122,11 @@ resource "aws_ecs_task_definition" "api" {
         # call back into instead.
         { name = "EXCHANGE_APP_URL", value = "https://www.pinitexchange.com" },
         { name = "EXCHANGE_API_URL", value = "https://pinit-dna-3fmw.onrender.com" },
+        # ai-embeddings.service.ts / ai.controller.ts / python-ai-process.ts all read
+        # this directly. Resolves via the Cloud Map private DNS namespace in
+        # service_discovery.tf, not a hardcoded IP — Fargate reassigns the ai task's
+        # IP on every restart, so nothing but a name that follows it would work here.
+        { name = "AI_SERVICE_URL", value = "http://ai.${aws_service_discovery_private_dns_namespace.internal.name}:${var.ai_port}" },
       ]
       secrets = local.ecs_secret_refs
       logConfiguration = {
@@ -178,6 +183,13 @@ resource "aws_ecs_task_definition" "worker" {
         # No BACKGROUND_JOBS_USE_QUEUE here: worker.ts never reads that flag — it
         # always polls the queue unconditionally whenever this process runs. The
         # flag only matters on the api container, which is where it's set.
+        #
+        # AI_SERVICE_URL is needed here too: handleAdvancedLayers() (worker.ts) calls
+        # processAdvancedLayers() (layers-11-15.service.ts), which imports aiService
+        # from ai-embeddings.service.ts — the same AI_SERVICE_URL consumer as api.
+        # Matches the worker_to_ai security group rule already present in
+        # security_groups.tf, which anticipated exactly this.
+        { name = "AI_SERVICE_URL", value = "http://ai.${aws_service_discovery_private_dns_namespace.internal.name}:${var.ai_port}" },
       ]
       secrets = local.ecs_secret_refs
       logConfiguration = {
