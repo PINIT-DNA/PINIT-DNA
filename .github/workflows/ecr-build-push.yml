@@ -1,0 +1,110 @@
+# DESIGN ONLY — not yet wired to run.
+#
+# Builds and pushes the API and AI images to ECR on every push to main.
+# Does NOT touch ECS, RDS, ALB, DNS, Cloudflare, Render, or run Terraform —
+# this workflow's only effect is new images landing in ECR with a new tag.
+# Nothing consumes those images until a human points a task definition at
+# one and applies it separately.
+#
+# Prerequisite before this can run at all: infra/terraform/github_oidc.tf
+# must be reviewed and applied, and the role-to-assume ARN below must be
+# filled in from its `github_actions_ecr_push_role_arn` output. Until then,
+# every job here would fail at the "Configure AWS credentials" step with no
+# other effect (the role doesn't exist yet, so nothing can assume it).
+#
+# Tags are the short (7-char) commit SHA, matching the existing convention
+# already used for the manually-pushed, verified image (9b0522f) — never
+# "latest". Both ECR repos use IMMUTABLE tags, so re-running this workflow
+# for a commit whose tag was already pushed will fail at the push step
+# rather than silently overwrite anything; that's expected, not a bug.
+
+name: Build and Push ECR Images
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Dockerfile"
+      - "src/**"
+      - "prisma/**"
+      - "package.json"
+      - "package-lock.json"
+      - "tsconfig.json"
+      - "python-ai/**"
+      - ".github/workflows/ecr-build-push.yml"
+
+permissions:
+  id-token: write # required to request the OIDC token
+  contents: read
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REGISTRY: 975903044119.dkr.ecr.ap-south-1.amazonaws.com
+  # TODO: fill in after infra/terraform/github_oidc.tf is reviewed and applied.
+  # terraform output github_actions_ecr_push_role_arn
+  ECR_PUSH_ROLE_ARN: "arn:aws:iam::975903044119:role/REPLACE_ME-github-actions-ecr-push"
+
+jobs:
+  build-and-push-api:
+    name: Build and push pinit-api
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Short commit SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC, no long-lived keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/pinit-api:${{ steps.sha.outputs.short }}
+
+      - name: Image digest
+        run: echo "Pushed pinit-api:${{ steps.sha.outputs.short }} digest=${{ steps.build.outputs.digest }}"
+
+  build-and-push-ai:
+    name: Build and push pinit-ai
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Short commit SHA
+        id: sha
+        run: echo "short=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure AWS credentials (OIDC, no long-lived keys)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ env.ECR_PUSH_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: ./python-ai
+          file: ./python-ai/Dockerfile
+          push: true
+          tags: ${{ env.ECR_REGISTRY }}/pinit-ai:${{ steps.sha.outputs.short }}
+
+      - name: Image digest
+        run: echo "Pushed pinit-ai:${{ steps.sha.outputs.short }} digest=${{ steps.build.outputs.digest }}"
