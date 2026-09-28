@@ -64,6 +64,8 @@ export interface AIHealthStatus {
   indexed:  number;
   model:    string;
   latencyMs?: number;
+  /** Unique live documents in the index (absent on older AI-service versions). */
+  liveDocuments?: number;
 }
 
 // ─── Service ──────────────────────────────────────────────────────────────────
@@ -113,6 +115,7 @@ export class AIEmbeddingsService {
         indexed:   d.indexed,
         model:     d.model,
         latencyMs: Date.now() - start,
+        liveDocuments: typeof d.liveDocuments === 'number' ? d.liveDocuments : undefined,
       };
     } catch {
       this._isOnline = false;
@@ -234,6 +237,19 @@ export class AIEmbeddingsService {
     try {
       const { data } = await client.get('/stats');
       return data;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Ids currently live in the AI index, or null when the service is unreachable
+   * or too old to list them (callers must treat null as "unknown", not "empty").
+   */
+  async getIndexedIds(): Promise<Set<string> | null> {
+    try {
+      const { data } = await client.get<{ ids?: string[] }>('/index/ids', { timeout: 15000 });
+      return Array.isArray(data?.ids) ? new Set(data.ids) : null;
     } catch {
       return null;
     }

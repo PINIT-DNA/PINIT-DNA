@@ -145,7 +145,7 @@ export class VaultCandidateRankingService {
     }
 
     try {
-      const query = originalName.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ');
+      const query = originalName.replace(/\.[^.]+$/, '').replace(/[_\-.]/g, ' ');
       const semantic = await aiService.findSimilar(query, 15);
       for (const hit of semantic.results) {
         const vault = vaultRows.find((v) => v.dnaRecordId === hit.dnaRecordId);

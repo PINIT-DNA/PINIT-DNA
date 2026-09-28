@@ -149,7 +149,7 @@ export class VaultWideDnaSearchService {
     }
 
     try {
-      const query = originalName.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ');
+      const query = originalName.replace(/\.[^.]+$/, '').replace(/[_\-.]/g, ' ');
       const semantic = await aiService.findSimilar(query, 25);
       for (const hit of semantic.results) {
         const row = perceptualRows.find((r) => r.dnaRecordId === hit.dnaRecordId);

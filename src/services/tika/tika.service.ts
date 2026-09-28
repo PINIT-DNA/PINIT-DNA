@@ -16,6 +16,7 @@ import { logger } from '../../lib/logger';
 
 const TIKA_URL     = process.env['TIKA_URL'] ?? 'http://localhost:9998';
 const TIKA_TIMEOUT = 15_000;
+const TIKA_UNAVAILABLE_RECHECK_MS = 60_000;
 
 export interface TikaMetadata {
   'Content-Type'?:      string;
@@ -42,9 +43,18 @@ export interface TikaResult {
 
 export class TikaService {
   private _available: boolean | null = null;
+  private _checkedAt = 0;
 
+  /**
+   * "Available" is cached for the life of the process, but "unavailable" is only
+   * cached briefly: a Tika sidecar that starts after this service (normal on
+   * ECS/Render cold starts) used to stay disabled until the next restart.
+   */
   async isAvailable(): Promise<boolean> {
-    if (this._available !== null) return this._available;
+    if (this._available === true) return true;
+    if (this._available === false && Date.now() - this._checkedAt < TIKA_UNAVAILABLE_RECHECK_MS) {
+      return false;
+    }
     try {
       await axios.get(`${TIKA_URL}/tika`, { timeout: 5000 });
       this._available = true;
@@ -53,6 +63,7 @@ export class TikaService {
       this._available = false;
       logger.debug('Apache Tika not available — using built-in metadata extraction');
     }
+    this._checkedAt = Date.now();
     return this._available;
   }
 

@@ -116,7 +116,7 @@ export class WebCrawlerService {
    * Returns URLs that are likely to contain similar content.
    */
   generateSearchUrls(filename: string, keywords: string[]): string[] {
-    const cleanName = filename.replace(/\.[^.]+$/, '').replace(/[_\-]/g, '+');
+    const cleanName = filename.replace(/\.[^.]+$/, '').replace(/[_-]/g, '+');
     const keywordStr = keywords.slice(0, 3).join('+');
 
     return [

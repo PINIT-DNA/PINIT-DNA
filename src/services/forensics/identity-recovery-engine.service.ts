@@ -258,7 +258,7 @@ export class IdentityRecoveryEngine {
     if (preset && preset > 0) {
       return { score: preset * 100, detail: 'Vault semantic candidate match' };
     }
-    const query = leakVerify.identity?.originalFilename ?? name.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ');
+    const query = leakVerify.identity?.originalFilename ?? name.replace(/\.[^.]+$/, '').replace(/[_\-.]/g, ' ');
     const similar = await aiService.findSimilar(query, 5);
     const top = similar.results[0]?.similarity ?? 0;
     return {

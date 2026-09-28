@@ -105,7 +105,7 @@ describe('Phase 4.5 evidence pairing', () => {
       const row = result.layerComparisons.find((l) => l.layer === n)!;
       expect(row.skipped).toBe(true);
       expect(row.matched).toBe(false);
-      expect(row.changeDescription).toMatch(/Registry evidence/i);
+      expect(row.changeDescription).toMatch(/Vault registry has this (lifecycle|protection) layer/i);
     }
   });
 

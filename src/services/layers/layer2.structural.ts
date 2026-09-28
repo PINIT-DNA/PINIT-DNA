@@ -40,16 +40,10 @@ import path from 'path';
 import { ImageInput, StructuralLayerResult, EdgeVector } from '../../types/dna.types';
 import { logger } from '../../lib/logger';
 import { config } from '../../config';
+import { computeStructuralCore } from './layer2.core';
 
-// Sobel kernels for edge detection
-const SOBEL_X = [[-1, 0, 1], [-2, 0, 2], [-1, 0, 1]];
-const SOBEL_Y = [[-1, -2, -1], [0, 0, 0], [1, 2, 1]];
-
-// Pixels with gradient magnitude above this are considered edges
-const EDGE_THRESHOLD = 30;
-
-// Image is divided into GRID_SIZE × GRID_SIZE zones for signature
-const GRID_SIZE = 8; // 64 zones → 64-bit signature
+// Sobel kernels, the edge threshold (30) and the 8×8 zone grid (64-bit signature)
+// now live with the pixel math in ./layer2.core.ts.
 
 export class StructuralLayer {
   readonly layerNumber = 2 as const;
@@ -74,96 +68,19 @@ export class StructuralLayer {
 
       const { width, height } = info;
 
-      // ── Step 2: Convert RGB → Grayscale ───────────────────────────────────
-      // Using luminance formula: Y = 0.299R + 0.587G + 0.114B
-      const gray = new Uint8Array(width * height);
-      for (let i = 0; i < width * height; i++) {
-        const r = rawRgb[i * 3];
-        const g = rawRgb[i * 3 + 1];
-        const b = rawRgb[i * 3 + 2];
-        gray[i] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
-      }
-
-      // ── Step 3: Sobel edge detection ──────────────────────────────────────
-      // For each pixel (excluding 1px border), compute gradient magnitude
-      const gradient = new Float32Array(width * height);
-      const gradientAngle = new Float32Array(width * height);
-
-      for (let y = 1; y < height - 1; y++) {
-        for (let x = 1; x < width - 1; x++) {
-          let gx = 0;
-          let gy = 0;
-
-          for (let ky = 0; ky < 3; ky++) {
-            for (let kx = 0; kx < 3; kx++) {
-              const pixel = gray[(y + ky - 1) * width + (x + kx - 1)];
-              gx += pixel * SOBEL_X[ky][kx];
-              gy += pixel * SOBEL_Y[ky][kx];
-            }
-          }
-
-          const mag = Math.sqrt(gx * gx + gy * gy);
-          gradient[y * width + x] = mag;
-          // Gradient angle in degrees (0–360)
-          gradientAngle[y * width + x] =
-            ((Math.atan2(gy, gx) * 180) / Math.PI + 360) % 360;
-        }
-      }
-
-      // ── Step 4: Identify edge pixels ──────────────────────────────────────
-      const edgePixels: number[] = []; // flat indices of edge pixels
-      for (let i = 0; i < gradient.length; i++) {
-        if (gradient[i] > EDGE_THRESHOLD) {
-          edgePixels.push(i);
-        }
-      }
-
-      // ── Step 5: Build edge vectors (64 zones, one dominant vector each) ───
-      const edgeVectors: EdgeVector[] = [];
-      const zoneW = Math.floor(width / GRID_SIZE);
-      const zoneH = Math.floor(height / GRID_SIZE);
-
-      for (let zy = 0; zy < GRID_SIZE; zy++) {
-        for (let zx = 0; zx < GRID_SIZE; zx++) {
-          let totalMag = 0;
-          let totalAngle = 0;
-          let count = 0;
-
-          for (let py = zy * zoneH; py < (zy + 1) * zoneH && py < height; py++) {
-            for (let px = zx * zoneW; px < (zx + 1) * zoneW && px < width; px++) {
-              const idx = py * width + px;
-              if (gradient[idx] > EDGE_THRESHOLD) {
-                totalMag += gradient[idx];
-                totalAngle += gradientAngle[idx];
-                count++;
-              }
-            }
-          }
-
-          // Divide by zone area (not edge count) so density reflects the fraction
-          // of the zone that contains edges — zones with 2 boundaries score higher
-          // than zones with 1, giving the mean-threshold logic something to split on.
-          const zoneArea = zoneW * zoneH;
-          edgeVectors.push({
-            angle: count > 0 ? totalAngle / count : 0,
-            magnitude: count > 0 ? Math.min(totalMag / (zoneArea * 255), 1.0) : 0,
-          });
-        }
-      }
-
-      // ── Step 6: Build 64-bit edge signature ───────────────────────────────
-      // Each of 64 zones contributes 1 bit: 1 if zone edge density is above the
-      // global mean. Using mean (not median) ensures zones with edges in an
-      // otherwise sparse image reliably get bit=1.
-      const densities = edgeVectors.map((v) => v.magnitude);
-      const meanDensity =
-        densities.reduce((a, b) => a + b, 0) / densities.length;
-      // If mean is 0 (no edges at all), all bits stay 0 — valid for solid images
-      const signatureBits = densities.map((d) => (d > meanDensity ? 1 : 0));
+      // ── Steps 2-6 (grayscale, Sobel, edge zones, 64-bit signature) ─────────
+      // The per-pixel JS math is in layer2.core.ts and runs in a worker thread
+      // for large images, so it no longer blocks the event loop (every other
+      // request used to stall for seconds on a big photo). Same code, so the
+      // fingerprint is byte-identical.
+      const core = await computeStructuralCore(rawRgb, width, height);
+      const edgeVectors: EdgeVector[] = core.edgeVectors;
+      const signatureBits = core.signatureBits;
+      const edgePixelCount = core.edgePixelCount;
       const edgeSignature64 = this.bitsToHex(signatureBits); // 16 hex chars
 
       // ── Step 7: Create edge map thumbnail (128×128 grayscale PNG → base64) ─
-      const edgeMapBuffer = await this.buildEdgeMapThumbnail(gradient, width, height);
+      const edgeMapBuffer = await this.buildEdgeMapThumbnail(core.normalisedRgb, width, height);
       const edgeMapB64 = edgeMapBuffer.toString('base64');
 
       // ── Step 8: Embed signature into red channel LSBs at edge positions ───
@@ -171,11 +88,11 @@ export class StructuralLayer {
       // "making tiny 1-bit changes to pixels that sit exactly on edges"
       let carrierPath: string | null = null;
 
-      if (edgePixels.length >= signatureBits.length && dnaRecordId) {
+      if (edgePixelCount >= signatureBits.length && dnaRecordId) {
         const carrierRgb = Buffer.from(rawRgb); // copy
 
         for (let i = 0; i < signatureBits.length; i++) {
-          const pixelIdx = edgePixels[i];
+          const pixelIdx = core.firstEdgePixels[i];
           const redByteIdx = pixelIdx * 3; // R channel in RGB buffer
           // Set LSB of red channel to the signature bit
           carrierRgb[redByteIdx] = (carrierRgb[redByteIdx] & 0xfe) | signatureBits[i];
@@ -192,7 +109,7 @@ export class StructuralLayer {
 
         logger.debug('Layer 2 — signature embedded in carrier image', {
           bitsEmbedded: signatureBits.length,
-          edgePixelsAvailable: edgePixels.length,
+          edgePixelsAvailable: edgePixelCount,
           carrierPath,
         });
       }
@@ -211,7 +128,7 @@ export class StructuralLayer {
       };
 
       logger.debug('Layer 2 — complete', {
-        edgePixelCount: edgePixels.length,
+        edgePixelCount,
         edgeSignature64,
         processingMs: result.processingMs,
       });
@@ -291,29 +208,16 @@ export class StructuralLayer {
    * Bright pixels = strong edges; dark pixels = no edges.
    */
   private async buildEdgeMapThumbnail(
-    gradient: Float32Array,
+    normalisedRgb: Uint8Array,
     width: number,
     height: number
   ): Promise<Buffer> {
     const THUMB = 128;
-
-    // Find max without spread operator — avoids stack overflow on large images
-    let maxGrad = 0;
-    for (let i = 0; i < gradient.length; i++) {
-      if (gradient[i] > maxGrad) maxGrad = gradient[i];
-    }
-
-    // Normalise to 0–255 and convert to 3-channel RGB
-    // (sharp requires channels: 3 for reliable cross-platform PNG encoding)
-    const normalised = new Uint8Array(width * height * 3);
-    for (let i = 0; i < gradient.length; i++) {
-      const v = maxGrad > 0 ? Math.round((gradient[i] / maxGrad) * 255) : 0;
-      normalised[i * 3] = v;
-      normalised[i * 3 + 1] = v;
-      normalised[i * 3 + 2] = v;
-    }
-
-    return sharp(Buffer.from(normalised), { raw: { width, height, channels: 3 } })
+    // The gradient -> 0..255 RGB normalisation is done in layer2.core.ts (off the
+    // main thread); only the cheap resize + PNG encode remain here.
+    return sharp(Buffer.from(normalisedRgb.buffer, normalisedRgb.byteOffset, normalisedRgb.byteLength), {
+      raw: { width, height, channels: 3 },
+    })
       .resize(THUMB, THUMB)
       .png()
       .toBuffer();

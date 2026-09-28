@@ -178,7 +178,7 @@ export class VaultSimilarityVectorService {
 
     const clipScores = new Map<string, number>();
     try {
-      const query = probeName.replace(/\.[^.]+$/, '').replace(/[_\-\.]/g, ' ').trim() || 'image';
+      const query = probeName.replace(/\.[^.]+$/, '').replace(/[_\-.]/g, ' ').trim() || 'image';
       const sem = await aiService.findSimilar(query, Math.min(vaultRows.length, 40));
       for (const hit of sem.results) {
         clipScores.set(hit.dnaRecordId, Math.round(hit.similarity * 100));

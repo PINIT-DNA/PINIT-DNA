@@ -27,6 +27,10 @@ import { vaultLocalDnaSearchService } from '../../src/services/forensics/vault-l
 import { localDnaPatchGenerator } from '../../src/services/forensics/local-dna-patch-generator.service';
 import { packPatchesToArchive } from '../../src/services/forensics/local-dna-patch-packer.service';
 import { clearIndexCache } from '../../src/services/forensics/local-dna-index-cache';
+
+// The first test builds a full local-DNA index (~80 s on its own). Under a parallel run it
+// competes for CPU and exceeded the 180 s default, so this known-heavy suite gets its own budget.
+jest.setTimeout(600_000);
 import type { PatchGridResult } from '../../src/services/forensics/local-dna-patch-generator.service';
 
 const findMany = prisma.localFeatureIndex.findMany as unknown as jest.Mock<AnyAsync>;

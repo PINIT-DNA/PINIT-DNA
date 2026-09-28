@@ -85,6 +85,11 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
   }
 
   try {
+    // Scope the search to the caller's documents INSIDE the AI service. Filtering
+    // afterwards (below) alone let other tenants' documents fill the top-K.
+    const ownedIds = await ownedDnaIdSet(getAuthUserId(req));
+    const allowedIds = [...ownedIds];
+
     let results;
     const AI_BASE = process.env['AI_SERVICE_URL'] ?? 'http://localhost:8001';
     const axiosLib = (await import('axios')).default;
@@ -93,7 +98,7 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
       // Phase 4: Hybrid search — keyword 40% + semantic 60%
       const { data } = await axiosLib.post(
         `${AI_BASE}/search/hybrid`,
-        { query, topK: topK ?? 10, threshold: threshold ?? 0.50, keywordWeight, semanticWeight },
+        { query, topK: topK ?? 10, threshold: threshold ?? 0.50, keywordWeight, semanticWeight, allowedIds },
         { timeout: 15000 }
       );
       results = data;
@@ -101,20 +106,20 @@ export async function semanticSearch(req: Request, res: Response, next: NextFunc
       // Pure semantic search with Phase 5 confidence threshold
       const { data } = await axiosLib.post(
         `${AI_BASE}/search`,
-        { query, topK: topK ?? 10, threshold: threshold ?? 0.50 },
+        { query, topK: topK ?? 10, threshold: threshold ?? 0.50, allowedIds },
         { timeout: 15000 }
       );
       results = data;
     }
 
-    const ownedIds = await ownedDnaIdSet(getAuthUserId(req));
     const r = results as { results?: Array<{ dnaRecordId?: string }>; count?: number };
     const rawHits = Array.isArray(r?.results) ? r.results : [];
     const scopedHits = filterByOwnedDna(rawHits, ownedIds);
 
     await auditService.log({
       eventType: 'SEMANTIC_SEARCH',
-      detail: { query, resultCount: scopedHits.length, mode },
+      // Length only — search text is user content, not audit data.
+      detail: { queryLength: String(query ?? '').length, resultCount: scopedHits.length, mode },
       req,
     });
 

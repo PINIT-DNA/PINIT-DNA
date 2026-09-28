@@ -3411,7 +3411,7 @@ export class UnifiedInvestigationOrchestrator {
     const compositionVaultId = sourcePick?.vaultId ?? vaultId;
     const compositionVaultFilename = sourcePick?.filename ?? originalFilename ?? undefined;
 
-    let compositionScan = params.enterprise?.auditContext?.forensicScan ?? null;
+    const compositionScan = params.enterprise?.auditContext?.forensicScan ?? null;
     let compositionVaultBuffer: Buffer | undefined;
     if (
       compositionVaultId
