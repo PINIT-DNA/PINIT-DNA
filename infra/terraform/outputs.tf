@@ -80,3 +80,14 @@ output "iam_role_arns" {
 output "log_group_names" {
   value = [for g in aws_cloudwatch_log_group.app : g.name]
 }
+
+# ---- Phase 3 prep (draft, not applied) ---------------------------------------------
+
+output "ecs_task_definition_arns" {
+  description = "Registered but unused until a Phase 3 service/cluster references them."
+  value = {
+    api    = aws_ecs_task_definition.api.arn
+    worker = aws_ecs_task_definition.worker.arn
+    ai     = aws_ecs_task_definition.ai.arn
+  }
+}
