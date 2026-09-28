@@ -42,7 +42,7 @@ env:
   ECR_REGISTRY: 975903044119.dkr.ecr.ap-south-1.amazonaws.com
   # TODO: fill in after infra/terraform/github_oidc.tf is reviewed and applied.
   # terraform output github_actions_ecr_push_role_arn
-  ECR_PUSH_ROLE_ARN: "arn:aws:iam::975903044119:role/REPLACE_ME-github-actions-ecr-push"
+  ECR_PUSH_ROLE_ARN: "arn:aws:iam::975903044119:role/pinit-prod-github-actions-ecr-push"
 
 jobs:
   build-and-push-api:
