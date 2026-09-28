@@ -55,7 +55,7 @@ data "aws_iam_policy_document" "github_actions_assume" {
 
 resource "aws_iam_role" "github_actions_ecr_push" {
   name        = "${local.name}-github-actions-ecr-push"
-  description = "CI-only: build and push images to pinit-api/pinit-ai from GitHub Actions on main. No other AWS access — cannot touch ECS, RDS, S3, SQS, EFS, or Secrets Manager."
+  description = "CI-only: build and push images to pinit-api/pinit-ai from GitHub Actions on main. No other AWS access - cannot touch ECS, RDS, S3, SQS, EFS, or Secrets Manager."
 
   assume_role_policy = data.aws_iam_policy_document.github_actions_assume.json
 }
