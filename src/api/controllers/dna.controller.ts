@@ -200,6 +200,19 @@ export async function generateDna(
     const locationShared = String((req.body as { locationShared?: string })?.locationShared ?? '') === 'true';
     const hasGps = locationShared && Number.isFinite(gpsLat) && Number.isFinite(gpsLng);
     const clientIp = resolveClientIp(req);
+    const body = req.body as {
+      timezone?: string;
+      captureMethod?: string;
+      deviceModel?: string;
+      software?: string;
+      capturedAt?: string;
+      imageWidth?: string;
+      imageHeight?: string;
+      gpsAccuracy?: string;
+    };
+    const imageWidth = parseInt(String(body.imageWidth ?? ''), 10);
+    const imageHeight = parseInt(String(body.imageHeight ?? ''), 10);
+    const gpsAccuracy = parseFloat(String(body.gpsAccuracy ?? ''));
 
     const result = await router.route({
       filePath:        req.file.path,
@@ -215,6 +228,16 @@ export async function generateDna(
       gpsLatitude:     hasGps ? gpsLat : undefined,
       gpsLongitude:    hasGps ? gpsLng : undefined,
       locationShared:  hasGps,
+      captureContext: {
+        timezone: body.timezone?.trim() || undefined,
+        captureMethod: body.captureMethod?.trim() || undefined,
+        deviceModel: body.deviceModel?.trim() || undefined,
+        software: body.software?.trim() || undefined,
+        capturedAt: body.capturedAt?.trim() || undefined,
+        width: Number.isFinite(imageWidth) ? imageWidth : undefined,
+        height: Number.isFinite(imageHeight) ? imageHeight : undefined,
+        gpsAccuracy: Number.isFinite(gpsAccuracy) ? gpsAccuracy : undefined,
+      },
     });
 
     // Non-image engines do not go through DnaOrchestrator provenance — record creation here.

@@ -284,7 +284,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             className="w-8 h-8 rounded-xl object-contain shrink-0"
           />
           <div className="leading-tight min-w-0 flex-1">
-            <p className="font-bold text-slate-900 text-sm tracking-tight truncate">{BRAND.name}</p>
+            <p className="font-display font-semibold text-slate-900 text-[15px] tracking-tight truncate">{BRAND.name}</p>
           </div>
           <button
             type="button"
@@ -299,7 +299,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
-        <p className="px-3 pt-1 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase text-slate-400">Core</p>
+        <p className="font-label px-3 pt-1 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase text-slate-400">Core</p>
         <NavLink
           to={homeTo}
           end
@@ -342,7 +342,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 )}
               >
                 <GroupIcon size={15} className={cn('shrink-0', isOpen || childActive ? 'text-dna-600' : 'text-slate-400')} />
-                <span className="flex-1 text-left text-[11px] font-semibold tracking-[0.12em] uppercase">{group.label}</span>
+                <span className="font-label flex-1 text-left text-[11px] font-semibold tracking-[0.12em] uppercase">{group.label}</span>
                 <ChevronDown
                   size={14}
                   className={cn(

@@ -96,6 +96,8 @@ function mapHubAsset(a, pinitId) {
     ai_percent: a.ai_percent != null ? Number(a.ai_percent) : 10,
     badge_tier: a.badge_tier || 'Bronze',
     dna_status: a.dna_status || null,
+    // Canonical certificate id from HUB when the asset already has one.
+    certificate_id: a.certificate_id || null,
     created_at: a.created_at || null,
     source: a.source || 'hub',
   };
@@ -106,8 +108,9 @@ function upsertLocalCache(asset, pinitId, cb) {
   db.run(`
     INSERT INTO hub_assets (
       asset_id, pinit_id, title, file_type, vertical, preview_url,
-      vault_encrypted, dna_record_id, human_percent, ai_percent, badge_tier, protection_status
-    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
+      vault_encrypted, dna_record_id, human_percent, ai_percent, badge_tier, protection_status,
+      certificate_id
+    ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(asset_id) DO UPDATE SET
       title = excluded.title,
       human_percent = excluded.human_percent,
@@ -115,7 +118,9 @@ function upsertLocalCache(asset, pinitId, cb) {
       badge_tier = excluded.badge_tier,
       dna_record_id = excluded.dna_record_id,
       protection_status = excluded.protection_status,
-      preview_url = excluded.preview_url
+      preview_url = excluded.preview_url,
+      -- Keep an id we already hold if HUB sends the asset without one.
+      certificate_id = COALESCE(excluded.certificate_id, hub_assets.certificate_id)
   `, [
     asset.asset_id,
     pinitId,
@@ -128,6 +133,7 @@ function upsertLocalCache(asset, pinitId, cb) {
     asset.ai_percent,
     asset.badge_tier,
     protectionStatus,
+    asset.certificate_id || null,
   ], () => cb?.());
 }
 

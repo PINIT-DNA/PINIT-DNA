@@ -1,8 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Archive, Search, RefreshCw, Eye, Check, Clock, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
-import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
-import { ShareLinkDialog } from '../components/share/ShareLinkDialog';
 import { ExchangeListedTag } from '../components/ExchangeListedTag';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
@@ -11,7 +9,6 @@ import { useApi, formatBytes } from '../hooks/useApi';
 import {
   listVaultRecords,
   protectedDownloadFromVault,
-  deleteVaultRecord,
   api,
   getExchangeListedAssets,
 } from '../services/dashboard.api';
@@ -93,7 +90,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
             <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
           </div>
           <p className="text-xs text-gray-400 mb-2">
-            Download with tracking so you can see who received the file. Opening outside Pinit may still
+            Download with tracking so you can see who received the asset. Opening outside Pinit may still
             be identified later through Investigate.
           </p>
           <ul className="text-xs text-dna-300 space-y-0.5">
@@ -173,12 +170,10 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
 
 function VaultGalleryCard({
   record,
-  selected,
   listed,
   onSelect,
 }: {
   record: VaultRecord;
-  selected: boolean;
   listed: boolean;
   onSelect: () => void;
 }) {
@@ -189,7 +184,6 @@ function VaultGalleryCard({
       onClick={onSelect}
       className={cn(
         'card overflow-hidden p-0 text-left transition-all duration-200 hover:border-dna-500/35 hover:-translate-y-0.5',
-        selected && 'ring-2 ring-dna-500/55 border-dna-500/40',
       )}
     >
       <div className="w-full aspect-[4/3] bg-bg-elevated relative overflow-hidden">
@@ -226,17 +220,14 @@ export function VaultPage() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const focusId = params.get('id');
-  const { data: records, loading, error, refetch, setData: setRecords } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
+  const { data: records, loading, error, refetch } = useApi(listVaultRecords, [], { cacheKey: 'vault-records' });
   const [listedByVault, setListedByVault] = useState<Record<string, { listingId: string }>>({});
   const [search, setSearch]     = useState('');
-  const [selected, setSelected] = useState<VaultRecord | null>(null);
-  const [protecting, setProtecting] = useState<VaultRecord | null>(null);
   const [aiMode, setAiMode]     = useState(false);
   const [aiResults, setAiResults] = useState<string[]>([]); // dnaRecordIds matching AI search
   const [aiSearching, setAiSearching] = useState(false);
   const [viewMode, setViewMode] = useState<'gallery' | 'list'>('gallery');
   const [typeFilter, setTypeFilter] = useState<string>('ALL');
-  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -256,46 +247,9 @@ export function VaultPage() {
   }, []);
 
   useEffect(() => {
-    if (!focusId || !records?.length || selected?.id === focusId) return;
-    const match = records.find((r) => r.id === focusId);
-    if (match) setSelected(match);
-  }, [focusId, records, selected?.id]);
-
-  /** Sharing happens here now — the full policy page is one click deeper. */
-  const [sharing, setSharing] = useState<VaultRecord | null>(null);
-
-  const handleShare = (record: VaultRecord) => {
-    setSelected(null);
-    setProtecting(null);
-    setSharing(record);
-  };
-
-  const handleRenamed = (vaultId: string, originalFileName: string) => {
-    setRecords((prev) =>
-      (prev ?? []).map((r) => (r.id === vaultId ? { ...r, originalFileName } : r)),
-    );
-    setSelected((prev) => (prev?.id === vaultId ? { ...prev, originalFileName } : prev));
-  };
-
-  const handleDelete = async (record: VaultRecord) => {
-    if (!window.confirm(`Remove "${record.originalFileName}" from My Assets?`)) return;
-    const previous = records;
-    setDeletingId(record.id);
-    // Optimistic UI — remove card + close panel immediately
-    setRecords((prev) => (prev ?? []).filter((r) => r.id !== record.id));
-    if (selected?.id === record.id) setSelected(null);
-    if (protecting?.id === record.id) setProtecting(null);
-    try {
-      await deleteVaultRecord(record.id);
-      toast.success('File removed');
-    } catch {
-      setRecords(previous);
-      toast.error('Failed to delete file');
-      refetch();
-    } finally {
-      setDeletingId(null);
-    }
-  };
+    if (!focusId) return;
+    navigate(`/vault/${encodeURIComponent(focusId)}`, { replace: true });
+  }, [focusId, navigate]);
 
   const handleSearch = async (q: string) => {
     setSearch(q);
@@ -358,7 +312,7 @@ export function VaultPage() {
         <div className="flex items-center gap-2 shrink-0 ml-auto">
           {!loading && records && (
             <div className="flex items-center gap-2">
-              <Badge variant="purple">{records.length} files</Badge>
+              <Badge variant="purple">{records.length} {records.length === 1 ? 'asset' : 'assets'}</Badge>
               <Badge variant="success" dot>Protected</Badge>
               {Object.keys(listedByVault).length > 0 && (
                 <Badge variant="orange">{Object.keys(listedByVault).length} on Exchange</Badge>
@@ -453,7 +407,7 @@ export function VaultPage() {
               : <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500" />}
             <input
               type="text"
-              placeholder={aiMode ? 'Search by meaning or filename…' : 'Search by filename or source…'}
+              placeholder={aiMode ? 'Search by meaning or asset name…' : 'Search by asset name or source…'}
               value={search}
               onChange={e => handleSearch(e.target.value)}
               className="input pl-9 text-sm"
@@ -511,19 +465,13 @@ export function VaultPage() {
                 description="Protect your first asset to start building your protected library."
               />
             ) : (
-              <div className={cn(
-                'grid gap-4',
-                selected
-                  ? 'grid-cols-2 sm:grid-cols-2 lg:grid-cols-3'
-                  : 'grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5',
-              )}>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filtered.map(r => (
                   <VaultGalleryCard
                     key={r.id}
                     record={r}
-                    selected={selected?.id === r.id}
                     listed={Boolean(listedByVault[r.id])}
-                    onSelect={() => setSelected(prev => (prev?.id === r.id ? null : r))}
+                    onSelect={() => navigate(`/vault/${r.id}`)}
                   />
                 ))}
               </div>
@@ -561,11 +509,8 @@ export function VaultPage() {
                 filtered.map(r => (
                   <tr
                     key={r.id}
-                    onClick={() => setSelected(prev => (prev?.id === r.id ? null : r))}
-                    className={cn(
-                      'cursor-pointer transition-colors',
-                      selected?.id === r.id && 'bg-dna-500/10',
-                    )}
+                    onClick={() => navigate(`/vault/${r.id}`)}
+                    className="cursor-pointer transition-colors hover:bg-dna-500/5"
                   >
                     <td>
                       <div className="flex items-center gap-2.5">
@@ -636,7 +581,7 @@ export function VaultPage() {
                     <td onClick={e => e.stopPropagation()}>
                       <button
                         type="button"
-                        onClick={() => setSelected(r)}
+                        onClick={() => navigate(`/vault/${r.id}`)}
                         className="btn-ghost btn-sm text-xs text-dna-400"
                       >
                         <Eye size={12} /> Open
@@ -651,39 +596,6 @@ export function VaultPage() {
         )}
       </div>
       </div>
-
-        {selected && (
-          <VaultDetailSidePanel
-            record={selected}
-            listedOnExchange={Boolean(listedByVault[selected.id])}
-            exchangeListingId={listedByVault[selected.id]?.listingId || null}
-            onClose={() => {
-              setSelected(null);
-              // Deep links keep ?id= in the URL; leaving it there re-opens this panel.
-              if (focusId && focusId === selected.id) {
-                if (window.history.length > 1) navigate(-1);
-                else navigate('/vault', { replace: true });
-              }
-            }}
-            onShare={() => handleShare(selected)}
-            onDelete={() => handleDelete(selected)}
-            onRenamed={handleRenamed}
-            deleting={deletingId === selected.id}
-          />
-        )}
-
-      {sharing && (
-        <ShareLinkDialog
-          vaultId={sharing.id}
-          filename={sharing.originalFileName}
-          sizeBytes={sharing.originalSizeBytes}
-          onClose={() => setSharing(null)}
-        />
-      )}
-
-      {protecting && (
-        <ProtectedDownloadModal record={protecting} onClose={() => setProtecting(null)} />
-      )}
     </div>
   );
 }

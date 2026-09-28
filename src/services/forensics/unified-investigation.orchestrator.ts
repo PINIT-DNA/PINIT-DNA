@@ -116,6 +116,8 @@ import {
   transformationsFromTamper,
 } from '../dna-vnext';
 import { DNA_LAYER_REGISTRY } from '../../constants/dna-layer-registry';
+import { prnuCameraService } from './prnu-camera.service';
+import type { CameraForensicsStored } from '../../types/camera-forensics.types';
 import { DocumentLineageService } from '../lineage/document-lineage.service';
 
 const documentLineageService = new DocumentLineageService();
@@ -1298,7 +1300,7 @@ export class UnifiedInvestigationOrchestrator {
       }),
       prisma.dnaRecord.findUnique({
         where: { id: match.dnaRecordId },
-        select: { createdAt: true, imageFilename: true, sha256Hash: true },
+        select: { createdAt: true, imageFilename: true, sha256Hash: true, cameraForensics: true },
       }),
     ]);
 
@@ -1747,6 +1749,20 @@ export class UnifiedInvestigationOrchestrator {
     const leakIntel = enrichment.results.leak_intelligence?.data as LeakIntelligenceSection | null
       ?? { hasPublicLeak: false, entries: [], message: 'Leak intelligence unavailable.' };
     const dnaRec = dnaPrefetch;
+    let cameraForensics = prnuCameraService.toPublic(
+      (dnaRec?.cameraForensics as CameraForensicsStored | null) ?? null,
+    );
+    if ((mimeType ?? '').startsWith('image/') && buffer?.length) {
+      try {
+        const probeCf = await prnuCameraService.correlateProbe(
+          buffer,
+          (dnaRec?.cameraForensics as CameraForensicsStored | null) ?? null,
+        );
+        if (probeCf) cameraForensics = probeCf;
+      } catch (err) {
+        logger.warn('PRNU probe correlation skipped', { error: String(err) });
+      }
+    }
     const originalFilename = authAsset?.originalFilename
       ?? dnaRec?.imageFilename
       ?? vaultRow?.originalFileName
@@ -2423,6 +2439,7 @@ export class UnifiedInvestigationOrchestrator {
       dnaVnext,
       provenance: { authorizationStatus },
       relatedLineage,
+      cameraForensics: cameraForensics ?? undefined,
     };
 
     return this.attachPipelineAudit(report, {

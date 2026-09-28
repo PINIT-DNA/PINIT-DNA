@@ -64,6 +64,16 @@ export interface FileInput {
   gpsLatitude?: number;
   gpsLongitude?: number;
   locationShared?: boolean;
+  captureContext?: {
+    timezone?: string;
+    captureMethod?: string;
+    deviceModel?: string;
+    software?: string;
+    capturedAt?: string;
+    width?: number;
+    height?: number;
+    gpsAccuracy?: number;
+  };
 }
 
 // ─── Engine version ───────────────────────────────────────────────────────────
@@ -181,6 +191,7 @@ export class UniversalFileRouter {
       gpsLatitude: file.gpsLatitude,
       gpsLongitude: file.gpsLongitude,
       locationShared: file.locationShared,
+      captureContext: file.captureContext,
     });
 
     return {

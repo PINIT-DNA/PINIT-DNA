@@ -219,8 +219,8 @@ export function useAutoDocumentCapture(
         setHint(profile === 'forensic'
           ? 'Hold steady — auto-capture in a moment…'
           : profile === 'screen'
-            ? 'Center the vault file on screen'
-            : 'Point camera at document…');
+            ? 'Center the vault asset on screen'
+            : 'Point camera at the asset…');
         return;
       }
 
@@ -255,8 +255,8 @@ export function useAutoDocumentCapture(
         stableSinceRef.current = null;
         setPhase('searching');
         setHint(profile === 'forensic'
-          ? 'Center the file in the frame'
-          : 'Align document inside the frame');
+          ? 'Center the asset in the frame'
+          : 'Align the asset inside the frame');
         setProgress(0);
         return;
       }

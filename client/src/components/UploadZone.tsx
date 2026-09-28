@@ -1,13 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
-import { Upload, ScanLine, Video, Mic, FileUp, Pencil, Check, X, Camera } from 'lucide-react';
+import { Pencil, Check, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useSubscription } from '../hooks/useSubscription';
-import { DocumentScanner } from './DocumentScanner';
-import { MediaRecorderPanel } from './MediaRecorderPanel';
+import { ProtectCaptureStudio } from './ProtectCaptureStudio';
 import {
-  ACCEPT_MAP,
   formatBytes,
   getFileIcon,
   getFileTypeLabel,
@@ -17,21 +14,11 @@ import {
   isVideoFile,
 } from '../lib/file-type-utils';
 
-export type CaptureMode = 'upload' | 'photo' | 'scan' | 'video' | 'audio';
-
 interface Props {
   onFileSelected: (file: File | null) => void;
   onGenerate: () => void;
   selectedFile: File | null;
 }
-
-const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload }[] = [
-  { id: 'upload', label: 'Upload', icon: Upload },
-  { id: 'photo', label: 'Photo', icon: Camera },
-  { id: 'scan', label: 'Scan', icon: ScanLine },
-  { id: 'video', label: 'Video', icon: Video },
-  { id: 'audio', label: 'Audio', icon: Mic },
-];
 
 function splitName(filename: string): { base: string; ext: string } {
   const i = filename.lastIndexOf('.');
@@ -100,7 +87,6 @@ function FilePreview({ file }: { file: File }) {
 }
 
 export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) {
-  const [captureMode, setCaptureMode] = useState<CaptureMode>('upload');
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -108,7 +94,6 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
   const handleFileReady = useCallback(
     (file: File) => {
       onFileSelected(file);
-      setCaptureMode('upload');
       setRenaming(false);
       setRenameError(null);
     },
@@ -139,257 +124,146 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
     setRenameError(null);
   }, [selectedFile, renameDraft, onFileSelected]);
 
-  const onDrop = useCallback(
-    (files: File[]) => {
-      const file = files[0];
-      if (file) handleFileReady(file);
-    },
-    [handleFileReady],
-  );
-
-  // No fixed size limit: what decides whether a file can be protected is the
-  // owner's remaining Vault storage. The backend re-checks; this only explains.
   const { subscription } = useSubscription();
   const storageLimit = subscription?.enforcementEnabled ? subscription.storageLimitBytes : null;
-  const storageRemaining = storageLimit == null
-    ? null
-    : Math.max(0, storageLimit - (subscription?.storageUsedBytes ?? 0));
-  const exceedsStorage = Boolean(
-    selectedFile && storageRemaining != null && selectedFile.size > storageRemaining,
-  );
-
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: ACCEPT_MAP,
-    maxFiles: 1,
-  });
+  const storageRemaining =
+    storageLimit == null ? null : Math.max(0, storageLimit - (subscription?.storageUsedBytes ?? 0));
+  const exceedsStorage = Boolean(selectedFile && storageRemaining != null && selectedFile.size > storageRemaining);
 
   const fileLabel = selectedFile ? getFileTypeLabel(selectedFile) : '';
   const selectedExt = selectedFile ? splitName(selectedFile.name).ext : '';
 
   return (
     <div className="max-w-3xl mx-auto w-full">
-      <motion.div
-        initial={{ opacity: 0, y: -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-8"
-      >
-        <h2 className="text-3xl font-bold text-white">Protect New Asset</h2>
-        <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
-          Upload your file and we’ll create its protected identity.
-        </p>
-      </motion.div>
-
       {!selectedFile && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-5"
-        >
-          {CAPTURE_MODES.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setCaptureMode(id)}
-              className={`rounded-xl border p-3 text-left transition-all ${
-                captureMode === id
-                  ? 'bg-dna-500/12 border-dna-500/40 shadow-sm'
-                  : 'bg-bg-card border-bg-border hover:border-dna-500/25'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Icon size={15} className={captureMode === id ? 'text-dna-500' : 'text-gray-400'} />
-                <span className={`text-sm font-semibold ${captureMode === id ? 'text-dna-500' : 'text-white'}`}>
-                  {label}
-                </span>
-              </div>
-            </button>
-          ))}
-        </motion.div>
+        <>
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-6">
+            <h2 className="text-3xl font-bold text-white leading-tight">
+              Capture what matters.
+              <br />
+              Keep it yours.
+            </h2>
+            <p className="text-sm text-gray-500 mt-2 max-w-lg mx-auto">
+              Take a photo or add a file. We’ll protect it, preserve its identity, and keep it safe.
+            </p>
+          </motion.div>
+          <ProtectCaptureStudio onFileReady={handleFileReady} />
+          {storageRemaining != null && (
+            <p className="mt-4 text-center text-xs text-gray-500">
+              {formatBytes(storageRemaining)} of storage left
+            </p>
+          )}
+        </>
       )}
 
-      {!selectedFile && captureMode === 'photo' && (
-        <DocumentScanner
-          subtitle="Take a photo — it goes straight into Protect → Vault"
-          captureMode="single"
-          quickCapture
-          onScanComplete={handleFileReady}
-          onCancel={() => setCaptureMode('upload')}
-        />
-      )}
-
-      {!selectedFile && captureMode === 'scan' && (
-        <DocumentScanner
-          subtitle="Scan pages into a protected PDF"
-          captureMode="multi"
-          onScanComplete={handleFileReady}
-          onCancel={() => setCaptureMode('upload')}
-        />
-      )}
-
-      {!selectedFile && captureMode === 'video' && (
-        <MediaRecorderPanel mode="video" onComplete={handleFileReady} onCancel={() => setCaptureMode('upload')} />
-      )}
-
-      {!selectedFile && captureMode === 'audio' && (
-        <MediaRecorderPanel mode="audio" onComplete={handleFileReady} onCancel={() => setCaptureMode('upload')} />
-      )}
-
-      {!selectedFile && captureMode === 'upload' && (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-          <div
-            {...getRootProps()}
-            className={`
-              relative rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-300 overflow-hidden
-              ${isDragActive
-                ? 'border-dna-500 bg-dna-500/10 glow-purple'
-                : 'border-bg-border bg-bg-card hover:border-dna-500/50 hover:bg-bg-card/80'
-              }
-            `}
+      {selectedFile && (
+        <>
+          <motion.div initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} className="text-center mb-6">
+            <h2 className="text-3xl font-bold text-white">Looks good?</h2>
+            <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
+              Change the name if you like, then protect it. You can share it safely after that.
+            </p>
+          </motion.div>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.98 }}
+            animate={{ opacity: 1, scale: 1 }}
+            className="rounded-2xl border-2 border-dna-500/30 bg-dna-500/5 overflow-hidden"
           >
-            <input {...getInputProps()} />
-            <div className="flex flex-col items-center justify-center py-14 px-6">
-              {isDragActive ? (
-                <>
-                  <FileUp size={48} className="text-dna-400 mb-3" />
-                  <p className="text-dna-400 font-semibold">Drop file here</p>
-                </>
-              ) : (
-                <>
-                  <div className="w-16 h-16 rounded-2xl bg-dna-500/10 flex items-center justify-center mb-4">
-                    <Upload size={28} className="text-dna-400" />
+            <div className="flex flex-col sm:flex-row items-stretch gap-0">
+              <div className="sm:w-48 h-48 sm:h-auto shrink-0 p-4">
+                <div className="w-full h-full min-h-[160px] rounded-xl border border-bg-border overflow-hidden shadow-lg">
+                  <FilePreview file={selectedFile} />
+                </div>
+              </div>
+              <div className="flex-1 p-6 flex flex-col justify-center">
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-dna-400 font-semibold text-sm">Your file</p>
+                  <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">{fileLabel}</span>
+                </div>
+
+                {renaming ? (
+                  <div className="mt-1 space-y-2">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={renameDraft}
+                        onChange={(e) => {
+                          setRenameDraft(e.target.value);
+                          setRenameError(null);
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            applyRename();
+                          }
+                          if (e.key === 'Escape') cancelRename();
+                        }}
+                        autoFocus
+                        className="input flex-1 min-w-0 text-sm font-medium"
+                        placeholder="File name"
+                        aria-label="Rename file"
+                      />
+                      {selectedExt && <span className="mono text-xs text-gray-500 shrink-0">{selectedExt}</span>}
+                      <button type="button" onClick={applyRename} className="btn-primary btn-sm px-2.5" title="Save name">
+                        <Check size={14} />
+                      </button>
+                      <button type="button" onClick={cancelRename} className="btn-secondary btn-sm px-2.5" title="Cancel">
+                        <X size={14} />
+                      </button>
+                    </div>
+                    {renameError && <p className="text-xs text-danger">{renameError}</p>}
+                    <p className="text-2xs text-gray-500">The file type stays the same.</p>
                   </div>
-                  <p className="text-white font-semibold text-lg mb-1">Drag & drop any asset</p>
-                  <p className="text-gray-500 text-sm">or click here to browse</p>
-                  <p className="text-gray-500 text-xs mt-3 text-center max-w-sm">
-                    Any file size. Protection uses your Vault storage
-                    {storageRemaining != null ? ` — ${formatBytes(storageRemaining)} available` : ''}.
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
-        </motion.div>
-      )}
-
-      {selectedFile && (
-        <motion.div
-          initial={{ opacity: 0, scale: 0.98 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="rounded-2xl border-2 border-dna-500/30 bg-dna-500/5 overflow-hidden"
-        >
-          <div className="flex flex-col sm:flex-row items-stretch gap-0">
-            <div className="sm:w-48 h-48 sm:h-auto shrink-0 p-4">
-              <div className="w-full h-full min-h-[160px] rounded-xl border border-bg-border overflow-hidden shadow-lg">
-                <FilePreview file={selectedFile} />
-              </div>
-            </div>
-            <div className="flex-1 p-6 flex flex-col justify-center">
-              <div className="flex items-center gap-2 mb-1">
-                <p className="text-dna-400 font-semibold text-sm">Ready to Generate</p>
-                <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">{fileLabel}</span>
-              </div>
-
-              {renaming ? (
-                <div className="mt-1 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="text"
-                      value={renameDraft}
-                      onChange={(e) => {
-                        setRenameDraft(e.target.value);
-                        setRenameError(null);
-                      }}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault();
-                          applyRename();
-                        }
-                        if (e.key === 'Escape') cancelRename();
-                      }}
-                      autoFocus
-                      className="input flex-1 min-w-0 text-sm font-medium"
-                      placeholder="File name"
-                      aria-label="Rename file"
-                    />
-                    {selectedExt && (
-                      <span className="mono text-xs text-gray-500 shrink-0">{selectedExt}</span>
-                    )}
+                ) : (
+                  <div className="flex items-start gap-2 mt-0.5">
+                    <p className="text-white font-medium text-lg truncate min-w-0 flex-1">{selectedFile.name}</p>
                     <button
                       type="button"
-                      onClick={applyRename}
-                      className="btn-primary btn-sm px-2.5"
-                      title="Save name"
+                      onClick={startRename}
+                      className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-dna-500 hover:text-dna-600 mt-1"
                     >
-                      <Check size={14} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={cancelRename}
-                      className="btn-secondary btn-sm px-2.5"
-                      title="Cancel"
-                    >
-                      <X size={14} />
+                      <Pencil size={12} />
+                      Rename
                     </button>
                   </div>
-                  {renameError && <p className="text-xs text-danger">{renameError}</p>}
-                  <p className="text-2xs text-gray-500">Extension stays the same ({selectedExt || 'none'}).</p>
-                </div>
-              ) : (
-                <div className="flex items-start gap-2 mt-0.5">
-                  <p className="text-white font-medium text-lg truncate min-w-0 flex-1">{selectedFile.name}</p>
-                  <button
-                    type="button"
-                    onClick={startRename}
-                    className="shrink-0 inline-flex items-center gap-1 text-xs font-semibold text-dna-500 hover:text-dna-600 mt-1"
-                  >
-                    <Pencil size={12} />
-                    Rename
-                  </button>
-                </div>
-              )}
-
-              <div className="flex flex-wrap gap-4 mt-2">
-                <span className="mono text-xs text-gray-400">{formatBytes(selectedFile.size)}</span>
-                {storageRemaining != null && (
-                  <span className="mono text-xs text-gray-400">
-                    {formatBytes(storageRemaining)} Vault storage available
-                  </span>
                 )}
-                <span className="mono text-xs text-gray-400">{selectedFile.type || 'unknown'}</span>
+
+                <div className="flex flex-wrap gap-4 mt-2">
+                  <span className="mono text-xs text-gray-400">{formatBytes(selectedFile.size)}</span>
+                  {storageRemaining != null && (
+                    <span className="mono text-xs text-gray-400">
+                      {formatBytes(storageRemaining)} of storage left
+                    </span>
+                  )}
+                </div>
+                <p className="text-gray-500 text-xs mt-3">
+                  This isn’t saved yet. Protect it next so it lives in your vault.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setRenaming(false);
+                    onFileSelected(null);
+                  }}
+                  className="mt-4 text-xs text-gray-500 hover:text-dna-400 transition-colors text-left w-fit"
+                >
+                  ← Take another
+                </button>
               </div>
-              <p className="text-gray-500 text-xs mt-3">
-                Not protected yet — rename if needed, then click below to create identity and store this file.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setRenaming(false);
-                  onFileSelected(null);
-                }}
-                className="mt-4 text-xs text-gray-500 hover:text-dna-400 transition-colors text-left w-fit"
-              >
-                ← Change file
-              </button>
             </div>
-          </div>
-        </motion.div>
+          </motion.div>
+        </>
       )}
 
       {selectedFile && (
-        <motion.div
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mt-6 flex justify-center"
-        >
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-6 flex justify-center">
           {exceedsStorage ? (
             <div className="max-w-lg w-full rounded-xl border border-danger/30 bg-danger/5 p-4 text-center">
               <p className="text-sm text-danger font-medium">
-                Not enough Vault storage. Upgrade your storage to protect this asset.
+                This file is larger than the storage you have left.
               </p>
               <p className="text-xs text-gray-400 mt-1">
-                This file is {formatBytes(selectedFile.size)}; you have {formatBytes(storageRemaining ?? 0)} of
-                Vault storage available.
+                The file is {formatBytes(selectedFile.size)}. You have {formatBytes(storageRemaining ?? 0)} left.
               </p>
               <Link to="/upgrade?from=storage&return=/generate" className="btn-primary btn-sm mt-3 inline-flex">
                 Upgrade storage
@@ -397,7 +271,7 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
             </div>
           ) : (
             <button type="button" onClick={onGenerate} className="btn-primary text-base px-10 py-4">
-              <span>Protect This Asset</span>
+              <span>Protect this file</span>
               <span className="text-lg">→</span>
             </button>
           )}

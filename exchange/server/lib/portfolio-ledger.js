@@ -19,19 +19,33 @@ import { identityMatchSql } from './pinit-identity.js';
 /** Columns safe to publish. A file path or storage key must never appear. */
 const LEDGER_FIELDS = [
   'asset_id', 'title', 'vertical', 'file_type', 'badge_tier',
-  'human_percent', 'ai_percent', 'dna_record_id', 'created_at',
+  'human_percent', 'ai_percent', 'dna_record_id', 'created_at', 'certificate_id',
 ];
 
-function publicCertificate(assetId) {
-  const raw = String(assetId || '').replace(/-/g, '');
-  if (raw.length < 6) return '';
-  return `PX-${raw.slice(-6).toUpperCase()}`;
+/** Where certificates are issued and verified. Exchange only ever points at it. */
+const HUB_APP_URL = (process.env.HUB_APP_URL || 'https://pinit-dna.vercel.app').replace(/\/$/, '');
+
+/**
+ * The certificate id HUB issued for this asset, or nothing.
+ *
+ * This used to compose `PX-` + the last six characters of the asset id, which read
+ * like a certificate number but was invented here: it matched no record, verified
+ * nowhere, and disagreed with the CERT-DNA-... id the same certificate has in HUB.
+ * A portfolio now shows the real certificate or none at all.
+ */
+function canonicalCertificate(row) {
+  const id = String(row.certificate_id || '').trim();
+  return id || '';
 }
 
 function toEntry(row) {
   return {
     asset_id: row.asset_id,
-    certificate: publicCertificate(row.asset_id),
+    certificate: canonicalCertificate(row),
+    certificate_id: canonicalCertificate(row),
+    verification_url: canonicalCertificate(row)
+      ? `${HUB_APP_URL}/verify-certificate?id=${encodeURIComponent(canonicalCertificate(row))}`
+      : '',
     title: row.title || 'Untitled',
     vertical: row.vertical || '',
     file_type: row.file_type || '',

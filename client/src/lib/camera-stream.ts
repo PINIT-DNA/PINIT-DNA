@@ -55,29 +55,38 @@ export async function preferContinuousFocus(track: MediaStreamTrack | null | und
  * Strict min resolution fails on most laptop webcams (OverconstrainedError) —
  * fall back so Scan works on Integrated Webcam / 720p devices.
  */
-export async function openCameraStream(): Promise<MediaStream> {
+export type CameraFacing = 'user' | 'environment';
+
+export async function openCameraStream(opts?: {
+  facingMode?: CameraFacing;
+  audio?: boolean;
+}): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw Object.assign(new Error('Camera API unavailable'), { name: 'NotSupportedError' });
   }
 
+  const facing = opts?.facingMode ?? 'environment';
+  const audio = opts?.audio ?? false;
+  const opposite: CameraFacing = facing === 'user' ? 'environment' : 'user';
+
   const attempts: MediaStreamConstraints[] = [
     {
       video: {
-        facingMode: { ideal: 'environment' },
+        facingMode: { ideal: facing },
         width: { ideal: 1920 },
         height: { ideal: 1080 },
       },
-      audio: false,
+      audio,
     },
     {
       video: {
-        facingMode: { ideal: 'user' },
+        facingMode: { ideal: opposite },
         width: { ideal: 1280 },
         height: { ideal: 720 },
       },
-      audio: false,
+      audio,
     },
-    { video: true, audio: false },
+    { video: true, audio },
   ];
 
   let lastError: unknown;

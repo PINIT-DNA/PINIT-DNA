@@ -24,6 +24,7 @@ import { BehavioralLayer } from './layers/layer7.behavioral';
 import { RelationshipLayer } from './layers/layer8.relationship';
 import { OriginLayer } from './layers/layer9.origin';
 import { EvolutionLayer } from './layers/layer10.evolution';
+import sharp from 'sharp';
 
 import {
   ImageInput,
@@ -49,6 +50,62 @@ import {
   mergeIdentityDeterministicPackage,
 } from './dna/deterministic-identity';
 import { persistEnterpriseDnaPackage } from './dna/enterprise-dna-package.service';
+import { prnuCameraService } from './forensics/prnu-camera.service';
+
+function mergeProtectCaptureIntoMetadata(
+  metadataResult: unknown,
+  universalCtx?: {
+    gpsLatitude?: number;
+    gpsLongitude?: number;
+    locationShared?: boolean;
+    captureContext?: {
+      timezone?: string;
+      captureMethod?: string;
+      deviceModel?: string;
+      software?: string;
+      capturedAt?: string;
+      width?: number;
+      height?: number;
+      gpsAccuracy?: number;
+    };
+  },
+) {
+  const result = metadataResult as MetadataLayerResult | undefined;
+  if (!result?.success || !result.data) return;
+  const cap = universalCtx?.captureContext;
+  const hasGps = Boolean(
+    universalCtx?.locationShared
+    && universalCtx.gpsLatitude != null
+    && universalCtx.gpsLongitude != null
+    && Number.isFinite(universalCtx.gpsLatitude)
+    && Number.isFinite(universalCtx.gpsLongitude),
+  );
+  if (result.data.gpsLatitude == null && hasGps) {
+    result.data.gpsLatitude = universalCtx!.gpsLatitude!;
+    result.data.gpsLongitude = universalCtx!.gpsLongitude!;
+  }
+  if (!result.data.deviceModel && cap?.deviceModel) result.data.deviceModel = cap.deviceModel;
+  if (!result.data.software && cap?.software) result.data.software = cap.software;
+  if (!result.data.capturedAt && cap?.capturedAt) {
+    const parsed = new Date(cap.capturedAt);
+    if (!Number.isNaN(parsed.getTime())) result.data.capturedAt = parsed;
+  }
+  if (!result.data.capturedAt) result.data.capturedAt = new Date();
+  const exif = result.data.exifData && typeof result.data.exifData === 'object'
+    ? result.data.exifData
+    : {};
+  result.data.exifData = {
+    ...exif,
+    pinitProtect: {
+      timezone: cap?.timezone ?? null,
+      captureMethod: cap?.captureMethod ?? null,
+      width: cap?.width ?? null,
+      height: cap?.height ?? null,
+      gpsAccuracy: cap?.gpsAccuracy ?? null,
+      recordedAt: 'protect',
+    },
+  };
+}
 
 export class DnaOrchestrator {
   private readonly layer1  = new CryptographicLayer();
@@ -87,6 +144,16 @@ export class DnaOrchestrator {
       gpsLatitude?: number;
       gpsLongitude?: number;
       locationShared?: boolean;
+      captureContext?: {
+        timezone?: string;
+        captureMethod?: string;
+        deviceModel?: string;
+        software?: string;
+        capturedAt?: string;
+        width?: number;
+        height?: number;
+        gpsAccuracy?: number;
+      };
       /** Skip the expensive dense per-pixel (4E) spatial-auth pass — HKCA (3A)
        * still runs. Used by document page protection, where 4E's ~40s/17MB
        * cost multiplies by page count for marginal extra tamper-localization
@@ -139,6 +206,17 @@ export class DnaOrchestrator {
       () => this.layer5.generate(image, dnaRecordId, layer1HashForMeta),
       'layer5'
     );
+    mergeProtectCaptureIntoMetadata(metadataResult, universalCtx);
+
+    let widthPx = universalCtx?.captureContext?.width ?? null;
+    let heightPx = universalCtx?.captureContext?.height ?? null;
+    try {
+      const imgMeta = await sharp(image.buffer, { failOnError: false }).metadata();
+      if (imgMeta.width) widthPx = imgMeta.width;
+      if (imgMeta.height) heightPx = imgMeta.height;
+    } catch {
+      /* non-image buffers skip pixel size */
+    }
 
     // ── Layer 6 — EDS content seal uses L1–L5 digests; LSB trace stays ownership-only
     const digestsL1toL5 = [
@@ -241,7 +319,11 @@ export class DnaOrchestrator {
 
     await prisma.dnaRecord.update({
       where: { id: dnaRecordId },
-      data: { status },
+      data: {
+        status,
+        ...(widthPx ? { imageWidthPx: widthPx } : {}),
+        ...(heightPx ? { imageHeightPx: heightPx } : {}),
+      },
     });
 
     const ownerUserId = universalCtx?.ownerUserId;
@@ -341,6 +423,15 @@ export class DnaOrchestrator {
       });
     });
 
+    void prnuCameraService
+      .observe({ dnaRecordId, buffer: image.buffer, mimeType: image.mimeType })
+      .catch((err) => {
+        logger.warn('PRNU camera-sensor observe skipped (non-fatal)', {
+          dnaRecordId,
+          error: String(err),
+        });
+      });
+
     const totalMs = Date.now() - pipelineStart;
 
     logger.info('PROTECT_DNA', {
@@ -411,8 +502,8 @@ export class DnaOrchestrator {
       filename: image.originalName,
       mimeType: image.mimeType,
       sizeBytes: image.sizeBytes,
-      widthPx: null as number | null,
-      heightPx: null as number | null,
+      widthPx,
+      heightPx,
     };
 
     return {

@@ -3,6 +3,8 @@
  */
 import { prisma } from '../../lib/prisma';
 import { SYSTEM_VERSION } from '../../config/dna-versions';
+import { toPublicCameraForensics } from '../forensics/prnu-camera.service';
+import type { CameraForensicsStored } from '../../types/camera-forensics.types';
 
 export async function buildIntelligenceReportPayload(vaultId: string) {
   const vault = await prisma.vaultRecord.findUnique({
@@ -62,6 +64,15 @@ export async function buildIntelligenceReportPayload(vaultId: string) {
   };
 
   const meta = dna.metadataLayer;
+  const pinitProtect = (meta?.exifData && typeof meta.exifData === 'object'
+    ? (meta.exifData as { pinitProtect?: {
+      timezone?: string | null;
+      captureMethod?: string | null;
+      width?: number | null;
+      height?: number | null;
+      gpsAccuracy?: number | null;
+    } }).pinitProtect
+    : null) ?? null;
   const allAccessLogs = shareLinks
     .flatMap((l) => l.accessLogs)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
@@ -81,6 +92,11 @@ export async function buildIntelligenceReportPayload(vaultId: string) {
     city: geoAccess?.city ?? null,
     deviceModel: meta?.deviceModel ?? null,
     software: meta?.software ?? null,
+    timezone: pinitProtect?.timezone ?? null,
+    captureMethod: pinitProtect?.captureMethod ?? null,
+    imageWidth: dna.imageWidthPx ?? pinitProtect?.width ?? null,
+    imageHeight: dna.imageHeightPx ?? pinitProtect?.height ?? null,
+    gpsAccuracy: pinitProtect?.gpsAccuracy ?? null,
   };
 
   const lastVerif = dna.verifications[0];
@@ -191,6 +207,10 @@ export async function buildIntelligenceReportPayload(vaultId: string) {
     })),
   };
 
+  const cameraForensics = toPublicCameraForensics(
+    dna.cameraForensics as CameraForensicsStored | null,
+  );
+
   return {
     generatedAt: new Date().toISOString(),
     vaultId,
@@ -200,6 +220,7 @@ export async function buildIntelligenceReportPayload(vaultId: string) {
     discovery,
     distribution,
     risk,
+    cameraForensics,
     owner: owner ? { id: owner.id, shortId: owner.shortId, fullName: owner.fullName } : null,
   };
 }

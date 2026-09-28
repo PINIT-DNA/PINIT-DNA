@@ -1,5 +1,10 @@
+import { fileURLToPath, URL } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+
+/** The certificate Exchange shows is the Hub's own component, not a copy. */
+const SHARED_CERTIFICATE = fileURLToPath(new URL('../client/src/shared/certificate/PinitCertificateDocument.tsx', import.meta.url));
+const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url));
 
 export default defineConfig({
   appType: 'spa',
@@ -18,9 +23,16 @@ export default defineConfig({
       },
     },
   ],
+  resolve: {
+    alias: { '@pinit/certificate': SHARED_CERTIFICATE },
+    // The shared file is outside this app; dedupe keeps a single React copy.
+    dedupe: ['react', 'react-dom'],
+  },
   server: {
     // Hub client uses 3002 — keep Exchange on 5174 to avoid collision
     port: 5174,
+    // Dev server must be allowed to read the shared certificate outside exchange/
+    fs: { allow: [REPO_ROOT] },
     proxy: {
       '/api': {
         target: 'http://localhost:5000',

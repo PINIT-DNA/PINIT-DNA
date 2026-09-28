@@ -20,7 +20,9 @@
     background-image: none;
     color: #0f172a;
     color-scheme: light;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+    font-feature-settings: "ss01" 1, "cv11" 1;
+    line-height: 1.55;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
@@ -34,19 +36,31 @@
   ::-webkit-scrollbar-thumb  { background: #94a3b8; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
-  h1,h2,h3,h4,h5,h6 { font-weight: 600; letter-spacing: -0.025em; color: #0b1b33; }
+  h1 {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.18;
+    color: #0b1b33;
+  }
+  h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #0b1b33;
+  }
 
-  /* Light remaps — darker fonts for readability */
+  /* Light remaps — keep muted labels quieter than titles */
   .text-white   { color: #020617 !important; }
   .text-gray-200{ color: #0f172a !important; }
   .text-gray-300{ color: #1e293b !important; }
-  .text-gray-400{ color: #334155 !important; }
-  .text-gray-500{ color: #475569 !important; }
-  .text-gray-600{ color: #64748b !important; }
+  .text-gray-400{ color: #64748b !important; }
+  .text-gray-500{ color: #64748b !important; }
+  .text-gray-600{ color: #475569 !important; }
   .text-gray-700{ color: #1e293b !important; }
-  .text-slate-400{ color: #475569 !important; }
-  .text-slate-500{ color: #334155 !important; }
-  .text-slate-600{ color: #1e293b !important; }
+  .text-slate-400{ color: #64748b !important; }
+  .text-slate-500{ color: #64748b !important; }
+  .text-slate-600{ color: #475569 !important; }
   .text-slate-700,
   .text-slate-800{ color: #0f172a !important; }
   .border-white\/10, .border-white\/5 { border-color: #cbd5e1 !important; }
@@ -54,6 +68,11 @@
   .bg-white\/10 { background-color: rgba(15, 23, 42, 0.07) !important; }
   .hover\:text-white:hover { color: #020617 !important; }
   .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.05) !important; }
+  html:not(.dark) .text-amber-200 { color: #b45309 !important; }
+
+  /* Stays light on photos/video — never follow the text-white theme remap */
+  .ink-photo { color: #f8fafc !important; }
+  .ink-photo-muted { color: rgba(248, 250, 252, 0.86) !important; }
 
   html:not(.dark) .btn-primary,
   html:not(.dark) .btn-primary *,
@@ -692,21 +711,31 @@
 
   /* Home workspace — presentation tokens only */
   .hub-home {
-    font-family: Inter, system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
   }
   .hub-home-kicker {
+    font-family: Montserrat, 'Plus Jakarta Sans', sans-serif;
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    font-weight: 600;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: #475569;
+    color: #64748b;
   }
   .hub-home-hero-title {
-    font-size: clamp(1.75rem, 2.4vw, 2.25rem);
-    line-height: 1.15;
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: clamp(1.85rem, 3vw, 2.55rem) !important;
+    line-height: 1.12;
     font-weight: 700;
-    letter-spacing: -0.03em;
+    letter-spacing: -0.02em;
     color: #0b1b33;
+  }
+  .story-hero-title {
+    font-family: 'Playfair Display', Georgia, serif;
+    font-size: clamp(1.45rem, 3.4vw, 2.4rem) !important;
+    line-height: 1.12;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: #ffffff !important;
   }
   .hub-home-lede {
     font-size: 15px;
@@ -720,9 +749,10 @@
     max-width: 36rem;
   }
   .hub-home-journey-label {
+    font-family: Montserrat, 'Plus Jakarta Sans', sans-serif;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: #64748b;
     margin-bottom: 0.2rem;
@@ -894,7 +924,7 @@ html.dark .skeleton {
 
   .data-table th, .data-table td { padding: 10px 12px !important; font-size: 12px !important; }
 
-  h1 { font-size: 1.375rem !important; }
+  h1:not(.hub-home-hero-title) { font-size: 1.5rem !important; }
   h2 { font-size: 1.125rem !important; }
 }
 
@@ -924,7 +954,7 @@ html.dark .skeleton {
   inset: 0;
   overflow-y: auto;
   color: var(--pa-text);
-  font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
   background: var(--pa-bg);
 }
 .pinit-auth * { box-sizing: border-box; }

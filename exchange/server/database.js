@@ -289,6 +289,9 @@ function applyTrustHardeningSchema() {
     `ALTER TABLE listings ADD COLUMN protection_error TEXT`,
     `ALTER TABLE listings ADD COLUMN protection_attempts INTEGER DEFAULT 0`,
     `ALTER TABLE hub_assets ADD COLUMN protection_status TEXT DEFAULT 'protected'`,
+    // The canonical Pinit certificate id issued by HUB. Exchange displays it; it is
+    // never generated here (the portfolio ledger used to invent a PX- id per asset).
+    `ALTER TABLE hub_assets ADD COLUMN certificate_id TEXT`,
     `ALTER TABLE requirements ADD COLUMN buyer_pinit_id TEXT`,
     // Present in the Postgres schema but never in the SQLite one. creator.js
     // already writes to it, so on SQLite that UPDATE has been failing silently.

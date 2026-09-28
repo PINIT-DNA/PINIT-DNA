@@ -56,17 +56,68 @@ export function buildPlatformShareOptions(
   ];
 }
 
-/** Mobile / desktop OS share sheet when available. */
-export async function shareViaOs(shareUrl: string, filename = 'Protected file'): Promise<boolean> {
-  if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return false;
-  try {
-    await navigator.share({
-      title: filename,
-      text: `${filename} — protected with Pinit HUB`,
-      url: shareUrl,
-    });
-    return true;
-  } catch {
-    return false;
+function isShareAbort(err: unknown): boolean {
+  const name = (err as { name?: string })?.name ?? '';
+  const msg = err instanceof Error ? err.message : String(err);
+  return name === 'AbortError' || /canceled|cancelled/i.test(msg);
+}
+
+async function tryNativeShare(data: ShareData): Promise<'shared' | 'aborted' | 'skip'> {
+  if (typeof navigator === 'undefined' || typeof navigator.share !== 'function') return 'skip';
+  if (typeof navigator.canShare === 'function') {
+    try {
+      if (!navigator.canShare(data)) return 'skip';
+    } catch {
+      return 'skip';
+    }
   }
+  try {
+    await navigator.share(data);
+    return 'shared';
+  } catch (err) {
+    if (isShareAbort(err)) return 'aborted';
+    return 'skip';
+  }
+}
+
+/**
+ * Open the device share sheet (same picker as Photos / Gallery).
+ * Phones list every installed app that accepts the file. Laptops list fewer.
+ * File payloads are tried first so image/video apps appear, not only browsers.
+ */
+export async function shareWithOsSheet(params: {
+  title: string;
+  shareUrl: string;
+  file?: File;
+}): Promise<'shared' | 'aborted' | 'unavailable'> {
+  const { title, shareUrl, file } = params;
+  const text = `${title} — protected with Pinit HUB\n${shareUrl}`;
+
+  if (file) {
+    const fileAttempts: ShareData[] = [
+      { title, text, files: [file] },
+      { title, files: [file] },
+    ];
+    for (const payload of fileAttempts) {
+      const result = await tryNativeShare(payload);
+      if (result === 'shared' || result === 'aborted') return result;
+    }
+  }
+
+  const linkAttempts: ShareData[] = [
+    { title, text, url: shareUrl },
+    { title, text },
+  ];
+  for (const payload of linkAttempts) {
+    const result = await tryNativeShare(payload);
+    if (result === 'shared' || result === 'aborted') return result;
+  }
+
+  return 'unavailable';
+}
+
+/** Mobile / desktop OS share sheet when available. */
+export async function shareViaOs(shareUrl: string, filename = 'Protected file', file?: File): Promise<boolean> {
+  const result = await shareWithOsSheet({ title: filename, shareUrl, file });
+  return result === 'shared';
 }

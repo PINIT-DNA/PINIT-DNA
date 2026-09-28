@@ -461,4 +461,9 @@ export interface UnifiedInvestigationReport {
   };
   /** Additive DNA vNext: 3 mechanisms + evidence policy. Does not replace 15-layer DNA. */
   dnaVnext?: import('./dna-vnext.types').DnaVnextInvestigationSection;
+  /**
+   * Camera-sensor PRNU on the matched vault original. Supporting evidence only —
+   * does not identify a PINIT user and is not a DNA layer.
+   */
+  cameraForensics?: import('./camera-forensics.types').CameraForensicsPublic | null;
 }

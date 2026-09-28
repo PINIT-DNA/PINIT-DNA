@@ -13,6 +13,9 @@
  *   • Same PINIT account (ownerUserId) → ALLOW — user may protect the same file again
  *   • Different PINIT account → BLOCK — file already has DNA under another user
  *
+ * PRNU / camera-sensor correlation is never a duplicate or block signal.
+ * Same sensor + same time/location with different content is allowed.
+ *
  * The caller (dna.controller.ts) must abort processing and return 409 Conflict when blocked.
  */
 

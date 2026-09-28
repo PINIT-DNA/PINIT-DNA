@@ -12,7 +12,8 @@ import { GenerationProgress } from './components/GenerationProgress';
 import { generateDna } from './services/api';
 import type { AppStage, DnaSession, EncryptionResult, VaultStoreResponse } from './types';
 import { DNA_GENERATOR_VERSION } from './config/dna-versions';
-import { requestCustodyLocation, type CustodyLocation } from './lib/location-consent';
+import { type CustodyLocation } from './lib/location-consent';
+import { collectProtectCaptureContext } from './lib/protect-capture-context';
 
 type FlowStage = AppStage | 'vaulting';
 
@@ -72,17 +73,23 @@ export default function App() {
     setStage('processing');
 
     try {
-      // Optional custody GPS — start in parallel; never block DNA generate
-      const locPromise = requestCustodyLocation();
-      void locPromise.then(setCustodyLocation);
+      const ctx = await collectProtectCaptureContext(selectedFile);
+      if (ctx.location) setCustodyLocation(ctx.location);
 
-      const result = await generateDna(selectedFile);
-      // Prefer GPS if it finished during generate; otherwise continue without waiting
-      const loc = await Promise.race([
-        locPromise,
-        new Promise<CustodyLocation | null>((resolve) => setTimeout(() => resolve(null), 50)),
-      ]);
-      if (loc) setCustodyLocation(loc);
+      const result = await generateDna(selectedFile, {
+        locationShared: ctx.locationShared,
+        latitude: ctx.latitude,
+        longitude: ctx.longitude,
+        gpsAccuracy: ctx.gpsAccuracy,
+        timezone: ctx.timezone,
+        captureMethod: ctx.captureMethod,
+        deviceModel: ctx.deviceModel,
+        software: ctx.software,
+        capturedAt: ctx.capturedAt,
+        width: ctx.width,
+        height: ctx.height,
+      });
+      if (ctx.location) setCustodyLocation(ctx.location);
 
       setSession({
         dnaRecordId:      result.dnaRecordId,

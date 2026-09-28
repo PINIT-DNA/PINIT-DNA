@@ -26,15 +26,25 @@ interface CachedPreview {
 const thumbCache = new Map<string, CachedPreview>();
 const inflight = new Map<string, Promise<CachedPreview>>();
 
-async function loadVaultPreview(vaultId: string, declaredMime: string, fileName: string): Promise<CachedPreview> {
-  const cached = thumbCache.get(vaultId);
+function previewCacheKey(vaultId: string, original: boolean) {
+  return original ? `${vaultId}:original` : `${vaultId}:thumb`;
+}
+
+async function loadVaultPreview(
+  vaultId: string,
+  declaredMime: string,
+  fileName: string,
+  original: boolean,
+): Promise<CachedPreview> {
+  const key = previewCacheKey(vaultId, original);
+  const cached = thumbCache.get(key);
   if (cached) return cached;
 
-  const pending = inflight.get(vaultId);
+  const pending = inflight.get(key);
   if (pending) return pending;
 
   const promise = runVaultPreviewQueued(() =>
-    withVaultPreviewRetry(() => previewVaultFile(vaultId, { thumb: true })),
+    withVaultPreviewRetry(() => previewVaultFile(vaultId, { thumb: !original })),
   )
     .then(async blob => {
       const effectiveMime = resolveVaultFileMime(blob.type, declaredMime, fileName);
@@ -52,14 +62,14 @@ async function loadVaultPreview(vaultId: string, declaredMime: string, fileName:
       }
 
       const entry: CachedPreview = { url, effectiveMime, textSnippet, blob: typedBlob };
-      thumbCache.set(vaultId, entry);
+      thumbCache.set(key, entry);
       return entry;
     })
     .finally(() => {
-      inflight.delete(vaultId);
+      inflight.delete(key);
     });
 
-  inflight.set(vaultId, promise);
+  inflight.set(key, promise);
   return promise;
 }
 
@@ -68,6 +78,15 @@ interface VaultFileThumbnailProps {
   fileName: string;
   mimeType: string;
   variant?: 'compact' | 'gallery';
+  /** Gallery grid uses a small JPEG. Living-asset hero should request the original bytes. */
+  quality?: 'thumb' | 'original';
+  /** Cover fills a cinematic frame; contain shows the full original. */
+  fit?: 'cover' | 'contain';
+  /**
+   * Living-asset hero: wrap the real image height (capped by max-height) instead of
+   * filling a tall fixed box. Gallery tiles should omit this and keep cover-fill.
+   */
+  sizeToImage?: boolean;
   className?: string;
 }
 
@@ -76,11 +95,17 @@ export function VaultFileThumbnail({
   fileName,
   mimeType,
   variant = 'compact',
+  quality = 'thumb',
+  fit,
+  sizeToImage = false,
   className,
 }: VaultFileThumbnailProps) {
+  const original = quality === 'original';
+  const objectFit = fit ?? (original ? 'contain' : 'cover');
+  const cacheKey = previewCacheKey(vaultId, original);
   const rootRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(true);
-  const [preview, setPreview] = useState<CachedPreview | null>(() => thumbCache.get(vaultId) ?? null);
+  const [preview, setPreview] = useState<CachedPreview | null>(() => thumbCache.get(cacheKey) ?? null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -93,9 +118,12 @@ export function VaultFileThumbnail({
 
   const frameClass = className ?? (
     variant === 'gallery'
-      ? 'absolute inset-0 w-full h-full'
+      ? (sizeToImage ? 'relative w-full' : 'absolute inset-0 w-full h-full')
       : 'w-10 h-10 rounded-lg shrink-0'
   );
+  const fillMedia = `w-full h-full object-center ${objectFit === 'cover' ? 'object-cover' : 'object-contain bg-neutral-950'}`;
+  const naturalMedia = 'mx-auto block max-h-[min(60vh,36rem)] max-w-full w-auto h-auto object-contain object-center';
+  const mediaClass = sizeToImage ? naturalMedia : fillMedia;
 
   useEffect(() => {
     const el = rootRef.current;
@@ -130,7 +158,7 @@ export function VaultFileThumbnail({
     setFailed(false);
     setImgError(false);
     setVideoError(false);
-  }, [fileName, vaultId]);
+  }, [fileName, vaultId, cacheKey]);
 
   useEffect(() => {
     if (!visible || !shouldLoad || preview || failed) return;
@@ -138,7 +166,7 @@ export function VaultFileThumbnail({
     let cancelled = false;
     setLoading(true);
 
-    loadVaultPreview(vaultId, mimeType, fileName)
+    loadVaultPreview(vaultId, mimeType, fileName, original)
       .then(entry => {
         if (!cancelled) setPreview(entry);
       })
@@ -152,7 +180,7 @@ export function VaultFileThumbnail({
     return () => {
       cancelled = true;
     };
-  }, [visible, shouldLoad, vaultId, mimeType, fileName, preview, failed]);
+  }, [visible, shouldLoad, vaultId, mimeType, fileName, preview, failed, original]);
 
   useEffect(() => {
     if (!preview || !isDocxMime(preview.effectiveMime, fileName) || variant !== 'gallery' || !docxRef.current) return;
@@ -171,8 +199,8 @@ export function VaultFileThumbnail({
   }, [preview, fileName, variant]);
 
   const retry = () => {
-    thumbCache.delete(vaultId);
-    inflight.delete(vaultId);
+    thumbCache.delete(cacheKey);
+    inflight.delete(cacheKey);
     setFailed(false);
     setImgError(false);
     setVideoError(false);
@@ -247,8 +275,8 @@ export function VaultFileThumbnail({
         <img
           src={url}
           alt=""
-          className="w-full h-full object-cover pinit-protected-media"
-          loading="lazy"
+          className={`pinit-protected-media ${mediaClass}`}
+          loading={original ? 'eager' : 'lazy'}
           decoding="async"
           draggable={false}
           onDragStart={(e) => e.preventDefault()}
@@ -265,7 +293,7 @@ export function VaultFileThumbnail({
       <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-black`} title={fileName}>
         <video
           src={url}
-          className="w-full h-full object-cover"
+          className={mediaClass}
           muted
           playsInline
           preload="metadata"

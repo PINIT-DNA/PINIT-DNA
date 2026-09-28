@@ -86,6 +86,9 @@ model DnaRecord {
   /// Compact per-frame DNA (one row per frame) — see VideoFrameDna.
   frameDna          VideoFrameDna[] @relation("VideoFrameDna")
 
+  /// Camera-sensor PRNU estimate (supporting evidence). Not user identity; not a Protect block.
+  cameraForensics Json?
+
   @@index([organizationId])
   @@index([ownerUserId])
   @@index([documentDnaRecordId])

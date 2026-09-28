@@ -78,8 +78,16 @@ CREATE TABLE IF NOT EXISTS exchange.hub_assets (
   ai_percent INTEGER NOT NULL,
   badge_tier TEXT NOT NULL,
   protection_status TEXT DEFAULT 'protected',
+  -- The canonical Pinit certificate id issued by HUB. Exchange displays it and never
+  -- generates one. The portfolio ledger used to invent a PX- id from the asset id.
+  -- NOTE: no semicolons in comments here, the schema splitter cuts statements on them.
+  certificate_id TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Existing databases: CREATE TABLE IF NOT EXISTS above is a no-op for them, so the
+-- column is added explicitly. Idempotent, additive, and no row is rewritten.
+ALTER TABLE exchange.hub_assets ADD COLUMN IF NOT EXISTS certificate_id TEXT;
 
 CREATE TABLE IF NOT EXISTS exchange.listings (
   listing_id TEXT PRIMARY KEY,

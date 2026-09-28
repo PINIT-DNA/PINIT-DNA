@@ -311,7 +311,7 @@ export function BusinessDashboardPage() {
           {
             to: BRAND.investigationPath,
             title: 'Intelligence',
-            detail: 'Compare a file to protected work',
+            detail: 'Compare an asset to protected work',
           },
         ]}
         extraQuickActions={(
