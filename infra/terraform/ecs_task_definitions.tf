@@ -109,11 +109,41 @@ resource "aws_ecs_task_definition" "api" {
       environment = [
         { name = "NODE_ENV", value = "production" },
         { name = "PORT", value = tostring(var.api_port) },
+        # vault.service.ts is the only place config.jobs.useQueue is read (its two
+        # dispatch sites for pdf_protect/video_protect) — worker.ts itself never
+        # checks this flag, it always polls unconditionally. So this belongs on the
+        # producer (api), not the consumer (worker); setting it on worker would do
+        # nothing. Confirmed by reading both files, not assumed.
+        { name = "BACKGROUND_JOBS_USE_QUEUE", value = "true" },
+        # Existing app-coded fallbacks (src/config/index.ts), set explicitly rather
+        # than left to warn-and-fall-back. EXCHANGE_API_URL's fallback is a Render
+        # URL — correct for "use the app's own existing default", but revisit once
+        # this API has a real AWS-side public URL (post-ALB) that Exchange should
+        # call back into instead.
+        { name = "EXCHANGE_APP_URL", value = "https://www.pinitexchange.com" },
+        { name = "EXCHANGE_API_URL", value = "https://pinit-dna-3fmw.onrender.com" },
       ]
       secrets = local.ecs_secret_refs
       logConfiguration = {
         logDriver = "awslogs"
         options   = local.ecs_log_options.api
+      }
+      healthCheck = {
+        # /ping is the instant, no-DB liveness check (app.ts); the deeper /health
+        # does an async check that can depend on downstream services (e.g. the
+        # database), which would make ECS flap this container unhealthy on a
+        # transient DB blip rather than an actual process failure. /ping is the
+        # correct signal for container-level liveness; /health is a readiness-style
+        # check, not a liveness one. No curl/wget in this image (Dockerfile only
+        # installs ca-certificates), so this uses Node's own http module.
+        command = [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://localhost:${var.api_port}/api/v1/ping',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""
+        ]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 30
       }
     }
   ])
@@ -145,12 +175,21 @@ resource "aws_ecs_task_definition" "worker" {
       command   = ["node", "dist/worker.js"]
       environment = [
         { name = "NODE_ENV", value = "production" },
+        # No BACKGROUND_JOBS_USE_QUEUE here: worker.ts never reads that flag — it
+        # always polls the queue unconditionally whenever this process runs. The
+        # flag only matters on the api container, which is where it's set.
       ]
       secrets = local.ecs_secret_refs
       logConfiguration = {
         logDriver = "awslogs"
         options   = local.ecs_log_options.worker
       }
+      # Deliberately no healthCheck block: worker.ts starts no HTTP server (its own
+      # header comment says so explicitly), and the runtime image installs nothing
+      # beyond ca-certificates — no ps/pgrep for a process-based check either. A
+      # command that doesn't verify real health would be worse than none. ECS's own
+      # container-exit detection is the correct signal here until/unless the worker
+      # gains a real liveness mechanism.
     }
   ])
 
@@ -211,6 +250,22 @@ resource "aws_ecs_task_definition" "ai" {
       logConfiguration = {
         logDriver = "awslogs"
         options   = local.ecs_log_options.ai
+      }
+      healthCheck = {
+        # main.py's GET /health (confirmed live during smoke testing: returns 200
+        # with module/diagnostic status, no FAISS data or EFS content required).
+        # No curl/wget in this image either (Dockerfile installs tesseract/ffmpeg/
+        # image libs only), so this uses Python's own urllib. Longer startPeriod
+        # than the api container: the sentence-transformer model load alone took
+        # ~15-20s during smoke testing, on top of dependency import time.
+        command = [
+          "CMD-SHELL",
+          "python3 -c \"import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:${var.ai_port}/health',timeout=3).status==200 else 1)\" || exit 1"
+        ]
+        interval    = 30
+        timeout     = 5
+        retries     = 3
+        startPeriod = 60
       }
     }
   ])
