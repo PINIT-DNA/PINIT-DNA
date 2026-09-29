@@ -127,6 +127,14 @@ resource "aws_ecs_task_definition" "api" {
         # service_discovery.tf, not a hardcoded IP — Fargate reassigns the ai task's
         # IP on every restart, so nothing but a name that follows it would work here.
         { name = "AI_SERVICE_URL", value = "http://ai.${aws_service_discovery_private_dns_namespace.internal.name}:${var.ai_port}" },
+        # Without JOB_QUEUE_BACKEND=sqs, job-queue.ts defaults to an in-memory queue
+        # private to this process — jobs published here would never reach the
+        # separate worker task.
+        { name = "JOB_QUEUE_BACKEND", value = "sqs" },
+        { name = "JOB_QUEUE_URL", value = aws_sqs_queue.jobs.url },
+        # config.storage.backend defaults to 'supabase'; s3-storage.ts requires S3_BUCKET.
+        { name = "STORAGE_BACKEND", value = "s3" },
+        { name = "S3_BUCKET", value = aws_s3_bucket.vault.id },
       ]
       secrets = local.ecs_secret_refs
       logConfiguration = {
@@ -190,6 +198,12 @@ resource "aws_ecs_task_definition" "worker" {
         # Matches the worker_to_ai security group rule already present in
         # security_groups.tf, which anticipated exactly this.
         { name = "AI_SERVICE_URL", value = "http://ai.${aws_service_discovery_private_dns_namespace.internal.name}:${var.ai_port}" },
+        # Same queue and storage settings as api: worker.ts polls getJobQueue() and
+        # reads vault files through vaultService.retrieve().
+        { name = "JOB_QUEUE_BACKEND", value = "sqs" },
+        { name = "JOB_QUEUE_URL", value = aws_sqs_queue.jobs.url },
+        { name = "STORAGE_BACKEND", value = "s3" },
+        { name = "S3_BUCKET", value = aws_s3_bucket.vault.id },
       ]
       secrets = local.ecs_secret_refs
       logConfiguration = {

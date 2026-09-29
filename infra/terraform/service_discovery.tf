@@ -2,7 +2,7 @@
 # so api/worker can reach it by a stable name instead of its per-restart Fargate IP.
 #
 # This is a Route53 PRIVATE hosted zone, scoped to this VPC only and invisible outside it —
-# unrelated to the public pinithub.com domain, which stays Cloudflare-managed (see alb.tf's
+# unrelated to the public pinithub.com domain, whose DNS is managed by GoDaddy (see alb.tf's
 # own note on this). Using Route53 privately here doesn't reopen that decision.
 #
 # Deliberately not used for api or worker: api is reached through the public ALB once
