@@ -211,7 +211,7 @@ export class DnaOrchestrator {
     let widthPx = universalCtx?.captureContext?.width ?? null;
     let heightPx = universalCtx?.captureContext?.height ?? null;
     try {
-      const imgMeta = await sharp(image.buffer, { failOnError: false }).metadata();
+      const imgMeta = await sharp(image.buffer, { failOn: 'none' }).metadata();
       if (imgMeta.width) widthPx = imgMeta.width;
       if (imgMeta.height) heightPx = imgMeta.height;
     } catch {
