@@ -90,15 +90,14 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
             <p className="text-sm font-semibold text-white">{record.originalFileName}</p>
           </div>
           <p className="text-xs text-gray-400 mb-2">
-            Download with tracking so you can see who received the asset. Opening outside Pinit may still
-            be identified later through Investigate.
+            Saves a protected copy to this device’s Files. Other apps only pick from Files — they cannot
+            open My Assets. This copy is the same class as a Hub share: DNA and marks stay on the file.
           </p>
           <ul className="text-xs text-dna-300 space-y-0.5">
-            <li>✓ Tracked delivery</li>
-            <li>✓ Visible watermark</li>
-            <li>✓ Download log (time / device)</li>
-            <li>✓ Activity history</li>
-            <li>✓ Later match via Investigate</li>
+            <li>✓ Lands in Files / Downloads (not a Hub folder)</li>
+            <li>✓ Other apps: Upload → choose this file</li>
+            <li>✓ Signature / watermark kept on the copy</li>
+            <li>✓ Tracked in Hub · Investigate later if needed</li>
           </ul>
         </div>
 

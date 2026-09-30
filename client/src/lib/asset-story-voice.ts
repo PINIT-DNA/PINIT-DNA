@@ -194,7 +194,7 @@ export function storyHighlights(_opts: {
   return [
     { title: 'I am Original', detail: 'Captured with PinIT Secure Capture' },
     { title: 'I have an Identity', detail: 'Unique PinIT Origin ID' },
-    { title: 'I have a Memory', detail: 'This moment was kept for a reason' },
+    { title: 'I have a Memory', detail: 'Time, place, and every step are tracked' },
     { title: 'I have a Journey', detail: "I've been shared, seen and verified" },
     { title: 'I am Protected', detail: 'My DNA is safe. My origin is true.' },
     { title: 'I will live forever', detail: 'I will always be remembered' },

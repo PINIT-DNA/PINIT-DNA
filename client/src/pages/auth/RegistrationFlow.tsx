@@ -100,13 +100,10 @@ export function RegistrationFlow() {
             <>
               <FaceRoundScan
                 mode="register"
-                title="Face Enrollment"
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
                 onPadEvidence={(ev) => { padEvidenceRef.current = ev; }}
                 onNext={afterFace}
-                onError={(m) => setError(m)}
               />
-              {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8, textAlign: 'center' }}>{error}</p>}
             </>
           )}
           {step === 'fingerprint' && (

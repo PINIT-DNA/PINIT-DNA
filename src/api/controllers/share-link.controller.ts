@@ -279,6 +279,47 @@ export async function createFileShare(req: Request, res: Response, next: NextFun
   }
 }
 
+export async function createLivingShare(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { vaultId } = req.body as { vaultId?: string };
+    if (!vaultId) {
+      res.status(400).json({ success: false, error: 'vaultId is required' });
+      return;
+    }
+
+    const ownerUserId = getAuthUserId(req);
+    const link = await shareLinkService.createOrGetLivingShare({ vaultId, ownerUserId });
+    const shareUrl = `${buildShareUrl(req, link.token)}/live`;
+
+    res.status(201).json({
+      success: true,
+      shareUrl,
+      token: link.token,
+      linkType: 'LIVING',
+      reused: 'reused' in link ? link.reused : false,
+      filename: link.filename,
+    });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function getLivingStory(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const story = await shareLinkService.getLivingStory(req.params['token']!);
+    if (!story) {
+      res.status(404).json({
+        success: false,
+        error: 'This living page link has expired or is no longer available.',
+      });
+      return;
+    }
+    res.json({ success: true, ...story });
+  } catch (err) {
+    next(err);
+  }
+}
+
 // ── List all links ────────────────────────────────────────────────────────────
 
 export async function listShareLinks(req: Request, res: Response, next: NextFunction): Promise<void> {
@@ -807,13 +848,21 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       'Content-Disposition': disposition,
       'X-Share-Token':       token,
       'Cache-Control':       'no-store',
-      // Prevent browser from caching — ensures policy checks run every time
       'Pragma':              'no-cache',
       'Expires':             '0',
-      // Share recipients are strangers to the uploader: uploaded HTML/SVG/XML must not
-      // be able to run script from the API origin.
       ...userContentHeaders(fullLink.mimeType),
     });
+
+    // Living-page view must match the owner's Hub original: watermarks and
+    // signatures already live inside the protected vault file. Do not TEP
+    // re-encode (that can soften/blur the pixels). File-share downloads still
+    // go through TEP below.
+    if (fullLink.linkType === 'LIVING') {
+      res.set('Content-Type', correctImageMime(fullLink.mimeType, result.originalBuffer));
+      res.send(result.originalBuffer);
+      return;
+    }
+
     // ── TEP v3.0 — Tracked Export Package (per-recipient forensic attribution) ─
     let fileBuffer = result.originalBuffer;
     try {

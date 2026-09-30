@@ -128,8 +128,9 @@ describe('ORB near-duplicate detection', () => {
     );
   });
 
-  test('identical descriptor sets are blocked cross-account', async () => {
+  test('identical descriptor sets are blocked cross-account when DNA-B corroborates', async () => {
     matchDescriptorSets.mockResolvedValue({ similarity: 0.95, matches: 400, method: 'opencv_orb' });
+    recoverDnaB.mockResolvedValue({ recovered: true, dnaRecordId: 'dna-orb-1' });
 
     const result = await uploadImage();
 
@@ -163,13 +164,13 @@ describe('ORB near-duplicate detection', () => {
     expect(result.isHighRisk).toBe(true);
   });
 
-  test('a strong ORB match (>= 0.75) still blocks alone, no DNA-B needed', async () => {
+  test('a strong ORB match without DNA-B does not block — another photo of the same person is not the same file', async () => {
     matchDescriptorSets.mockResolvedValue({ similarity: 0.80, matches: 300, method: 'opencv_orb' });
     recoverDnaB.mockResolvedValue({ recovered: false });
 
     const result = await uploadImage();
 
-    expect(result.isDuplicate).toBe(true);
+    expect(result.isDuplicate).toBe(false);
   });
 
   test('an unrelated image scores below threshold — no match', async () => {

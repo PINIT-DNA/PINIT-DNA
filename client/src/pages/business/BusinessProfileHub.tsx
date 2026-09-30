@@ -14,7 +14,7 @@ import { useOrganization, invalidateOrganizationCache } from '../../hooks/useOrg
 import { useSubscription } from '../../hooks/useSubscription';
 import { useOrganizationWorkspaces } from '../../hooks/useOrganizationWorkspaces';
 import { useTheme } from '../../hooks/useTheme';
-import { formatBytes } from '../../hooks/useApi';
+import { SignInMethodSettings } from '../../components/settings/SignInMethodSettings';
 import type { VaultRecord } from '../../types/dashboard.types';
 import {
   ORGANIZATION_INDUSTRIES,
@@ -967,6 +967,11 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
             <div className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all ${theme === 'dark' ? 'left-[18px]' : 'left-0.5'}`} />
           </button>
         </div>
+      </EnterpriseCard>
+
+      <EnterpriseCard title="Authentication / Sign-in Preferences" icon={<Shield size={16} />}>
+        <p className="text-2xs text-slate-600 dark:text-gray-400 mb-2">Sign-in method</p>
+        <SignInMethodSettings />
       </EnterpriseCard>
 
       <EnterpriseCard title="Organization notifications" icon={<Bell size={16} />}>

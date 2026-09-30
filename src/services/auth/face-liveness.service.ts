@@ -38,6 +38,17 @@ export const PAD_LIMITS = {
   pitchThreshold: 0.10,
 };
 
+/** Glance login — no head-turn challenge. Still requires live motion vs a still photo. */
+export const PAD_VERIFY_LIMITS = {
+  minSamples: 6,
+  minDurationMs: 700,
+  minLiveMotion: 0.014,
+  minBrightness: 6,
+  maxBrightness: 252,
+  minBoxRatio: 0.035,
+  minSharpness: 10,
+};
+
 export interface PadSample {
   t: number;
   yaw: number;
@@ -98,30 +109,39 @@ export function parsePadChallenge(token: string | undefined): IssuedPadChallenge
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   try {
     const parsed = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8')) as IssuedPadChallenge;
-    if (parsed?.v !== 1 || !parsed.jti || !Array.isArray(parsed.actions) || parsed.actions.length < 2) {
+    if (parsed?.v !== 1 || !parsed.jti || !Array.isArray(parsed.actions)) {
       return null;
     }
-    if (!parsed.actions.every((a) => (PAD_ACTIONS as readonly string[]).includes(a))) return null;
+    if (parsed.actions.length !== 0 && parsed.actions.length !== 2) return null;
+    if (parsed.actions.length === 2 && !parsed.actions.every((a) => (PAD_ACTIONS as readonly string[]).includes(a))) {
+      return null;
+    }
     return parsed;
   } catch {
     return null;
   }
 }
 
-export function issuePadChallenge(): { token: string; challenge: IssuedPadChallenge; instructions: Record<PadAction, string> } {
-  const pool = [...PAD_ACTIONS];
-  for (let i = pool.length - 1; i > 0; i--) {
-    const j = crypto.randomInt(0, i + 1);
-    const tmp = pool[i]!;
-    pool[i] = pool[j]!;
-    pool[j] = tmp;
-  }
+export function issuePadChallenge(
+  mode: 'active' | 'passive' = 'active',
+): { token: string; challenge: IssuedPadChallenge; instructions: Record<PadAction, string> } {
   const now = Date.now();
+  let actions: PadAction[] = [];
+  if (mode !== 'passive') {
+    const pool = [...PAD_ACTIONS];
+    for (let i = pool.length - 1; i > 0; i--) {
+      const j = crypto.randomInt(0, i + 1);
+      const tmp = pool[i]!;
+      pool[i] = pool[j]!;
+      pool[j] = tmp;
+    }
+    actions = pool.slice(0, 2) as PadAction[];
+  }
   const challenge: IssuedPadChallenge = {
     v: 1,
     jti: crypto.randomUUID(),
     nonce: crypto.randomBytes(16).toString('hex'),
-    actions: pool.slice(0, 2) as PadAction[],
+    actions,
     iat: now,
     exp: now + PAD_LIMITS.challengeTtlMs,
   };
@@ -215,7 +235,11 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
   const samples = Array.isArray(evidence?.samples) ? evidence!.samples! : [];
   const patchesRaw = Array.isArray(evidence?.patches) ? evidence!.patches! : [];
   const patches = patchesRaw.map(decodePadPatch);
-  if (samples.length < PAD_LIMITS.minSamples || patches.some((p) => !p) || patches.length < PAD_LIMITS.minSamples) {
+  const passive = challenge.actions.length === 0;
+  const minSamples = passive ? PAD_VERIFY_LIMITS.minSamples : PAD_LIMITS.minSamples;
+  const minDurationMs = passive ? PAD_VERIFY_LIMITS.minDurationMs : PAD_LIMITS.minDurationMs;
+  const minLiveMotion = passive ? PAD_VERIFY_LIMITS.minLiveMotion : PAD_LIMITS.minLiveMotion;
+  if (samples.length < minSamples || patches.some((p) => !p) || patches.length < minSamples) {
     return {
       verdict: 'UNKNOWN',
       reasons: ['insufficient_samples'],
@@ -226,7 +250,7 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
 
   const times = samples.map((s) => s.t);
   const durationMs = Math.max(0, (times[times.length - 1] ?? 0) - (times[0] ?? 0));
-  if (durationMs < PAD_LIMITS.minDurationMs || durationMs > PAD_LIMITS.maxDurationMs) {
+  if (durationMs < minDurationMs || durationMs > PAD_LIMITS.maxDurationMs) {
     return {
       verdict: 'UNKNOWN',
       reasons: ['duration_out_of_range'],
@@ -240,6 +264,10 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
     }
   }
 
+  const minBoxRatio = passive ? PAD_VERIFY_LIMITS.minBoxRatio : PAD_LIMITS.minBoxRatio;
+  const minBrightness = passive ? PAD_VERIFY_LIMITS.minBrightness : PAD_LIMITS.minBrightness;
+  const maxBrightness = passive ? PAD_VERIFY_LIMITS.maxBrightness : PAD_LIMITS.maxBrightness;
+  const minSharpness = passive ? PAD_VERIFY_LIMITS.minSharpness : PAD_LIMITS.minSharpness;
   let noFace = false;
   let multiFace = false;
   let poorQuality = false;
@@ -247,8 +275,8 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
     if (!Number.isFinite(s.faceCount) || s.faceCount < 1) noFace = true;
     if (s.faceCount > 1) multiFace = true;
     if (
-      !Number.isFinite(s.boxRatio) || s.boxRatio < PAD_LIMITS.minBoxRatio || s.boxRatio > PAD_LIMITS.maxBoxRatio
-      || !Number.isFinite(s.brightness) || s.brightness < PAD_LIMITS.minBrightness || s.brightness > PAD_LIMITS.maxBrightness
+      !Number.isFinite(s.boxRatio) || s.boxRatio < minBoxRatio || s.boxRatio > PAD_LIMITS.maxBoxRatio
+      || !Number.isFinite(s.brightness) || s.brightness < minBrightness || s.brightness > maxBrightness
     ) {
       poorQuality = true;
     }
@@ -264,8 +292,10 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
       boxRatio: { min: Math.min(...samples.map((s) => s.boxRatio)), max: Math.max(...samples.map((s) => s.boxRatio)) },
       brightness: { min: Math.min(...samples.map((s) => s.brightness)), max: Math.max(...samples.map((s) => s.brightness)) },
       limits: {
-        minBoxRatio: PAD_LIMITS.minBoxRatio, maxBoxRatio: PAD_LIMITS.maxBoxRatio,
-        minBrightness: PAD_LIMITS.minBrightness, maxBrightness: PAD_LIMITS.maxBrightness,
+        minBoxRatio,
+        maxBoxRatio: PAD_LIMITS.maxBoxRatio,
+        minBrightness,
+        maxBrightness,
       },
     });
     return { verdict: 'UNKNOWN', reasons: ['poor_quality'], scores: { ...emptyScores, durationMs, sampleCount: samples.length }, jti: challenge.jti };
@@ -283,7 +313,7 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
   const challengeOk = challengeSequenceOk(challenge.actions, samples);
   const yawSpan = Math.max(...samples.map((s) => s.yaw)) - Math.min(...samples.map((s) => s.yaw));
   const pitchSpan = Math.max(...samples.map((s) => s.pitch)) - Math.min(...samples.map((s) => s.pitch));
-  const claimedPoseMotion = yawSpan + pitchSpan > 0.18;
+  const claimedPoseMotion = !passive && yawSpan + pitchSpan > 0.18;
 
   const scores = {
     motion,
@@ -297,11 +327,11 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
     reasons.push('static_presentation');
     return { verdict: 'SPOOF', reasons, scores, jti: challenge.jti };
   }
-  if (claimedPoseMotion && motion < PAD_LIMITS.minLiveMotion * 0.7) {
+  if (claimedPoseMotion && motion < minLiveMotion * 0.7) {
     reasons.push('pose_pixel_inconsistent');
     return { verdict: 'SPOOF', reasons, scores, jti: challenge.jti };
   }
-  if (sharp < PAD_LIMITS.minSharpness) {
+  if (sharp < minSharpness) {
     reasons.push('low_sharpness');
     return { verdict: 'UNKNOWN', reasons, scores, jti: challenge.jti };
   }
@@ -309,7 +339,7 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
     reasons.push('challenge_not_completed');
     return { verdict: 'UNKNOWN', reasons, scores, jti: challenge.jti };
   }
-  if (motion < PAD_LIMITS.minLiveMotion) {
+  if (motion < minLiveMotion) {
     reasons.push('insufficient_motion');
     return { verdict: 'UNKNOWN', reasons, scores, jti: challenge.jti };
   }

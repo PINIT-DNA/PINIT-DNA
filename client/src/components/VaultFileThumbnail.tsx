@@ -88,6 +88,8 @@ interface VaultFileThumbnailProps {
    */
   sizeToImage?: boolean;
   className?: string;
+  /** Public share file URL — used for read-only living page (no owner vault preview). */
+  publicFileUrl?: string;
 }
 
 export function VaultFileThumbnail({
@@ -99,6 +101,7 @@ export function VaultFileThumbnail({
   fit,
   sizeToImage = false,
   className,
+  publicFileUrl,
 }: VaultFileThumbnailProps) {
   const original = quality === 'original';
   const objectFit = fit ?? (original ? 'contain' : 'cover');
@@ -166,7 +169,22 @@ export function VaultFileThumbnail({
     let cancelled = false;
     setLoading(true);
 
-    loadVaultPreview(vaultId, mimeType, fileName, original)
+    const loader = publicFileUrl
+      ? fetch(publicFileUrl)
+          .then(async (res) => {
+            if (!res.ok) throw new Error('preview unavailable');
+            const blob = await res.blob();
+            const effectiveMime = resolveVaultFileMime(blob.type, mimeType, fileName);
+            const typedBlob = new Blob([blob], { type: effectiveMime });
+            return {
+              url: URL.createObjectURL(typedBlob),
+              effectiveMime,
+              blob: typedBlob,
+            } satisfies CachedPreview;
+          })
+      : loadVaultPreview(vaultId, mimeType, fileName, original);
+
+    loader
       .then(entry => {
         if (!cancelled) setPreview(entry);
       })
@@ -180,7 +198,7 @@ export function VaultFileThumbnail({
     return () => {
       cancelled = true;
     };
-  }, [visible, shouldLoad, vaultId, mimeType, fileName, preview, failed, original]);
+  }, [visible, shouldLoad, vaultId, mimeType, fileName, preview, failed, original, publicFileUrl]);
 
   useEffect(() => {
     if (!preview || !isDocxMime(preview.effectiveMime, fileName) || variant !== 'gallery' || !docxRef.current) return;

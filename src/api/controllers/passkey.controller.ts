@@ -110,6 +110,8 @@ export async function passkeyLoginFinish(req: Request, res: Response, next: Next
       success: true,
       webauthnSession: result.webauthnSession,
       credentialId: result.credentialId,
+      userId: result.userId,
+      shortId: result.shortId,
     });
   } catch (err) {
     next(err);

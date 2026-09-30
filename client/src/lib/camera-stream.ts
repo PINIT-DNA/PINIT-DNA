@@ -2,18 +2,30 @@
  * Camera stream helpers — ensure tracks + torch fully release when leaving scanner.
  */
 
-/** Best-effort torch/flashlight off before stopping (Android Chrome). */
-export async function turnOffTorch(track: MediaStreamTrack | null | undefined): Promise<void> {
-  if (!track || track.readyState !== 'live') return;
+export function trackSupportsTorch(track: MediaStreamTrack | null | undefined): boolean {
+  if (!track || track.readyState !== 'live') return false;
   try {
     const caps = track.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean };
-    if (caps && 'torch' in caps && caps.torch) {
-      await track.applyConstraints({
-        advanced: [{ torch: false } as unknown as MediaTrackConstraintSet],
-      });
-    }
+    return Boolean(caps && 'torch' in caps && caps.torch);
   } catch {
-    /* unsupported */
+    return false;
+  }
+}
+
+/** Best-effort torch/flashlight off before stopping (Android Chrome). */
+export async function turnOffTorch(track: MediaStreamTrack | null | undefined): Promise<void> {
+  await setTorch(track, false);
+}
+
+export async function setTorch(track: MediaStreamTrack | null | undefined, on: boolean): Promise<boolean> {
+  if (!trackSupportsTorch(track)) return false;
+  try {
+    await track!.applyConstraints({
+      advanced: [{ torch: on } as unknown as MediaTrackConstraintSet],
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -40,6 +52,8 @@ export function releaseMediaStream(
   }
 }
 
+export type CameraFacing = 'user' | 'environment';
+
 /** Apply continuous autofocus when the device supports it. */
 export async function preferContinuousFocus(track: MediaStreamTrack | null | undefined): Promise<void> {
   if (!track) return;
@@ -51,12 +65,25 @@ export async function preferContinuousFocus(track: MediaStreamTrack | null | und
 }
 
 /**
- * Open camera with progressive constraints.
- * Strict min resolution fails on most laptop webcams (OverconstrainedError) —
- * fall back so Scan works on Integrated Webcam / 720p devices.
+ * Keep auto-exposure at the camera default. Do not boost brightness — that
+ * is what made the Hub preview look milky vs the Windows Camera app.
  */
-export type CameraFacing = 'user' | 'environment';
+export async function preferNaturalExposure(track: MediaStreamTrack | null | undefined): Promise<void> {
+  if (!track) return;
+  try {
+    await track.applyConstraints({
+      advanced: [{
+        exposureMode: 'continuous',
+        whiteBalanceMode: 'continuous',
+      }] as unknown as MediaTrackConstraintSet[],
+    });
+  } catch { /* unsupported */ }
+}
 
+/**
+ * Open the device's native camera stream. Do not force 1080p first — browsers
+ * upscale laptop webcams and the preview looks washed and soft.
+ */
 export async function openCameraStream(opts?: {
   facingMode?: CameraFacing;
   audio?: boolean;
@@ -67,26 +94,11 @@ export async function openCameraStream(opts?: {
 
   const facing = opts?.facingMode ?? 'environment';
   const audio = opts?.audio ?? false;
-  const opposite: CameraFacing = facing === 'user' ? 'environment' : 'user';
 
   const attempts: MediaStreamConstraints[] = [
-    {
-      video: {
-        facingMode: { ideal: facing },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-      },
-      audio,
-    },
-    {
-      video: {
-        facingMode: { ideal: opposite },
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-      audio,
-    },
+    { video: { facingMode: { ideal: facing } }, audio },
     { video: true, audio },
+    { video: true, audio: false },
   ];
 
   let lastError: unknown;

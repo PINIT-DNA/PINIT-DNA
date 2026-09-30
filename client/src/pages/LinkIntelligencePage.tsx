@@ -632,12 +632,12 @@ export function LinkIntelligencePage() {
           <ArrowLeft size={20} />
         </Link>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-gray-500 mb-0.5">Asset Activity</p>
+          <p className="text-xs font-medium text-gray-500 mb-0.5">Sharing</p>
           <h1 className="text-lg sm:text-xl font-bold text-white truncate" title={link.filename}>
             {link.filename}
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            See who accessed this asset and what happened.
+            Who opened this shared link.
             {' '}Shared {formatDistanceToNow(new Date(link.createdAt))} ago
             {(link.hopLinkCount ?? 0) > 0 && (
               <span className="text-dna-400"> · {link.hopLinkCount} forward{link.hopLinkCount === 1 ? '' : 's'} tracked</span>

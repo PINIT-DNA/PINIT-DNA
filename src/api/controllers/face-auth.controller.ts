@@ -14,6 +14,7 @@ import { resolveClientIp } from '../../lib/request-utils';
 import { biometricAuthService } from '../../services/auth/biometric-auth.service';
 import { issuePadChallenge, type PadEvidence } from '../../services/auth/face-liveness.service';
 import { setRefreshCookie } from '../../lib/auth-cookies';
+import { logger } from '../../lib/logger';
 
 function clientMeta(req: Request) {
   return {
@@ -78,11 +79,12 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
 }
 
 export async function faceLogin(req: Request, res: Response, next: NextFunction): Promise<void> {
+  const handlerStart = performance.now();
   try {
     const {
       embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint,
       claimedShortId, claimedUserId, pinitId, shortId, padEvidence,
-      webauthnSession, passkeyPendingToken,
+      webauthnSession, passkeyPendingToken, lightingTelemetry,
     } = req.body as {
       embedding?: number[];
       voiceFingerprint?: number[];
@@ -95,7 +97,19 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       padEvidence?: PadEvidence;
       webauthnSession?: string;
       passkeyPendingToken?: string;
+      lightingTelemetry?: { ambientBrightness?: number; lightingStatus?: string };
     };
+
+    const patches = padEvidence?.patches;
+    let bodyKb = 0;
+    try {
+      bodyKb = JSON.stringify(req.body).length / 1024;
+    } catch { /* ignore */ }
+    logger.info('[Auth:Perf] Incoming Face Login payload size', {
+      kb: Number(bodyKb.toFixed(2)),
+      embeddingLen: Array.isArray(embedding) ? embedding.length : 0,
+      patchCount: Array.isArray(patches) ? patches.length : 0,
+    });
 
     const meta = clientMeta(req);
     const result = await biometricAuthService.login({
@@ -108,7 +122,20 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       voiceFingerprint,
       webauthnCredentialId,
       deviceFingerprint,
+      lightingTelemetry,
       ...meta,
+    });
+
+    const perf = 'perf' in result ? result.perf : undefined;
+    logger.info('[Auth:Perf] handler', {
+      totalMs: Number((performance.now() - handlerStart).toFixed(2)),
+      ok: result.ok,
+      padMs: perf?.padMs,
+      claimMs: perf?.claimMs,
+      decryptMs: perf?.decryptMs,
+      matchMs: perf?.matchMs,
+      jwtMs: perf?.jwtMs,
+      engineMs: perf?.totalMs,
     });
 
     if (!result.ok) {
@@ -137,6 +164,9 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       accessToken: result.tokens.accessToken,
     });
   } catch (err) {
+    logger.error('[Auth:Perf] Failed after', {
+      totalMs: Number((performance.now() - handlerStart).toFixed(2)),
+    });
     next(err);
   }
 }
@@ -220,9 +250,10 @@ export async function faceStatus(req: Request, res: Response, next: NextFunction
   }
 }
 
-export async function faceChallenge(_req: Request, res: Response, next: NextFunction): Promise<void> {
+export async function faceChallenge(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const issued = issuePadChallenge();
+    const mode = (req.body as { mode?: string } | undefined)?.mode === 'passive' ? 'passive' : 'active';
+    const issued = issuePadChallenge(mode);
     res.status(200).json({
       success: true,
       token: issued.token,

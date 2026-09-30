@@ -39,3 +39,33 @@ describe('login workspace default', () => {
     ).toBe('INDIVIDUAL');
   });
 });
+
+function applyLoginWorkspaceDefault(
+  workspaces: { hasPersonalWorkspace: boolean; hasBusinessWorkspace: boolean },
+  lastActiveShell?: 'PERSONAL' | 'BUSINESS' | null,
+): 'INDIVIDUAL' | 'BUSINESS' {
+  if (lastActiveShell === 'BUSINESS') return 'BUSINESS';
+  if (lastActiveShell === 'PERSONAL') return 'INDIVIDUAL';
+  return resolveLoginWorkspaceMode(workspaces);
+}
+
+describe('sticky lastActiveShell', () => {
+  const both = { hasPersonalWorkspace: true, hasBusinessWorkspace: true };
+
+  test('BUSINESS shell restores Business dashboard', () => {
+    expect(applyLoginWorkspaceDefault(both, 'BUSINESS')).toBe('BUSINESS');
+  });
+
+  test('PERSONAL shell keeps Personal even when Business exists', () => {
+    expect(applyLoginWorkspaceDefault(both, 'PERSONAL')).toBe('INDIVIDUAL');
+  });
+
+  test('BUSINESS shell restores even when workspace flags are incomplete', () => {
+    expect(
+      applyLoginWorkspaceDefault(
+        { hasPersonalWorkspace: true, hasBusinessWorkspace: false },
+        'BUSINESS',
+      ),
+    ).toBe('BUSINESS');
+  });
+});

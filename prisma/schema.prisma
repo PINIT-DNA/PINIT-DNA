@@ -520,9 +520,9 @@ model User {
   phone                    String?
   theme                    String                @default("light")
   accountType              AccountType           @default(INDIVIDUAL)
+  lastActiveShell          WorkspaceShell        @default(PERSONAL)
 
-  // Face Recognition Auth
-  faceEmbedding        Float[]   @default([])
+  // Face Recognition Auth — templates live in FaceTemplate (encrypted cipher only)
   faceRegistered       Boolean   @default(false)
   faceRegisteredAt     DateTime?
   voiceEmbedding       Float[]   @default([])
@@ -920,20 +920,24 @@ model OrganizationIntegration {
 }
 
 model LoginHistory {
-  id         String   @id @default(uuid())
-  createdAt  DateTime @default(now())
-  userId     String
-  method     String   @default("face")
-  ip         String?
-  userAgent  String?
-  device     String?
-  browser    String?
-  os         String?
-  city       String?
-  country    String?
-  success    Boolean  @default(true)
-  failReason String?
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                 String   @id @default(uuid())
+  createdAt          DateTime @default(now())
+  userId             String
+  method             String   @default("face")
+  ip                 String?
+  userAgent          String?
+  device             String?
+  browser            String?
+  os                 String?
+  city               String?
+  country            String?
+  success            Boolean  @default(true)
+  failReason         String?
+  ambientBrightness  Int?
+  lightingStatus     String?
+  euclideanDistance  Float?
+  executionTimeMs    Float?
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([createdAt])
@@ -2035,6 +2039,11 @@ model CrawlerMatch {
 
 enum AccountType {
   INDIVIDUAL
+  BUSINESS
+}
+
+enum WorkspaceShell {
+  PERSONAL
   BUSINESS
 }
 

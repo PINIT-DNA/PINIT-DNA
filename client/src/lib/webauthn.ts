@@ -10,6 +10,7 @@ export interface BiometricResult {
   simulated: boolean;
   webauthnSession?: string;
   passkeyPendingToken?: string;
+  shortId?: string;
 }
 
 function b64urlToBuf(s: string): ArrayBuffer {
@@ -170,10 +171,6 @@ export async function assertDeviceCredential(claimedShortId?: string): Promise<B
     loginId: string;
     options: Record<string, unknown>;
   }>('/auth/passkey/login/start', { claimedShortId });
-  const allow = (start.options.allowCredentials as unknown[] | undefined) ?? [];
-  if (allow.length === 0) {
-    return registerDeviceCredential();
-  }
   let assertion: PublicKeyCredential | null;
   try {
     assertion = await navigator.credentials.get({
@@ -190,7 +187,7 @@ export async function assertDeviceCredential(claimedShortId?: string): Promise<B
     throw e instanceof Error ? e : new Error('Passkey verification failed.');
   }
   if (!assertion) throw new Error('Passkey verification was cancelled.');
-  const finish = await postJson<{ webauthnSession: string; credentialId: string }>(
+  const finish = await postJson<{ webauthnSession: string; credentialId: string; shortId?: string }>(
     '/auth/passkey/login/finish',
     { loginId: start.loginId, credential: serializeAssertion(assertion) },
   );
@@ -199,6 +196,7 @@ export async function assertDeviceCredential(claimedShortId?: string): Promise<B
     credentialId: finish.credentialId,
     simulated: false,
     webauthnSession: finish.webauthnSession,
+    shortId: finish.shortId,
   };
 }
 

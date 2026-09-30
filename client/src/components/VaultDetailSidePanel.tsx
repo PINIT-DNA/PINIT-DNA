@@ -893,7 +893,7 @@ export function VaultDetailSidePanel({
                 ) : tepPackages.length === 0 ? (
                   <div className="rounded-lg border border-bg-border bg-bg-elevated p-3 space-y-2">
                     <p className="text-xs text-gray-400">
-                      No tracked download yet. Use Download Protected to create a tracking code for sharing.
+                      No tracked download yet. Download Protected saves the file to this device’s Files so other apps can pick it. Protection stays on the copy.
                     </p>
                     <button
                       type="button"

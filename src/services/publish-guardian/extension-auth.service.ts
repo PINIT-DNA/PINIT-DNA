@@ -53,7 +53,16 @@ export class ExtensionAuthService {
 
     const user = await prisma.user.findUnique({
       where: { id: row.ownerUserId },
-      select: { id: true, shortId: true, fullName: true, email: true, role: true, isActive: true },
+      select: {
+        id: true,
+        shortId: true,
+        fullName: true,
+        email: true,
+        role: true,
+        isActive: true,
+        accountType: true,
+        lastActiveShell: true,
+      },
     });
     if (!user || !user.isActive) throw new AppError(401, 'User not found or inactive');
 
@@ -62,6 +71,8 @@ export class ExtensionAuthService {
       shortId: user.shortId,
       fullName: user.fullName,
       role: user.role,
+      accountType: user.accountType ?? 'INDIVIDUAL',
+      lastActiveShell: user.lastActiveShell === 'BUSINESS' ? 'BUSINESS' : 'PERSONAL',
     });
 
     // Mark used only after tokens succeed so a transient failure can retry the same code

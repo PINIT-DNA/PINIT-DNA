@@ -176,7 +176,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-bg-base">
       <Header />
 
-      <main className={`flex-1 mx-auto w-full px-0 sm:px-4 py-4 sm:py-8 ${isWorking ? 'max-w-6xl' : 'max-w-5xl'}`}>
+      <main className="flex-1 mx-auto w-full max-w-6xl px-0 sm:px-4 py-3 sm:py-6">
         <AnimatePresence mode="wait">
           {stage === 'idle' && (
             <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

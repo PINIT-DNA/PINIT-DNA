@@ -897,7 +897,10 @@ export class DuplicateCheckService {
         matchType: 'NEAR_DUPLICATE_ORB_FEATURES',
         pHashSimilarity: matched.similarity,
         probeBuffer: buffer,
-        requireDnaBCorroboration: matched.similarity < ORB_STRONG_THRESHOLD,
+        // ORB matches faces and clothing, not "this file". A new photo of the
+        // same person scores as a strong match and wrongly refuses Protect.
+        // Only block when the PINIT watermark on this file corroborates the DNA.
+        requireDnaBCorroboration: true,
       });
     } catch (err) {
       logger.warn('[DuplicateCheck] ORB check failed (non-fatal)', { error: String(err) });

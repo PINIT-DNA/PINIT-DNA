@@ -13,17 +13,17 @@ const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/vault':               { title: 'My Assets', subtitle: 'Your protected assets — share and track' },
   '/vault-integrity':     { title: 'Security Check', subtitle: 'Confirm your assets are stored safely' },
   '/dna-records':         { title: 'Protected Assets', subtitle: 'Assets you have protected in Pinit HUB' },
-  '/timeline':            { title: 'Asset Activity', subtitle: 'What happened to your protected assets' },
+  '/timeline':            { title: 'Asset Activity', subtitle: 'Life of each file — from protect until it leaves Hub' },
   '/reports':             { title: 'Evidence', subtitle: 'Investigation findings and comparison reports' },
-  '/certificates':        { title: 'Credentials', subtitle: 'Certificates, awards, licenses and achievements' },
+  '/certificates':        { title: 'Credentials', subtitle: 'Certificates you can preview, download and share' },
   '/verify-certificate':  { title: 'Verify certificate', subtitle: 'Check if a certificate is still valid' },
   '/search':              { title: 'Search', subtitle: 'Find assets and activity' },
   '/forensic-diff':       { title: 'Compare assets', subtitle: 'See what changed between two assets' },
   '/monitoring':          { title: 'Monitoring', subtitle: 'Watch for copies of your assets online' },
   '/protected-posts':     { title: 'My Assets', subtitle: 'Your protected assets' },
   '/assets':              { title: 'My Assets', subtitle: 'Your protected assets' },
-  '/tracking':            { title: 'Tracking', subtitle: 'Every asset and everywhere it has been' },
-  '/access-intelligence': { title: 'Sharing', subtitle: 'Who opened your links and what they did' },
+  '/tracking':            { title: 'Tracking', subtitle: 'Totals per file — links, living pages, certificates, sales' },
+  '/access-intelligence': { title: 'Sharing', subtitle: 'Links you sent — who opened them' },
   '/unmask-requests':     { title: 'Access Requests', subtitle: 'Approve sensitive data reveal requests' },
   '/duplicate-attempts':  { title: 'Duplicate Checks', subtitle: 'When someone tried to re-upload your asset' },
   '/profile':             { title: 'Profile', subtitle: 'Your account, portfolio, and preferences' },
@@ -58,7 +58,7 @@ export function Topbar({ onMenu }: TopbarProps) {
           : location.pathname.startsWith('/tracking/')
           ? { title: 'Asset tracking', subtitle: 'Every share, check and sale for this asset' }
           : location.pathname.startsWith('/access-intelligence/')
-          ? { title: 'Asset Activity', subtitle: 'See who accessed this asset and what happened' }
+          ? { title: 'Sharing', subtitle: 'Who opened this shared link' }
           : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
             ? { title: 'My Assets', subtitle: 'Your protected assets' }
             : location.pathname.startsWith('/business/clients')
@@ -87,9 +87,19 @@ export function Topbar({ onMenu }: TopbarProps) {
           <WorkspaceSwitcher compact />
         </div>
         <div className="hidden lg:block min-w-0">
-          <p className="font-display text-[17px] font-semibold text-slate-900 truncate tracking-tight">{meta.title}</p>
+          <p className="hub-page-title text-[18px] text-slate-900 truncate">{meta.title}</p>
           {meta.subtitle && (
-            <p className="hidden xl:block text-[13px] leading-snug text-slate-500 truncate">{meta.subtitle}</p>
+            <p
+              className={
+                meta.subtitle === 'This asset can tell you its story'
+                  ? 'hub-voice-editorial hidden xl:block text-[14px] text-slate-600 truncate'
+                  : meta.subtitle === 'Capture what matters. Keep it yours.'
+                    ? 'hub-voice hidden xl:block text-[13px] text-slate-500 truncate'
+                    : 'hidden xl:block text-[13px] font-normal leading-snug text-slate-500 truncate'
+              }
+            >
+              {meta.subtitle}
+            </p>
           )}
         </div>
       </div>

@@ -25,11 +25,13 @@ import {
   Share2,
   ShieldCheck,
   Sparkles,
+  Trophy,
   User,
   Volume2,
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import axios from 'axios';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
 import { ShareLinkDialog } from '../components/share/ShareLinkDialog';
@@ -47,6 +49,8 @@ import {
   getVaultTracking,
   getPortfolioContainsVault,
   renameVaultRecord,
+  createLivingShare,
+  getPublicLivingStory,
   type VaultTrackingDashboard,
 } from '../services/dashboard.api';
 import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
@@ -160,6 +164,25 @@ function classifyJourney(label: string, title: string) {
   return { badge: 'BIRTH', ring: 'bg-violet-500', Icon: Camera };
 }
 
+const LIKED_KEY = (vaultId: string) => `pinit_vault_liked_${vaultId}`;
+
+function readLiked(vaultId: string): boolean {
+  try {
+    return localStorage.getItem(LIKED_KEY(vaultId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeLiked(vaultId: string, liked: boolean) {
+  try {
+    if (liked) localStorage.setItem(LIKED_KEY(vaultId), '1');
+    else localStorage.removeItem(LIKED_KEY(vaultId));
+  } catch {
+    /* ignore */
+  }
+}
+
 const HIGHLIGHT_ICONS = [ShieldCheck, Fingerprint, Heart, Route, Lock, InfinityIcon] as const;
 const HIGHLIGHT_TONES = [
   'bg-violet-50 text-violet-500 dark:bg-violet-950/40',
@@ -225,10 +248,12 @@ function shortHash(h: string | null | undefined) {
 }
 
 export function VaultAssetStoryPage() {
-  const { vaultId } = useParams<{ vaultId: string }>();
+  const { vaultId: routeVaultId, token: liveToken } = useParams<{ vaultId?: string; token?: string }>();
+  const guestMode = Boolean(liveToken);
   const navigate = useNavigate();
   const { user } = useAuth();
   const [record, setRecord] = useState<VaultRecord | null>(null);
+  const vaultId = routeVaultId || record?.id;
   const [tracking, setTracking] = useState<VaultTrackingDashboard | null>(null);
   const [analysis, setAnalysis] = useState<VaultContentAnalysis | null>(null);
   const [intel, setIntel] = useState<IntelLite | null>(null);
@@ -247,6 +272,7 @@ export function VaultAssetStoryPage() {
   const [renameSaving, setRenameSaving] = useState(false);
   const [listed, setListed] = useState<{ listingId: string } | null>(null);
   const [inPortfolio, setInPortfolio] = useState(false);
+  const [liked, setLiked] = useState(false);
   const [moreOpen, setMoreOpen] = useState(false);
   const [downloadingReport, setDownloadingReport] = useState(false);
   const [creatorNote, setCreatorNote] = useState('');
@@ -293,12 +319,63 @@ export function VaultAssetStoryPage() {
   }, [vaultId, record]);
 
   useEffect(() => {
-    if (!vaultId) return;
+    if (guestMode) {
+      if (!liveToken) return;
+      let cancelled = false;
+      setLoading(true);
+      setRecord(null);
+      setTracking(null);
+      setIntel(null);
+      setShareLinks([]);
+      setShareEvents([]);
+      setShareLinkCount(0);
+      setListed(null);
+
+      void getPublicLivingStory(liveToken)
+        .then((story) => {
+          if (cancelled) return;
+          const row = story.record as VaultRecord & {
+            dnaRecord?: { filename?: string; imageFilename?: string; id: string; status: string };
+          };
+          setRecord({
+            ...row,
+            dnaRecord: {
+              id: row.dnaRecord?.id ?? row.dnaRecordId,
+              status: row.dnaRecord?.status ?? 'COMPLETE',
+              filename: row.dnaRecord?.filename ?? row.originalFileName,
+            },
+          });
+          if (story.tracking) setTracking(story.tracking);
+          setShareLinkCount(story.shareLinkCount ?? 0);
+          setIntel(story.intel ?? null);
+          setAnalysis((row.contentAnalysis as VaultContentAnalysis | null) ?? null);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          toast.error('This living page is no longer available');
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    if (!routeVaultId) return;
     let cancelled = false;
     setLoading(true);
-    void (async () => {
-      try {
-        const vault = await getVaultRecord(vaultId);
+    setRecord(null);
+    setTracking(null);
+    setIntel(null);
+    setShareLinks([]);
+    setShareEvents([]);
+    setShareLinkCount(0);
+    setListed(null);
+
+    void getVaultRecord(routeVaultId)
+      .then((vault) => {
         if (cancelled) return;
         const row = vault as VaultRecord & {
           dnaRecord?: { filename?: string; imageFilename?: string; id: string; status: string };
@@ -311,53 +388,65 @@ export function VaultAssetStoryPage() {
             filename: row.dnaRecord?.filename ?? row.dnaRecord?.imageFilename ?? row.originalFileName,
           },
         });
-        const [t, listedRes, shares, intelRes] = await Promise.allSettled([
-          getVaultTracking(vaultId),
-          getExchangeListedAssets(),
-          api.get(`${API_BASE_URL}/share/vault/${vaultId}`),
-          api.get(`${API_BASE_URL}/intelligence/report/${vaultId}`),
-        ]);
+      })
+      .catch(() => {
         if (cancelled) return;
-        if (t.status === 'fulfilled') setTracking(t.value);
-        if (listedRes.status === 'fulfilled') {
-          const hit = listedRes.value.listed?.find((x) => x.vaultId === vaultId);
-          setListed(hit ? { listingId: hit.listingId } : null);
-        }
-        if (shares.status === 'fulfilled') {
-          const links = (shares.value.data as {
-            links?: Array<{
-              token: string;
-              isActive?: boolean;
-              viewCount?: number;
-              createdAt?: string;
-              accessLogs?: typeof shareEvents;
-            }>;
-          }).links ?? [];
-          setShareLinks(links.filter((l) => Boolean(l.token)));
-          setShareLinkCount(links.length);
-          setShareEvents(links.flatMap((l) => l.accessLogs ?? []));
-        }
-        if (intelRes.status === 'fulfilled') {
-          setIntel(
-            (intelRes.value.data as { report?: IntelLite }).report
-            ?? (intelRes.value.data as IntelLite),
-          );
-        }
-      } catch {
-        if (!cancelled) {
-          toast.error('Could not open this file');
-          navigate('/vault', { replace: true });
-        }
-      } finally {
+        toast.error('Could not open this file');
+        navigate('/vault', { replace: true });
+      })
+      .finally(() => {
         if (!cancelled) setLoading(false);
-      }
-    })();
+      });
+
+    void getVaultTracking(routeVaultId).then((t) => {
+      if (!cancelled) setTracking(t);
+    }).catch(() => { /* story still opens */ });
+
+    void getExchangeListedAssets().then((listedRes) => {
+      if (cancelled) return;
+      const hit = listedRes.listed?.find((x) => x.vaultId === routeVaultId);
+      setListed(hit ? { listingId: hit.listingId } : null);
+    }).catch(() => { /* optional */ });
+
+    void api.get(`${API_BASE_URL}/share/vault/${routeVaultId}`).then((shares) => {
+      if (cancelled) return;
+      const links = (shares.data as {
+        links?: Array<{
+          token: string;
+          isActive?: boolean;
+          viewCount?: number;
+          createdAt?: string;
+          accessLogs?: typeof shareEvents;
+        }>;
+      }).links ?? [];
+      setShareLinks(links.filter((l) => Boolean(l.token)));
+      setShareLinkCount(links.length);
+      setShareEvents(links.flatMap((l) => l.accessLogs ?? []));
+    }).catch(() => { /* optional */ });
+
+    void api.get(`${API_BASE_URL}/intelligence/report/${routeVaultId}`).then((intelRes) => {
+      if (cancelled) return;
+      setIntel(
+        (intelRes.data as { report?: IntelLite }).report
+        ?? (intelRes.data as IntelLite),
+      );
+    }).catch(() => { /* optional */ });
+
     return () => {
       cancelled = true;
     };
-  }, [vaultId, navigate]);
+  }, [guestMode, liveToken, routeVaultId, navigate]);
 
   useEffect(() => {
+    if (!guestMode || !liveToken || !record) return;
+    void axios.post(`${API_BASE_URL}/share/${encodeURIComponent(liveToken)}/access`, {
+      action: 'VIEWED',
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    }).catch(() => { /* tracking is best-effort */ });
+  }, [guestMode, liveToken, record?.id]);
+
+  useEffect(() => {
+    if (guestMode) return;
     if (!vaultId || !record) return;
     if (!(record.originalMimeType || '').startsWith('image/')) return;
     let cancelled = false;
@@ -371,12 +460,14 @@ export function VaultAssetStoryPage() {
     return () => {
       cancelled = true;
     };
-  }, [vaultId, record]);
+  }, [guestMode, vaultId, record]);
 
   useEffect(() => {
+    if (guestMode) return;
     if (!record?.id) return;
+    setLiked(readLiked(record.id));
     void getPortfolioContainsVault(record.id).then(setInPortfolio).catch(() => setInPortfolio(false));
-  }, [record?.id]);
+  }, [guestMode, record?.id]);
 
   const loc = tracking?.location ?? record?.location;
   const coords = bestCoordsFromLocation(loc ?? undefined);
@@ -641,6 +732,29 @@ export function VaultAssetStoryPage() {
     }
   };
 
+  const shareLivingPage = async () => {
+    if (!record) return;
+    try {
+      const created = await createLivingShare(record.id);
+      const url = created.shareUrl.startsWith('http')
+        ? created.shareUrl
+        : `${window.location.origin}/s/${created.token}/live`;
+      const title = record.originalFileName || 'Living asset';
+      try {
+        if (typeof navigator.share === 'function') {
+          await navigator.share({ title, text: 'PinIT Living Asset', url });
+          return;
+        }
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+      }
+      await navigator.clipboard.writeText(url);
+      toast.success('Read-only living page link copied');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not share living page');
+    }
+  };
+
   if (loading || !record) {
     return (
       <div className="max-w-6xl mx-auto space-y-4">
@@ -665,17 +779,22 @@ export function VaultAssetStoryPage() {
   const investigationCount = tracking?.summary.investigationCount ?? 0;
 
   return (
-    <div className="max-w-[1180px] mx-auto pb-8 text-[13px] space-y-3">
+    <div className={`${guestMode ? 'min-h-screen bg-bg-base px-4 pt-6' : ''} max-w-[1180px] mx-auto pb-8 text-[13px] space-y-3`}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <button
-          type="button"
-          onClick={() => navigate('/vault')}
-          className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-dna-500"
-        >
-          <ArrowLeft size={14} /> My Assets
-        </button>
+        {guestMode ? (
+          <p className="text-xs font-medium text-slate-500">PinIT · Read-only living asset</p>
+        ) : (
+          <button
+            type="button"
+            onClick={() => navigate('/vault')}
+            className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 hover:text-dna-500"
+          >
+            <ArrowLeft size={14} /> My Assets
+          </button>
+        )}
+        {!guestMode && (
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => setSharing(true)} className="btn btn-secondary btn-sm gap-1.5">
+          <button type="button" onClick={() => void shareLivingPage()} className="btn btn-secondary btn-sm gap-1.5">
             <Share2 size={14} /> Share
           </button>
           <button
@@ -707,6 +826,16 @@ export function VaultAssetStoryPage() {
                 <button
                   type="button"
                   className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-slate-50 dark:hover:bg-bg-elevated"
+                  onClick={() => {
+                    setMoreOpen(false);
+                    navigate(`/profile?tab=portfolio&addVault=${encodeURIComponent(record.id)}`);
+                  }}
+                >
+                  {inPortfolio ? 'Open in portfolio' : 'Add to portfolio'}
+                </button>
+                <button
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-xs rounded-lg hover:bg-slate-50 dark:hover:bg-bg-elevated"
                   onClick={async () => {
                     setMoreOpen(false);
                     try {
@@ -723,9 +852,10 @@ export function VaultAssetStoryPage() {
             )}
           </div>
         </div>
+        )}
       </div>
 
-      {renaming && (
+      {!guestMode && renaming && (
         <div className="mt-3 flex flex-wrap items-center gap-1.5 rounded-xl border border-bg-border bg-bg-card p-2">
           <input
             type="text"
@@ -762,6 +892,7 @@ export function VaultAssetStoryPage() {
               quality="original"
               fit="contain"
               sizeToImage
+              publicFileUrl={guestMode && liveToken ? `${API_BASE_URL}/share/${encodeURIComponent(liveToken)}/file` : undefined}
             />
             <div className="absolute left-3 top-3 flex flex-wrap gap-1.5">
               <Badge variant="success">Verified Original</Badge>
@@ -769,16 +900,23 @@ export function VaultAssetStoryPage() {
               {!showTamperBadge && tamperLabel === 'Authentic' && <Badge variant="success">Tamper Proof</Badge>}
               {listed && <Badge variant="orange">On Exchange</Badge>}
             </div>
+            {!guestMode && (
             <div className="absolute right-3 top-3 flex gap-1.5">
               <button
                 type="button"
-                onClick={() => navigate(`/profile?tab=portfolio&addVault=${encodeURIComponent(record.id)}`)}
-                className={`h-8 w-8 rounded-full bg-white/90 flex items-center justify-center ${inPortfolio ? 'text-rose-500' : 'text-slate-600'}`}
-                aria-label="Add to portfolio"
+                onClick={() => {
+                  const next = !liked;
+                  setLiked(next);
+                  writeLiked(record.id, next);
+                }}
+                className={`h-8 w-8 rounded-full bg-white/90 flex items-center justify-center ${liked ? 'text-rose-500' : 'text-slate-600'}`}
+                aria-label={liked ? 'Unlike' : 'Like'}
+                title={liked ? 'Unlike' : 'Like'}
               >
-                <Heart size={15} fill={inPortfolio ? 'currentColor' : 'none'} />
+                <Heart size={15} fill={liked ? 'currentColor' : 'none'} />
               </button>
             </div>
+            )}
             <div className="absolute inset-x-0 bottom-0 flex flex-wrap justify-between gap-2 p-3 ink-photo">
               <span className="inline-flex items-center gap-1 rounded-full bg-black/50 px-2.5 py-1 text-[11px] text-white">
                 <MapPin size={12} />
@@ -791,6 +929,9 @@ export function VaultAssetStoryPage() {
             </div>
           </div>
         </div>
+        <p className="px-0.5 text-sm font-medium text-slate-800 truncate" title={record.originalFileName}>
+          {record.originalFileName}
+        </p>
 
         <div className="flex min-h-0 flex-1 flex-col rounded-2xl border border-slate-200/80 bg-bg-card p-3.5 shadow-sm dark:border-bg-border">
           <div className="flex items-end justify-between gap-2">
@@ -815,7 +956,7 @@ export function VaultAssetStoryPage() {
           <div className="mt-3 rounded-xl border border-amber-100 bg-amber-50/50 px-3 py-2.5 dark:border-bg-border dark:bg-amber-950/10">
             <div className="flex items-center justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-800">Personal Note</h2>
-              {!editingNote && (
+              {!guestMode && !editingNote && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1033,7 +1174,7 @@ export function VaultAssetStoryPage() {
 
         <Card
           title="Investigation reports"
-          action={(
+          action={!guestMode ? (
             <div className="flex items-center gap-2 shrink-0">
               <Link
                 to={`${BRAND.investigationPath}?vaultId=${encodeURIComponent(record.id)}`}
@@ -1043,7 +1184,7 @@ export function VaultAssetStoryPage() {
               </Link>
               <Link to="/reports" className="text-[11px] font-medium text-dna-500">Open Evidence</Link>
             </div>
-          )}
+          ) : undefined}
         >
           {assetReports.length === 0 && investigationCount === 0 ? (
             <p className="text-xs text-slate-500">No investigation reports for this asset yet.</p>
@@ -1094,14 +1235,14 @@ export function VaultAssetStoryPage() {
 
         <Card
           title="Shared links"
-          action={(
+          action={!guestMode ? (
             <Link
               to={record.assetId ? `/tracking/${encodeURIComponent(record.assetId)}` : `/timeline?vaultId=${encodeURIComponent(record.id)}`}
               className="text-[11px] font-medium text-dna-500"
             >
               Open tracking
             </Link>
-          )}
+          ) : undefined}
         >
           {shareLinks.length === 0 ? (
             <p className="text-xs text-slate-500">No share links yet for this asset.</p>
@@ -1142,14 +1283,17 @@ export function VaultAssetStoryPage() {
       <Card title="My Life Journey (From Birth Till Now)">
         <div className="flex items-center justify-between gap-2 -mt-1 mb-4">
           <p className="text-[11px] text-slate-500">A record of everything that has happened to me</p>
+          {!guestMode && (
           <Link to={`/timeline?vaultId=${encodeURIComponent(record.id)}`} className="text-xs font-medium text-dna-500 shrink-0">
             View Full Timeline
           </Link>
+          )}
         </div>
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
         {journey.length === 0 ? (
           <EmptyLine>No journey events yet. Activity appears as this file is shared and verified.</EmptyLine>
         ) : (
-          <div className="overflow-x-auto pb-1">
+          <div className="min-w-0 flex-1 overflow-x-auto pb-1">
             <ol className="flex min-w-max items-start">
               {journey.map((j, i) => {
                 const kind = classifyJourney(j.label, j.title);
@@ -1172,13 +1316,48 @@ export function VaultAssetStoryPage() {
             </ol>
           </div>
         )}
+        <aside className="flex w-full shrink-0 flex-col items-center justify-center rounded-2xl border border-amber-100 bg-amber-50/80 px-5 py-6 text-center dark:border-amber-900/30 dark:bg-amber-950/15 lg:w-[240px]">
+          <span className="flex h-11 w-11 items-center justify-center rounded-full bg-amber-100 text-amber-600 dark:bg-amber-900/40 dark:text-amber-300">
+            <Trophy size={20} />
+          </span>
+          {Number(views) > 0 || Number(shares) > 0 || Number(downloads) > 0 || peopleMet.length > 0 ? (
+            <>
+              <p className="mt-3 text-sm font-semibold leading-snug text-slate-800">
+                I have touched people and created impact.
+              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                {[
+                  Number(views) > 0 ? `${views} views` : null,
+                  Number(shares) > 0 ? `${shares} shares` : null,
+                  peopleMet.length > 0 ? `${peopleMet.length} people` : null,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') || 'Thank you for giving me a purpose.'}
+              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">Thank you for giving me a purpose.</p>
+            </>
+          ) : (
+            <>
+              <p className="mt-3 text-sm font-semibold leading-snug text-slate-800">
+                I have not reached people yet.
+              </p>
+              <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                Views, shares, and named people will appear here when this file is shared.
+              </p>
+            </>
+          )}
+          <Heart size={16} className="mt-4 text-slate-300" />
+        </aside>
+        </div>
       </Card>
 
       <div className="grid gap-3 lg:grid-cols-3 items-stretch">
         <Card title="DNA & Proof (My Identity)">
+          {!guestMode && (
           <div className="flex justify-end -mt-7 mb-2">
             <Link to={`/intelligence/${record.id}`} className="text-[11px] font-medium text-dna-500">View Full DNA Report</Link>
           </div>
+          )}
           <ProofRow label="SHA-256" value={sha || '—'} />
           <ProofRow label="Perceptual Hash" value={phash || '—'} />
           <ProofRow label="Structural Hash" value="See full DNA report" />
@@ -1278,6 +1457,7 @@ export function VaultAssetStoryPage() {
         </Card>
       </div>
 
+      {!guestMode && (
       <div className="rounded-2xl border border-slate-200/80 bg-bg-card p-5 shadow-sm dark:border-bg-border">
         <h2 className="text-base font-semibold text-slate-800">What you can do with me</h2>
         <p className="text-xs text-slate-500 mt-0.5 mb-4">Your asset is protected. Now decide where its story goes.</p>
@@ -1293,6 +1473,7 @@ export function VaultAssetStoryPage() {
           deleting={deleting}
         />
       </div>
+      )}
 
       {sharing && (
         <ShareLinkDialog

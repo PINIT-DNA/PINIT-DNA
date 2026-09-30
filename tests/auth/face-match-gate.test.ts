@@ -4,6 +4,7 @@
 import {
   rankFaceMatches,
   isConfidentFaceMatch,
+  isIdentifyAccept,
   normalizeEmbedding,
   THRESHOLDS,
 } from '../../src/services/auth/biometric-matching.service';
@@ -52,5 +53,10 @@ describe('face match confidence gate', () => {
 
   it('does not accept a lone gallery user just because secondDistance is Infinity', () => {
     expect(isConfidentFaceMatch(0.1, Infinity)).toBe(false);
+  });
+
+  it('identify accepts a lone enrolled face under the identify threshold', () => {
+    expect(isIdentifyAccept(0.1, Infinity, THRESHOLDS.faceIdentify)).toBe(true);
+    expect(isIdentifyAccept(0.4, Infinity, THRESHOLDS.faceIdentify)).toBe(false);
   });
 });

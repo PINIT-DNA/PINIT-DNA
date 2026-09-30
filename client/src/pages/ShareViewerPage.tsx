@@ -1134,63 +1134,48 @@ export function ShareViewerPage() {
       );
     };
 
+    const host = window.location.host;
     return (
-      <div className="min-h-screen bg-[#f1f3f4] relative overflow-hidden">
-        {/* Soft page behind prompt (like a blank tab) */}
-        <div className="absolute inset-0 flex flex-col items-center pt-28 px-4 opacity-40 pointer-events-none select-none">
-          <div className="w-10 h-10 rounded-xl bg-violet-600/20 mb-3" />
-          <div className="h-3 w-40 bg-slate-300 rounded mb-2" />
-          <div className="h-2 w-56 bg-slate-200 rounded" />
-        </div>
-
-        {/* Chrome-like permission bubble — top center */}
-        <div className="relative z-10 flex justify-center pt-3 px-3 sm:pt-4 sm:justify-start sm:pl-4">
+      <div className="min-h-screen bg-[#f1f3f4]">
+        <div className="flex justify-start pt-3 px-3 sm:pt-4 sm:pl-4">
           <div
-            className="w-full max-w-[360px] rounded-lg bg-white shadow-[0_1px_3px_rgba(60,64,67,0.3),0_4px_8px_3px_rgba(60,64,67,0.15)] border border-black/[0.08]"
+            className="w-[min(100%,360px)] rounded-lg bg-white shadow-[0_1px_3px_rgba(60,64,67,0.3),0_4px_8px_3px_rgba(60,64,67,0.15)] border border-black/[0.08]"
             role="dialog"
             aria-labelledby="loc-perm-title"
-            aria-describedby="loc-perm-desc"
           >
-            <div className="px-4 pt-3.5 pb-1">
-              <p id="loc-perm-title" className="text-[14px] text-[#202124] font-medium">
-                This file needs your location to open
+            <div className="px-4 pt-3.5">
+              <p id="loc-perm-title" className="text-[14px] text-[#202124] font-normal leading-snug">
+                <span className="font-medium">{host}</span> wants to
+                <br />
+                Know your location
               </p>
-              <p id="loc-perm-desc" className="text-[13px] text-[#5f6368] mt-1 leading-snug">
-                The owner made location a condition of access. Your approximate
-                coordinates are recorded once, with the time and device, and are
-                visible only to them.
-              </p>
-
               {locationUnsupported ? (
-                <p className="text-[12px] text-[#d93025] mt-2 leading-snug">
-                  This browser cannot provide a location, so the link cannot be opened
-                  here. Try another browser or device.
-                </p>
+                <p className="text-[12px] text-[#d93025] mt-2">Location isn’t available in this browser.</p>
               ) : locationDenied ? (
-                <p className="text-[12px] text-[#d93025] mt-2 leading-snug">
-                  Location is blocked for this site. Allow it from the icon in your
-                  address bar, then choose Share location again.
-                </p>
+                <p className="text-[12px] text-[#d93025] mt-2">Location was blocked. Allow it in the address bar to continue.</p>
               ) : locationFailed ? (
-                <p className="text-[12px] text-[#b06000] mt-2 leading-snug">
-                  Your location did not come through. Check that location services are
-                  on, then try again.
-                </p>
+                <p className="text-[12px] text-[#b06000] mt-2">Couldn’t get location. Try again.</p>
               ) : null}
             </div>
-
-            <div className="flex items-center justify-end px-2 pb-2 pt-1.5">
+            <div className="flex items-center justify-end gap-1 px-2 pb-2 pt-2">
+              <button
+                type="button"
+                disabled={locationAsked || locationUnsupported}
+                onClick={() => {
+                  setLocationAsked(false);
+                  setLocationDenied(true);
+                }}
+                className="h-9 px-3.5 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
+              >
+                Block
+              </button>
               <button
                 type="button"
                 disabled={locationAsked || locationUnsupported}
                 onClick={handleAllow}
                 className="h-9 px-3.5 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
               >
-                {locationAsked
-                  ? 'Getting location…'
-                  : locationDenied || locationFailed
-                    ? 'Try again'
-                    : 'Share location and open'}
+                {locationAsked ? '…' : 'Allow'}
               </button>
             </div>
           </div>

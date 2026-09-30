@@ -15,6 +15,7 @@ import { BusinessProfileHub } from './business/BusinessProfileHub';
 import { formatDistanceToNow, format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { notifyProfileUpdated, PROFILE_UPDATED_EVENT, useUserProfile } from '../hooks/useUserProfile';
+import { SignInMethodSettings } from '../components/settings/SignInMethodSettings';
 import { formatBytes } from '../hooks/useApi';
 import type { VaultRecord } from '../types/dashboard.types';
 import {
@@ -667,6 +668,12 @@ function SettingsTab() {
         <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4"><Activity size={14} className="text-dna-400" /> App Settings</h2>
 
         <div className="space-y-3">
+          <div className="bg-slate-50 dark:bg-bg-elevated rounded-lg px-4 py-3 border border-slate-200 dark:border-bg-border">
+            <p className="text-xs font-medium text-slate-900 dark:text-white mb-1">Authentication / Sign-in Preferences</p>
+            <p className="text-2xs text-slate-600 dark:text-gray-400 mb-3">Sign-in method</p>
+            <SignInMethodSettings />
+          </div>
+
           {/* Theme toggle */}
           <div className="flex items-center justify-between bg-slate-50 dark:bg-bg-elevated rounded-lg px-4 py-3 border border-slate-200 dark:border-bg-border">
             <div className="flex items-center gap-3">

@@ -35,6 +35,7 @@ authRouter.post('/login',   authController.login);
 authRouter.post('/refresh', authController.refresh);
 authRouter.post('/logout',  authController.logout);
 authRouter.get('/me',       requireAuth, authController.me);
+authRouter.post('/active-shell', requireAuth, authController.updateActiveShell);
 authRouter.post('/account-type', requireAuth, authController.setAccountType);
 authRouter.post('/business-setup', requireAuth, authController.setupBusinessWorkspace);
 authRouter.get('/business-setup/status', requireAuth, authController.businessSetupStatus);

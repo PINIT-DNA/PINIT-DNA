@@ -1,21 +1,46 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Plus, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEvent, type ReactNode } from 'react';
+import {
+  Camera,
+  Flashlight,
+  Grid3x3,
+  Images,
+  RefreshCw,
+  ScanLine,
+  Sparkles,
+  Timer,
+  UserRound,
+  Video,
+} from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import {
   cameraErrorMessage,
   openCameraStream,
+  preferContinuousFocus,
+  preferNaturalExposure,
   releaseMediaStream,
+  setTorch,
+  trackSupportsTorch,
   type CameraFacing,
 } from '../lib/camera-stream';
 import { tagProtectFile } from '../lib/protect-capture-context';
+import { useAutoDocumentCapture } from '../hooks/useAutoDocumentCapture';
+import { MediaRecorderPanel } from './MediaRecorderPanel';
 
 type StudioMode = 'photo' | 'portrait' | 'video' | 'scan';
+type FilterId = 'none' | 'vivid' | 'cool' | 'warm';
 
-const MODES: { id: StudioMode; label: string }[] = [
-  { id: 'photo', label: 'PHOTO' },
-  { id: 'portrait', label: 'PORTRAIT' },
-  { id: 'video', label: 'VIDEO' },
-  { id: 'scan', label: 'SCAN' },
+const MODES: { id: StudioMode; label: string; icon: typeof Camera }[] = [
+  { id: 'photo', label: 'Photo', icon: Camera },
+  { id: 'portrait', label: 'Portrait', icon: UserRound },
+  { id: 'video', label: 'Video', icon: Video },
+  { id: 'scan', label: 'Scan', icon: ScanLine },
+];
+
+const FILTERS: { id: FilterId; label: string; css: string }[] = [
+  { id: 'none', label: 'Original', css: 'none' },
+  { id: 'vivid', label: 'Vivid', css: 'saturate(1.25) contrast(1.08)' },
+  { id: 'cool', label: 'Cool', css: 'saturate(1.05) hue-rotate(-12deg) brightness(1.02)' },
+  { id: 'warm', label: 'Warm', css: 'saturate(1.12) sepia(0.18) contrast(1.04)' },
 ];
 
 function timestampName(prefix: string, ext: string) {
@@ -25,12 +50,7 @@ function timestampName(prefix: string, ext: string) {
 
 function blobToFile(blob: Blob, name: string, method = 'PinIT Secure Capture'): File {
   const file = new File([blob], name, { type: blob.type || 'application/octet-stream', lastModified: Date.now() });
-  try {
-    Object.defineProperty(file, 'pinitCaptureMethod', { value: method, enumerable: false });
-  } catch {
-    (file as File & { pinitCaptureMethod?: string }).pinitCaptureMethod = method;
-  }
-  return file;
+  return tagProtectFile(file, method);
 }
 
 function pickRecorderMime(): string {
@@ -50,7 +70,11 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
-function captureStill(video: HTMLVideoElement, cropPortrait: boolean): Promise<Blob> {
+function captureStill(
+  video: HTMLVideoElement,
+  cropPortrait: boolean,
+  filterCss: string,
+): Promise<Blob> {
   const vw = video.videoWidth || 1280;
   const vh = video.videoHeight || 720;
   let sx = 0;
@@ -73,10 +97,53 @@ function captureStill(video: HTMLVideoElement, cropPortrait: boolean): Promise<B
   canvas.height = sh;
   const ctx = canvas.getContext('2d');
   if (!ctx) return Promise.reject(new Error('Canvas unavailable'));
+  if (filterCss && filterCss !== 'none') ctx.filter = filterCss;
   ctx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
   return new Promise((resolve, reject) => {
-    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Capture failed'))), 'image/jpeg', 0.92);
+    canvas.toBlob((blob) => (blob ? resolve(blob) : reject(new Error('Capture failed'))), 'image/jpeg', 0.95);
   });
+}
+
+function RailControl({
+  label,
+  active,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={label}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex w-[72px] flex-col items-center gap-1 rounded-xl px-1 py-2 transition ${
+        active ? 'bg-white/15 text-white' : 'text-white/90 hover:bg-white/10'
+      } disabled:opacity-35`}
+    >
+      {children}
+      <span className="text-[10px] font-semibold tracking-wide">{label}</span>
+    </button>
+  );
+}
+
+function FocusReticle() {
+  return (
+    <div className="pointer-events-none absolute left-1/2 top-[46%] h-[72px] w-[72px] -translate-x-1/2 -translate-y-1/2">
+      <span className="absolute left-0 top-0 h-4 w-4 rounded-tl-full border-l-2 border-t-2 border-white/80" />
+      <span className="absolute right-0 top-0 h-4 w-4 rounded-tr-full border-r-2 border-t-2 border-white/80" />
+      <span className="absolute bottom-0 left-0 h-4 w-4 rounded-bl-full border-b-2 border-l-2 border-white/80" />
+      <span className="absolute bottom-0 right-0 h-4 w-4 rounded-br-full border-b-2 border-r-2 border-white/80" />
+      <span className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/90" />
+    </div>
+  );
 }
 
 interface ProtectCaptureStudioProps {
@@ -91,6 +158,7 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
   const fileInputRef = useRef<HTMLInputElement>(null);
   const genRef = useRef(0);
   const modeRef = useRef<StudioMode>('photo');
+  const timerRef = useRef<number | null>(null);
 
   const [mode, setMode] = useState<StudioMode>('photo');
   const [facing, setFacing] = useState<CameraFacing>('environment');
@@ -101,8 +169,18 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
   const [error, setError] = useState<string | null>(null);
   const [scanPages, setScanPages] = useState<Blob[]>([]);
   const [flash, setFlash] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
+  const [torchOk, setTorchOk] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
+  const [filter, setFilter] = useState<FilterId>('none');
+  const [filterOpen, setFilterOpen] = useState(false);
+  const [timerSec, setTimerSec] = useState<0 | 3 | 10>(0);
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const [audioOpen, setAudioOpen] = useState(false);
+  const [shutterPulse, setShutterPulse] = useState(false);
 
   modeRef.current = mode;
+  const filterCss = FILTERS.find((f) => f.id === filter)?.css ?? 'none';
 
   const stopRecorder = useCallback(() => {
     const rec = recorderRef.current;
@@ -119,11 +197,18 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
   const stopCamera = useCallback(() => {
     genRef.current += 1;
     stopRecorder();
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setCountdown(null);
+    setTorchOn(false);
     releaseMediaStream(streamRef.current, videoRef.current);
     streamRef.current = null;
     setReady(false);
     setRecording(false);
     setRecordSec(0);
+    setTorchOk(false);
   }, [stopRecorder]);
 
   const attachStream = useCallback(async (nextFacing: CameraFacing, withAudio: boolean) => {
@@ -131,6 +216,7 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
     releaseMediaStream(streamRef.current, videoRef.current);
     streamRef.current = null;
     setReady(false);
+    setTorchOn(false);
 
     let stream: MediaStream;
     try {
@@ -154,6 +240,14 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
       el.srcObject = stream;
       await el.play().catch(() => undefined);
     }
+    const track = stream.getVideoTracks()[0];
+    if (track) {
+      await preferNaturalExposure(track);
+      await preferContinuousFocus(track);
+      setTorchOk(trackSupportsTorch(track));
+    } else {
+      setTorchOk(false);
+    }
     setReady(true);
   }, []);
 
@@ -164,7 +258,7 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
       try {
         await attachStream(nextFacing, modeRef.current === 'video');
       } catch (err) {
-        setError(cameraErrorMessage(err, 'You can still add a file with +.'));
+        setError(cameraErrorMessage(err, 'You can still add a file from Gallery.'));
         setReady(false);
       } finally {
         setBusy(false);
@@ -196,6 +290,22 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
     return () => window.clearInterval(id);
   }, [recording]);
 
+  const prevModeRef = useRef(mode);
+  useEffect(() => {
+    const prev = prevModeRef.current;
+    prevModeRef.current = mode;
+    if (!ready || recording) return;
+    const needMic = mode === 'video';
+    const hadMic = prev === 'video';
+    if (needMic === hadMic) return;
+    void attachStream(facing, needMic).catch((err) => {
+      setError(cameraErrorMessage(err, 'You can still add a file from Gallery.'));
+      setReady(false);
+    });
+    // Live stream already granted — only re-open when video (mic) is toggled.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode]);
+
   const switchFacing = () => {
     if (recording) return;
     const next: CameraFacing = facing === 'user' ? 'environment' : 'user';
@@ -203,19 +313,21 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
     if (ready) void startCamera(next);
   };
 
-  const takeStill = async () => {
+  const takeStill = useCallback(async () => {
     const video = videoRef.current;
     if (!video || busy) return;
     setBusy(true);
     setFlash(true);
-    window.setTimeout(() => setFlash(false), 160);
+    setShutterPulse(true);
+    window.setTimeout(() => setFlash(false), 140);
+    window.setTimeout(() => setShutterPulse(false), 220);
     try {
-      const blob = await captureStill(video, mode === 'portrait');
-      if (mode === 'scan') {
+      const blob = await captureStill(video, modeRef.current === 'portrait', filterCss);
+      if (modeRef.current === 'scan') {
         setScanPages((pages) => [...pages, blob]);
         return;
       }
-      const prefix = mode === 'portrait' ? 'Portrait' : 'Photo';
+      const prefix = modeRef.current === 'portrait' ? 'Portrait' : 'Photo';
       const file = blobToFile(blob, timestampName(prefix, '.jpg'));
       stopCamera();
       onFileReady(file);
@@ -224,7 +336,14 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
     } finally {
       setBusy(false);
     }
-  };
+  }, [busy, filterCss, onFileReady, stopCamera]);
+
+  const { hint: scanHint, phase: scanPhase, armNextCapture } = useAutoDocumentCapture(videoRef, {
+    enabled: ready && mode === 'scan' && !busy && !audioOpen,
+    onCapture: () => {
+      void takeStill();
+    },
+  });
 
   const finishScan = async () => {
     if (!scanPages.length || busy) return;
@@ -238,7 +357,7 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
         const dataUrl = await blobToDataUrl(scanPages[i]!);
         pdf.addImage(dataUrl, 'JPEG', 0, 0, pageW, pageH);
       }
-      const file = blobToFile(pdf.output('blob'), timestampName('Scan', '.pdf'));
+      const file = blobToFile(pdf.output('blob'), timestampName('Scan', '.pdf'), 'PinIT Document Scan');
       setScanPages([]);
       stopCamera();
       onFileReady(file);
@@ -264,7 +383,7 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
       setRecording(false);
       setRecordSec(0);
       stopCamera();
-      if (blob.size > 0) onFileReady(blobToFile(blob, timestampName('Video', ext)));
+      if (blob.size > 0) onFileReady(blobToFile(blob, timestampName('Video', ext), 'PinIT Video Capture'));
     };
     recorderRef.current = rec;
     rec.start(250);
@@ -278,13 +397,8 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
     recorderRef.current = null;
   };
 
-  const onShutter = () => {
-    if (busy) return;
-    if (!ready) {
-      void startCamera(facing);
-      return;
-    }
-    if (mode === 'video') {
+  const fireShutter = () => {
+    if (modeRef.current === 'video') {
       if (recording) stopVideo();
       else startVideo();
       return;
@@ -292,81 +406,207 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
     void takeStill();
   };
 
+  const onShutter = () => {
+    if (busy || countdown != null) return;
+    if (!ready) {
+      void startCamera(facing);
+      return;
+    }
+    if (mode === 'video' || timerSec === 0) {
+      fireShutter();
+      return;
+    }
+    let left = timerSec;
+    setCountdown(left);
+    timerRef.current = window.setInterval(() => {
+      left -= 1;
+      if (left <= 0) {
+        if (timerRef.current) window.clearInterval(timerRef.current);
+        timerRef.current = null;
+        setCountdown(null);
+        fireShutter();
+        return;
+      }
+      setCountdown(left);
+    }, 1000);
+  };
+
   const deliverFile = (file: File) => {
     stopCamera();
+    setAudioOpen(false);
     onFileReady(file);
   };
 
-  const onLibrary = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const onLibrary = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = '';
     if (file) deliverFile(tagProtectFile(file, 'Upload'));
   };
 
-  const onDrop = (e: React.DragEvent) => {
+  const onDrop = (e: DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
     if (file) deliverFile(tagProtectFile(file, 'Upload'));
   };
 
+  const toggleFlash = async () => {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    const next = !torchOn;
+    const ok = await setTorch(track, next);
+    setTorchOn(ok && next);
+  };
+
+  const cycleTimer = () => {
+    setTimerSec((t) => (t === 0 ? 3 : t === 3 ? 10 : 0));
+  };
+
+  const statusLabel = recording
+    ? 'Recording'
+    : mode === 'scan' && ready
+      ? scanHint || 'Position the document within the frame'
+      : 'Camera Ready';
+
   return (
     <div
-      className="relative mx-auto w-full max-w-md overflow-hidden rounded-[28px] bg-black shadow-2xl ring-1 ring-black/20"
+      className="protect-studio relative mx-auto w-full max-w-[420px] font-sans"
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
-      <div className="relative aspect-[9/16] w-full bg-black sm:aspect-[3/4]">
+      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[28px] bg-[#111318] shadow-[0_18px_50px_rgba(0,0,0,0.35)] ring-1 ring-black/20">
         <video
           ref={videoRef}
           className={`absolute inset-0 h-full w-full object-cover ${ready ? '' : 'invisible'} ${facing === 'user' ? 'scale-x-[-1]' : ''}`}
+          style={{ filter: ready ? filterCss : undefined }}
           playsInline
           muted
         />
 
-        {!ready && !error && <div className="absolute inset-0 bg-neutral-950" />}
-
-        {flash && <div className="pointer-events-none absolute inset-0 bg-white/80" />}
-
-        {ready && mode === 'portrait' && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <div className="h-[72%] w-[58%] rounded-[40%] border border-white/35 shadow-[0_0_0_999px_rgba(0,0,0,0.35)]" />
+        {!ready && !audioOpen && (
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,#5a7a9a_0%,#2a3a52_52%,#151a22_100%)]">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_28%,rgba(0,0,0,0.42)_100%)]" />
           </div>
         )}
 
-        {ready && mode === 'scan' && (
-          <div className="pointer-events-none absolute inset-[12%] rounded-md border border-white/50" />
-        )}
+        {flash && <div className="pointer-events-none absolute inset-0 bg-white/75" />}
 
-        <div className="absolute inset-x-0 top-0 bg-gradient-to-b from-black/70 to-transparent px-2 pb-10 pt-3">
-          <div className="flex items-center justify-center gap-0.5 overflow-x-auto">
-            {MODES.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                disabled={recording}
-                onClick={() => {
-                  if (item.id !== 'scan') setScanPages([]);
-                  setMode(item.id);
-                }}
-                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold tracking-[0.14em] transition ${
-                  mode === item.id ? 'bg-white text-black' : 'ink-photo-muted'
-                }`}
-              >
-                {item.label}
-              </button>
+        {showGrid && (
+          <div className="pointer-events-none absolute inset-0 grid grid-cols-3 grid-rows-3">
+            {Array.from({ length: 9 }).map((_, i) => (
+              <div key={i} className="border border-white/20" />
             ))}
           </div>
+        )}
+
+        {mode !== 'scan' && mode !== 'portrait' && <FocusReticle />}
+
+        {mode === 'portrait' && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <div className="h-[62%] w-[58%] rounded-[46%] border border-white/50" />
+          </div>
+        )}
+
+        {mode === 'scan' && (
+          <div className="pointer-events-none absolute inset-[11%]">
+            <div className="absolute inset-0 rounded-md border border-white/30" />
+            <span className="absolute left-0 top-0 h-7 w-7 border-l-2 border-t-2 border-white" />
+            <span className="absolute right-0 top-0 h-7 w-7 border-r-2 border-t-2 border-white" />
+            <span className="absolute bottom-0 left-0 h-7 w-7 border-b-2 border-l-2 border-white" />
+            <span className="absolute bottom-0 right-0 h-7 w-7 border-b-2 border-r-2 border-white" />
+            <p className="absolute -top-7 left-0 right-0 text-center text-[11px] font-semibold text-white/90">
+              Position the document within the frame
+            </p>
+          </div>
+        )}
+
+        {countdown != null && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="text-7xl font-extrabold tabular-nums text-white drop-shadow-lg">{countdown}</span>
+          </div>
+        )}
+
+        <div className="absolute inset-x-3 top-3 z-10 flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto rounded-full bg-black/45 p-1 backdrop-blur-md">
+            {MODES.map((item) => {
+              const Icon = item.icon;
+              const active = mode === item.id && !audioOpen;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  disabled={recording}
+                  onClick={() => {
+                    if (item.id !== 'scan') setScanPages([]);
+                    setAudioOpen(false);
+                    setMode(item.id);
+                  }}
+                  className={`flex flex-1 items-center justify-center gap-1 rounded-full px-1.5 py-1.5 text-[11px] font-semibold transition ${
+                    active ? 'bg-white text-slate-900 shadow-sm' : 'text-white/80 hover:text-white'
+                  }`}
+                >
+                  <Icon size={12} strokeWidth={2.2} />
+                  {item.label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            disabled={!ready || !torchOk}
+            onClick={() => void toggleFlash()}
+            className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-full backdrop-blur-md ${
+              torchOn ? 'bg-amber-400 text-black' : 'bg-black/45 text-white'
+            } disabled:opacity-40`}
+            aria-label="Flash"
+          >
+            <Flashlight size={15} />
+          </button>
         </div>
 
         {recording && (
-          <div className="absolute left-1/2 top-14 -translate-x-1/2 rounded-full bg-red-600 px-3 py-1 text-xs font-semibold tabular-nums ink-photo">
+          <div className="absolute left-1/2 top-[4.25rem] flex -translate-x-1/2 items-center gap-2 rounded-full bg-red-600/90 px-3 py-1 text-xs font-semibold tabular-nums text-white">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-white" />
             REC {String(Math.floor(recordSec / 60)).padStart(2, '0')}:{String(recordSec % 60).padStart(2, '0')}
           </div>
         )}
 
+        <div className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-2xl bg-black/40 py-1 backdrop-blur-md">
+          <div className="relative">
+            <RailControl label="Filters" active={filter !== 'none' || filterOpen} onClick={() => setFilterOpen((o) => !o)}>
+              <Sparkles size={16} />
+            </RailControl>
+            {filterOpen && (
+              <div className="absolute right-[76px] top-0 w-28 overflow-hidden rounded-xl bg-black/80 py-1">
+                {FILTERS.map((f) => (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      setFilter(f.id);
+                      setFilterOpen(false);
+                    }}
+                    className={`block w-full px-3 py-1.5 text-left text-xs font-medium ${
+                      filter === f.id ? 'text-sky-300' : 'text-white/85'
+                    }`}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <RailControl label={timerSec ? `${timerSec}s` : 'Timer'} active={timerSec > 0} onClick={cycleTimer}>
+            <Timer size={16} />
+          </RailControl>
+          <RailControl label="Grid" active={showGrid} onClick={() => setShowGrid((g) => !g)}>
+            <Grid3x3 size={16} />
+          </RailControl>
+        </div>
+
         {error && (
-          <div className="absolute inset-x-4 top-1/2 -translate-y-1/2 rounded-2xl bg-black/80 p-4 text-center text-sm ink-photo">
+          <div className="absolute inset-x-4 top-1/2 z-20 -translate-y-1/2 rounded-2xl border border-white/10 bg-black/80 p-4 text-center text-sm text-white backdrop-blur-md">
             <p>{error}</p>
+            <p className="mt-1 text-xs text-white/60">Camera access required. Tap Capture to start camera.</p>
             <button
               type="button"
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-black"
@@ -381,76 +621,128 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
           </div>
         )}
 
-        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 to-transparent px-5 pb-5 pt-16">
+        {audioOpen && (
+          <div className="absolute inset-0 z-20 overflow-y-auto bg-black/80 p-4 backdrop-blur-sm">
+            <div className="mb-3 flex justify-end">
+              <button
+                type="button"
+                className="rounded-full border border-white/15 bg-black/40 px-3 py-1 text-xs font-semibold text-white"
+                onClick={() => setAudioOpen(false)}
+              >
+                Close
+              </button>
+            </div>
+            <MediaRecorderPanel
+              mode="audio"
+              autoStart={false}
+              onComplete={(file) => deliverFile(tagProtectFile(file, 'PinIT Audio Capture'))}
+              onCancel={() => setAudioOpen(false)}
+            />
+          </div>
+        )}
+
+        <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent px-6 pb-5 pt-16">
           {mode === 'scan' && scanPages.length > 0 && (
-            <div className="mb-3 flex items-center justify-between text-xs ink-photo">
+            <div className="mb-3 flex items-center justify-between text-xs font-medium text-white">
               <span>
                 {scanPages.length} page{scanPages.length === 1 ? '' : 's'}
+                {scanPhase === 'locking' ? ' · locking' : ''}
               </span>
-              <button type="button" className="font-semibold ink-photo" onClick={() => void finishScan()} disabled={busy}>
-                Done
-              </button>
+              <div className="flex items-center gap-3">
+                {scanPhase === 'paused' && (
+                  <button type="button" className="font-semibold text-white/80" onClick={armNextCapture}>
+                    Next page
+                  </button>
+                )}
+                <button type="button" className="font-semibold text-white" onClick={() => void finishScan()} disabled={busy}>
+                  Done
+                </button>
+              </div>
             </div>
           )}
 
-          <div className="flex items-center justify-between">
-            <button
-              type="button"
-              className="flex h-12 w-12 items-center justify-center rounded-xl bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,0.55)]"
-              onClick={() => fileInputRef.current?.click()}
-              aria-label="Add a file"
-              title="Add a file"
-            >
-              <Plus className="h-7 w-7" strokeWidth={2.75} />
-            </button>
-            <input ref={fileInputRef} type="file" className="hidden" onChange={onLibrary} />
-
-            <button
-              type="button"
-              disabled={busy}
-              onClick={onShutter}
-              className="relative flex h-[72px] w-[72px] items-center justify-center rounded-full border-[3px] border-white"
-              aria-label={
-                !ready
-                  ? 'Open camera'
-                  : mode === 'video'
-                    ? recording
-                      ? 'Stop recording'
-                      : 'Start recording'
-                    : 'Take photo'
-              }
-            >
-              <span
-                className={`block rounded-full transition ${
-                  mode === 'video' && ready
-                    ? recording
-                      ? 'h-7 w-7 rounded-md bg-red-500'
-                      : 'h-14 w-14 bg-red-500'
-                    : 'h-14 w-14 bg-white'
-                }`}
-              />
-            </button>
-
-            <button
-              type="button"
-              disabled={recording}
-              onClick={switchFacing}
-              className="flex h-12 w-12 items-center justify-center rounded-full bg-white text-black shadow-[0_2px_10px_rgba(0,0,0,0.55)]"
-              aria-label="Switch camera"
-              title="Switch camera"
-            >
-              <RefreshCw className="h-6 w-6" strokeWidth={2.5} />
-            </button>
+          <div className="mb-4 flex justify-center">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-black/55 px-3 py-1 text-[11px] font-semibold text-white backdrop-blur-md">
+              <span className={`h-1.5 w-1.5 rounded-full ${recording ? 'bg-red-400' : 'bg-emerald-400'}`} />
+              {statusLabel}
+            </span>
           </div>
 
-          <p className="mt-3 text-center text-[11px] ink-photo-muted">
-            {ready && mode === 'photo' && 'Tap to take a photo'}
-            {ready && mode === 'portrait' && 'Center yourself, then tap'}
-            {ready && mode === 'video' && (recording ? 'Tap to stop' : 'Tap to record')}
-            {ready && mode === 'scan' && (scanPages.length ? 'Tap to add another page, then Done' : 'Line up the page, then tap')}
-          </p>
+          <div className="grid grid-cols-3 items-end">
+            <div className="flex flex-col items-start gap-1">
+              <button
+                type="button"
+                className="flex h-12 w-12 items-center justify-center rounded-xl bg-black/45 text-white backdrop-blur-md"
+                onClick={() => fileInputRef.current?.click()}
+                aria-label="Gallery — add a file"
+              >
+                <Images className="h-6 w-6" strokeWidth={1.8} />
+              </button>
+              <span className="pl-0.5 text-[11px] font-semibold text-white/90">Gallery</span>
+              <button
+                type="button"
+                className="text-[10px] font-medium text-white/55 hover:text-white"
+                onClick={() => {
+                  if (recording) return;
+                  stopCamera();
+                  setAudioOpen(true);
+                }}
+              >
+                Audio
+              </button>
+              <input ref={fileInputRef} type="file" className="hidden" onChange={onLibrary} />
+            </div>
+
+            <div className="flex justify-center pb-1">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onShutter}
+                className={`relative flex h-[74px] w-[74px] items-center justify-center rounded-full border-[3px] border-white bg-transparent transition ${
+                  shutterPulse ? 'scale-95' : ''
+                }`}
+                aria-label={
+                  !ready
+                    ? 'Open camera'
+                    : mode === 'video'
+                      ? recording
+                        ? 'Stop recording'
+                        : 'Start recording'
+                      : mode === 'scan'
+                        ? 'Scan page'
+                        : 'Take photo'
+                }
+              >
+                <span
+                  className={`block rounded-full shadow-[0_0_0_4px_rgba(56,189,248,0.28)] transition-all ${
+                    mode === 'video' && ready
+                      ? recording
+                        ? 'h-7 w-7 rounded-md bg-red-500 shadow-none'
+                        : 'h-[58px] w-[58px] bg-red-500'
+                      : 'h-[58px] w-[58px] bg-white'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <div className="flex flex-col items-end gap-1">
+              <button
+                type="button"
+                disabled={recording}
+                onClick={switchFacing}
+                className="flex h-12 w-12 items-center justify-center rounded-full bg-black/45 text-white backdrop-blur-md"
+                aria-label="Switch camera"
+              >
+                <RefreshCw className="h-5 w-5" strokeWidth={2.2} />
+              </button>
+              <span className="pr-0.5 text-[11px] font-semibold text-white/90">Switch</span>
+            </div>
+          </div>
         </div>
       </div>
+      {!ready && (
+        <p className="mt-3 text-center text-xs font-medium text-slate-500">Tap the shutter to start the camera</p>
+      )}
     </div>
   );
 }

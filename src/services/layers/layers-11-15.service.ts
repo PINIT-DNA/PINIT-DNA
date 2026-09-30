@@ -449,10 +449,14 @@ export async function processLayer15(
     // Fetch user's face embedding
     const user = await prisma.user.findUnique({
       where: { id: ownerUserId },
-      select: { faceEmbedding: true, faceRegistered: true },
+      select: {
+        faceRegistered: true,
+        biometricIdentity: { select: { faceTemplate: { select: { templateHash: true } } } },
+      },
     });
 
-    if (!user?.faceRegistered || !user.faceEmbedding?.length) {
+    const templateHash = user?.biometricIdentity?.faceTemplate?.templateHash;
+    if (!user?.faceRegistered || !templateHash) {
       // No face registered — upsert a record with empty biometric. upsert, not
       // create: dnaRecordId is @unique, so an at-least-once redelivery of this
       // dispatch is a no-op success instead of a caught P2002 logged as a failure.
@@ -479,15 +483,14 @@ export async function processLayer15(
     }
 
     // Convert face embedding to a deterministic hash
-    const embeddingStr = user.faceEmbedding.map(v => v.toFixed(6)).join(',');
     const biometricHash = crypto
       .createHash('sha256')
-      .update(embeddingStr)
+      .update(templateHash)
       .digest('hex');
 
     const layer15Data = {
       biometricHash,
-      biometricType: 'face-embedding',
+      biometricType: 'face-template-hash',
       bindMethod: 'hmac-sha256',
       userId: ownerUserId,
       embeddedInFile: true,

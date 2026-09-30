@@ -20,6 +20,9 @@ export interface TrackedAsset {
     shares: number;
     reshares: number;
     shareViews: number;
+    livingPages: number;
+    livingViews: number;
+    fileShares: number;
     screenshotAttempts: number;
     certificateChecks: Count;
     portfolioViews: Count;
@@ -39,6 +42,7 @@ export interface TrackedShare {
   parentLinkId: string | null;
   forwardedByLabel: string | null;
   fromExchange: boolean;
+  linkType?: string;
   views: number;
   downloads: number;
   screenshotAttempts: number;
@@ -81,6 +85,16 @@ export interface AssetTracking {
   portfolio: { shown: boolean; views: Count };
   monitoring: { status: string; foundOnline: number; lastDiscoveryAt: string | null };
   evidence: { records: number; investigations: number };
+  reports: Array<{
+    id: string;
+    kind: 'investigation' | 'evidence';
+    title: string;
+    detail: string;
+    status: string | null;
+    severity: string | null;
+    code: string;
+    at: string;
+  }>;
   unavailable: string[];
 }
 

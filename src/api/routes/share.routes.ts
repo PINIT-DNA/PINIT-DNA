@@ -10,6 +10,8 @@ import { requireFeature, FeatureKey } from '../../services/subscription';
 import {
   createShareLink,
   createFileShare,
+  createLivingShare,
+  getLivingStory,
   listShareLinks,
   getShareLinkInfo,
   getShareLinkLogs,
@@ -60,6 +62,7 @@ export const shareRouter = Router();
 // ── Fixed-path routes FIRST (must precede the /:token wildcard below) ────────
 shareRouter.post('/',                          requireAuth, requireFeature(FeatureKey.FEATURE_SMART_SHARE), createShareLink);
 shareRouter.post('/file',                      requireAuth, requireFeature(FeatureKey.FEATURE_SMART_SHARE), createFileShare);
+shareRouter.post('/living',                    requireAuth, requireFeature(FeatureKey.FEATURE_SMART_SHARE), createLivingShare);
 shareRouter.get('/',                           requireAuth, listShareLinks);
 shareRouter.get('/vault/:vaultId',             requireAuth, requireVaultOwnership, getVaultShareLinks);
 shareRouter.get('/timeline/:dnaId',            requireAuth, requireDnaOwnership, getShareTimeline);
@@ -76,6 +79,7 @@ shareRouter.post('/messages/:id/reply',        requireAuth, replyShareViewerMess
 
 // ── Token-scoped routes ───────────────────────────────────────────────────────
 // Public routes (no auth — accessed by recipients without accounts)
+shareRouter.get('/:token/living',              getLivingStory);
 shareRouter.get('/:token',                     getShareLinkInfo);
 shareRouter.post('/:token/access',             recordAccess);
 shareRouter.post('/:token/share-further',      shareFurther);

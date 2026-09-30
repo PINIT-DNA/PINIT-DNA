@@ -5,11 +5,20 @@ import * as faceapi from 'face-api.js';
 
 let modelsReady: Promise<void> | null = null;
 
+export function logFaceTiming(event: string, ms: number, extra?: Record<string, unknown>): void {
+  try {
+    // DevTools only — never shown in the login UI.
+    console.info(`[Client:Perf] ${event} ${Math.round(ms)}ms`, extra ?? '');
+  } catch { /* ignore */ }
+}
+
 export function preloadFaceModels(): void {
   void ensureFaceModels();
 }
 
 export async function ensureFaceModels(): Promise<void> {
+  const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  const firstLoad = !modelsReady;
   if (!modelsReady) {
     modelsReady = Promise.all([
       faceapi.nets.tinyFaceDetector.loadFromUri('/models'),
@@ -18,6 +27,8 @@ export async function ensureFaceModels(): Promise<void> {
     ]).then(() => undefined);
   }
   await modelsReady;
+  const ended = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  logFaceTiming(firstLoad ? 'models_load' : 'models_ready_cached', ended - started);
 }
 
 export async function waitForVideoFrames(video: HTMLVideoElement, maxMs = 5000): Promise<void> {

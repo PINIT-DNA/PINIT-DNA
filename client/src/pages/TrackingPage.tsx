@@ -11,16 +11,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Share2, BadgeCheck, Globe, ShoppingBag, Radar, AlertTriangle } from 'lucide-react';
+import { Share2, BadgeCheck, Globe, ShoppingBag, Radar, AlertTriangle, Sparkles } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { listTrackedAssets, type TrackedAsset } from '../services/tracking.api';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
+import { ShareSectionGuide } from '../components/nav/ShareSectionGuide';
 
 type Filter = 'all' | 'shared' | 'sold' | 'attention';
 
 const CHANNELS = [
-  { key: 'shares', label: 'Hub shares', icon: Share2, tone: 'text-brand-600 dark:text-brand-400' },
+  { key: 'shares', label: 'Hub links', icon: Share2, tone: 'text-brand-600 dark:text-brand-400' },
+  { key: 'living', label: 'Living pages', icon: Sparkles, tone: 'text-violet-600 dark:text-violet-400' },
   { key: 'certificate', label: 'Certificate checks', icon: BadgeCheck, tone: 'text-purple dark:text-purple' },
   { key: 'portfolio', label: 'Portfolio', icon: Globe, tone: 'text-sky-600 dark:text-sky-400' },
   { key: 'exchange', label: 'Exchange purchases', icon: ShoppingBag, tone: 'text-amber-600 dark:text-amber-400' },
@@ -106,6 +108,7 @@ export function TrackingPage() {
 
   return (
     <div className="space-y-5">
+      <ShareSectionGuide current="tracking" />
       {/* What is counted where. Each channel is separate, so link views never get
           mixed up with certificate checks. */}
       <div className="flex flex-wrap gap-2">
@@ -177,7 +180,9 @@ export function TrackingPage() {
                 </div>
 
                 <div className="flex flex-wrap justify-end gap-1.5">
-                  <Metric value={a.channels.shares} label="shares" />
+                  <Metric value={a.channels.shares} label="links" />
+                  <Metric value={a.channels.livingPages || null} label="living" />
+                  <Metric value={a.channels.fileShares || null} label="files" />
                   <Metric value={a.channels.shareViews} label="views" />
                   <Metric value={a.channels.reshares || null} label="reshares" />
                   <Metric value={a.channels.certificateChecks || null} label="checks" />

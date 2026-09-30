@@ -197,6 +197,14 @@ export const config = {
 
   biometric: {
     encryptionKey: optional('BIOMETRIC_ENCRYPTION_KEY', optional('VAULT_MASTER_SECRET', 'dev_biometric_key_change_in_prod')),
+    /**
+     * Live matcher. Keep face-api-v1 until a commercially licensed ArcFace-family
+     * engine is approved and weights are installed. Setting arcface-family-licensed
+     * without weights fails closed (MODEL_UNAVAILABLE) — never bypasses biometrics.
+     */
+    recognitionEngine: (optional('BIOMETRIC_RECOGNITION_ENGINE', 'face-api-v1') === 'arcface-family-licensed'
+      ? 'arcface-family-licensed'
+      : 'face-api-v1') as 'face-api-v1' | 'arcface-family-licensed',
     thresholds: {
       // face-api.js L2 on normalized 128-d.
       //

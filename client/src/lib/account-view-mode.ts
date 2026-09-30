@@ -15,11 +15,9 @@ function legacyKey(userId: string): string {
   return `${LEGACY_PREFIX}${userId}`;
 }
 
-/**
- * Login / new-session default:
- * Personal if it exists; Business only when there is no Personal workspace.
- * Last-used workspace and JWT accountType must not override this.
- */
+export type WorkspaceShell = 'PERSONAL' | 'BUSINESS';
+
+/** Fallback when lastActiveShell is missing: Personal if it exists. */
 export function resolveLoginWorkspaceMode(opts: {
   hasPersonalWorkspace: boolean;
   hasBusinessWorkspace: boolean;
@@ -44,6 +42,7 @@ export function getAccountViewMode(
   userId: string | null | undefined,
   accountType: AccountType | null | undefined,
   workspaces?: { hasPersonalWorkspace?: boolean; hasBusinessWorkspace?: boolean },
+  lastActiveShell?: WorkspaceShell | null,
 ): AccountViewMode {
   const session = peekSessionAccountViewMode(userId);
   if (session) return session;
@@ -51,6 +50,8 @@ export function getAccountViewMode(
   const hasPersonalWorkspace = workspaces?.hasPersonalWorkspace ?? true;
   const hasBusinessWorkspace =
     workspaces?.hasBusinessWorkspace ?? accountType === 'BUSINESS';
+  if (lastActiveShell === 'BUSINESS' && hasBusinessWorkspace) return 'BUSINESS';
+  if (lastActiveShell === 'PERSONAL') return 'INDIVIDUAL';
   return resolveLoginWorkspaceMode({ hasPersonalWorkspace, hasBusinessWorkspace });
 }
 
@@ -70,12 +71,20 @@ export function setAccountViewMode(userId: string, mode: AccountViewMode): void 
   }
 }
 
-/** Call after a successful login so yesterday's Business view cannot restore. */
+/** Call after login: restore lastActiveShell from the server, else Personal-first. */
 export function applyLoginWorkspaceDefault(
   userId: string,
   workspaces: { hasPersonalWorkspace: boolean; hasBusinessWorkspace: boolean },
+  lastActiveShell?: WorkspaceShell | null,
 ): AccountViewMode {
-  const mode = resolveLoginWorkspaceMode(workspaces);
+  let mode: AccountViewMode;
+  if (lastActiveShell === 'BUSINESS') {
+    mode = 'BUSINESS';
+  } else if (lastActiveShell === 'PERSONAL') {
+    mode = 'INDIVIDUAL';
+  } else {
+    mode = resolveLoginWorkspaceMode(workspaces);
+  }
   setAccountViewMode(userId, mode);
   return mode;
 }

@@ -55,13 +55,14 @@ export default {
         orange:  { DEFAULT: '#f59e0b', light: '#fffbeb', dark: '#78350f' },
       },
       fontFamily: {
-        sans: ['Plus Jakarta Sans', 'Inter', 'system-ui', 'sans-serif'],
-        display: ['Playfair Display', 'Georgia', 'serif'],
-        label: ['Montserrat', 'Plus Jakarta Sans', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
+        sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        display: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        label: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        editorial: ['DM Serif Display', 'Georgia', 'serif'],
+        mono: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
       },
       fontSize: {
-        '2xs': ['0.65rem', { lineHeight: '1rem' }],
+        '2xs': ['0.7rem', { lineHeight: '1rem' }],
       },
       animation: {
         'pulse-slow':    'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',

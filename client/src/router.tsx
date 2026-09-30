@@ -83,6 +83,7 @@ export const router = createBrowserRouter([
   },
 
   // ── Public share viewer ───────────────────────────────────────────────────
+  { path: '/s/:token/live', element: <VaultAssetStoryPage /> },
   { path: '/s/:token', element: <ShareViewerPage /> },
   { path: '/share/:token', element: <ShareViewerPage /> },
   // Public, like the share viewer — the handover token is the authority.

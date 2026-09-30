@@ -61,6 +61,21 @@ export async function logSecurityEvent(eventType: SecurityEventType, ctx: AuditC
   }
 }
 
+export type LightingStatus = 'OPTIMAL' | 'TOO_DARK' | 'TOO_BRIGHT';
+
+export function sanitizeLoginLighting(raw?: {
+  ambientBrightness?: number;
+  lightingStatus?: string;
+} | null): { ambientBrightness: number | null; lightingStatus: LightingStatus | null } {
+  const status = raw?.lightingStatus;
+  const lightingStatus: LightingStatus | null =
+    status === 'OPTIMAL' || status === 'TOO_DARK' || status === 'TOO_BRIGHT' ? status : null;
+  const n = raw?.ambientBrightness;
+  const ambientBrightness =
+    typeof n === 'number' && Number.isFinite(n) ? Math.round(Math.min(255, Math.max(0, n))) : null;
+  return { ambientBrightness, lightingStatus };
+}
+
 export async function logLoginHistory(opts: {
   userId: string;
   method: string;
@@ -68,6 +83,10 @@ export async function logLoginHistory(opts: {
   userAgent?: string;
   success: boolean;
   failReason?: string;
+  ambientBrightness?: number | null;
+  lightingStatus?: string | null;
+  euclideanDistance?: number | null;
+  executionTimeMs?: number | null;
 }): Promise<void> {
   try {
     await prisma.loginHistory.create({
@@ -78,6 +97,16 @@ export async function logLoginHistory(opts: {
         userAgent: opts.userAgent ?? null,
         success: opts.success,
         failReason: opts.failReason ?? null,
+        ambientBrightness: opts.ambientBrightness ?? null,
+        lightingStatus: opts.lightingStatus ?? null,
+        euclideanDistance:
+          typeof opts.euclideanDistance === 'number' && Number.isFinite(opts.euclideanDistance)
+            ? opts.euclideanDistance
+            : null,
+        executionTimeMs:
+          typeof opts.executionTimeMs === 'number' && Number.isFinite(opts.executionTimeMs)
+            ? opts.executionTimeMs
+            : null,
       },
     });
   } catch (e) {

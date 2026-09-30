@@ -20,9 +20,12 @@
     background-image: none;
     color: #0f172a;
     color-scheme: light;
-    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
-    font-feature-settings: "ss01" 1, "cv11" 1;
-    line-height: 1.55;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 400;
+    font-feature-settings: "ss01" 1, "cv11" 1, "kern" 1;
+    font-size: 16px;
+    letter-spacing: -0.011em;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
@@ -37,17 +40,26 @@
   ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
   h1 {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    line-height: 1.18;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.22;
     color: #0b1b33;
   }
   h2, h3, h4, h5, h6 {
-    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
-    font-weight: 600;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 700;
     letter-spacing: -0.02em;
+    line-height: 1.28;
     color: #0b1b33;
+  }
+
+  p {
+    font-weight: 400;
+  }
+
+  button, input, textarea, select {
+    font-family: inherit;
   }
 
   /* Light remaps — keep muted labels quieter than titles */
@@ -397,7 +409,7 @@
 
   /* ── Buttons ─────────────────────────────────────────────────────────────── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 font-medium rounded-lg
+    @apply inline-flex items-center justify-center gap-2 font-semibold rounded-lg
            transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed
            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-bg-base
            min-h-[44px] sm:min-h-0;
@@ -693,7 +705,12 @@
   .data-table tr:last-child td { @apply border-b-0; }
 
   /* ── Misc ────────────────────────────────────────────────────────────────── */
-  .mono { font-family: 'JetBrains Mono', monospace; }
+  .mono {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
   .text-gradient {
     @apply bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent;
   }
@@ -711,10 +728,10 @@
 
   /* Home workspace — presentation tokens only */
   .hub-home {
-    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
   .hub-home-kicker {
-    font-family: Montserrat, 'Plus Jakarta Sans', sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.14em;
@@ -722,34 +739,52 @@
     color: #64748b;
   }
   .hub-home-hero-title {
-    font-family: 'Playfair Display', Georgia, serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-size: clamp(1.85rem, 3vw, 2.55rem) !important;
-    line-height: 1.12;
-    font-weight: 700;
-    letter-spacing: -0.02em;
+    line-height: 1.22;
+    font-weight: 800;
+    letter-spacing: -0.03em;
     color: #0b1b33;
   }
   .story-hero-title {
-    font-family: 'Playfair Display', Georgia, serif;
-    font-size: clamp(1.45rem, 3.4vw, 2.4rem) !important;
-    line-height: 1.12;
-    font-weight: 600;
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: clamp(1.55rem, 3.4vw, 2.5rem) !important;
+    line-height: 1.28;
+    font-weight: 400;
     letter-spacing: -0.02em;
     color: #ffffff !important;
   }
   .hub-home-lede {
     font-size: 15px;
-    line-height: 1.55;
-    font-weight: 400;
+    line-height: 1.65;
+    font-weight: 500;
     color: #475569;
     max-width: 36rem;
+  }
+  .hub-page-title {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .hub-voice {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 600;
+    line-height: 1.55;
+    letter-spacing: -0.015em;
+  }
+  .hub-voice-editorial {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-weight: 400;
+    font-style: italic;
+    line-height: 1.55;
+    letter-spacing: -0.01em;
   }
   .hub-home-journey {
     margin-top: 0.85rem;
     max-width: 36rem;
   }
   .hub-home-journey-label {
-    font-family: Montserrat, 'Plus Jakarta Sans', sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 0.08em;
@@ -954,7 +989,8 @@ html.dark .skeleton {
   inset: 0;
   overflow-y: auto;
   color: var(--pa-text);
-    font-family: 'Plus Jakarta Sans', Inter, system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-weight: 400;
   background: var(--pa-bg);
 }
 .pinit-auth * { box-sizing: border-box; }
@@ -1065,7 +1101,6 @@ html.dark .skeleton {
   border: 1px solid var(--pa-border);
   border-radius: 20px;
   padding: 28px 24px;
-  backdrop-filter: blur(18px);
   box-shadow:
     0 1px 0 rgba(255,255,255,0.04) inset,
     0 28px 60px -28px rgba(0,0,0,0.75);
@@ -1078,7 +1113,7 @@ html.dark .skeleton {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  font-weight: 650;
+  font-weight: 600;
   font-size: 15px;
   padding: 15px 18px;
   border-radius: 14px;
@@ -1099,6 +1134,20 @@ html.dark .skeleton {
   color: #c5d2e8;
 }
 .pinit-auth .pa-btn-ghost:hover { background: rgba(255,255,255,0.04); filter: none; }
+
+.pinit-auth .pa-input {
+  width: 100%;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--pa-border);
+  color: var(--pa-text);
+  font-size: 15px;
+}
+.pinit-auth .pa-input:focus {
+  outline: none;
+  border-color: rgba(61,139,255,0.55);
+}
 
 /* Brand mark */
 .pinit-auth .pa-brand {
@@ -1165,16 +1214,82 @@ html.dark .skeleton {
 .pinit-auth .pa-rail span.on   { background: linear-gradient(90deg,#3d8bff,#2f7cf6); }
 .pinit-auth .pa-rail span.done { background: #34d399; }
 
-/* Camera viewport */
+.pinit-auth .pa-flow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+.pinit-auth .pa-flow-item {
+  flex: 1 1 0;
+  min-width: 56px;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(200, 215, 235, 0.32);
+  line-height: 1.25;
+}
+.pinit-auth .pa-flow-item.on { color: #7dd3fc; }
+.pinit-auth .pa-flow-item.done { color: #34d399; }
+.pinit-auth .pa-cam-focus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 4px auto 0;
+  padding: 10px 0 2px;
+  max-width: 260px;
+}
+
+/* Camera viewport — no screen-fill or filters; those wash out the live feed */
 .pinit-auth .pa-cam {
   position: relative; width: 230px; height: 230px; margin: 6px auto 0;
   border-radius: 50%; overflow: hidden;
+  isolation: isolate;
+  transform: translateZ(0);
   border: 2px solid rgba(61,139,255,0.45);
   box-shadow: 0 0 0 6px rgba(47,124,246,0.1), 0 18px 50px -18px rgba(47,124,246,0.45);
-  background: #03060e;
+  background: #000;
 }
 .pinit-auth .pa-cam.ok    { border-color: #34d399; box-shadow: 0 0 0 6px rgba(52,211,153,0.14), 0 0 40px rgba(52,211,153,0.45); }
-.pinit-auth .pa-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.pinit-auth .pa-cam video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  filter: none;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+.pinit-auth .pa-cam.lock video {
+  opacity: 0;
+  pointer-events: none;
+}
+.pinit-auth .pa-cam-lock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 42%, #1a2740 0%, #080c14 72%);
+  z-index: 1;
+}
+.pinit-auth .pa-cam.ok .pa-cam-lock { display: none; }
+.pinit-auth .pa-cam-lock-pulse {
+  position: absolute;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  border: 1px solid rgba(158, 196, 255, 0.28);
+  animation: pa-lock-pulse 1.8s ease-out infinite;
+}
+@keyframes pa-lock-pulse {
+  0% { transform: scale(0.92); opacity: 0.7; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
 .pinit-auth .pa-cam-scan {
   position: absolute; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, transparent, #7dd3fc, transparent);
@@ -1182,7 +1297,7 @@ html.dark .skeleton {
   animation: scan 2s linear infinite;
 }
 .pinit-auth .pa-ring {
-  position: absolute; inset: 0; border-radius: 50%;
+  position: absolute; inset: 0; border-radius: 50%; z-index: 2;
   background: conic-gradient(from -90deg, #3d8bff var(--p,0%), rgba(255,255,255,0.12) 0);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
           mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
@@ -1399,7 +1514,9 @@ html.dark .pe-loading { color: #A7B0C0; }
 html.dark .pe-pane h3 { color: var(--pe-ink); }
 .pe-lead { margin: 0; color: var(--pe-soft); font-size: 0.85rem; max-width: 62ch; }
 .pe-lead code {
-  font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 0.8rem;
   background: var(--pe-sunk); padding: 2px 6px; border-radius: 4px; color: var(--pe-ink);
 }
 .pe-empty {
@@ -1604,7 +1721,8 @@ html.dark .pe-pane h3 { color: var(--pe-ink); }
 }
 .pe-slug span {
   padding: 9px 4px 9px 11px; color: var(--pe-faint); font-size: 0.88rem;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-weight: 500;
 }
 .pe-slug input { border: 0; border-radius: 0; background: none; }
 .pe-slug input:focus { box-shadow: none; }
