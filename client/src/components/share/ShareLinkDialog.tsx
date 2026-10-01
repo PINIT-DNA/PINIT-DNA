@@ -18,6 +18,7 @@ import {
 import toast from 'react-hot-toast';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
+import { downloadPinitCarrier } from '../../lib/download-pinit';
 
 type ExistingLink = { id?: string; token: string; isActive?: boolean; viewCount?: number };
 
@@ -160,6 +161,16 @@ export function ShareLinkDialog({
     }
   };
 
+  const downloadPinit = () => {
+    if (!created) return;
+    const saved = downloadPinitCarrier({ token: created.token, name: filename });
+    if (!saved.ok) {
+      toast.error('Could not create the .pinit file');
+      return;
+    }
+    toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
+  };
+
   const activeCount = links?.filter((l) => l.isActive).length ?? 0;
   const sizeLabel = typeof sizeBytes === 'number' && sizeBytes > 0
     ? ` · ${(sizeBytes / (1024 * 1024)).toFixed(2)} MB`
@@ -207,7 +218,7 @@ export function ShareLinkDialog({
             <div className="rounded-lg border border-bg-border bg-bg-elevated px-3 py-2">
               <p className="text-xs text-dna-400 mono break-all leading-relaxed">{created.shareUrl}</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button type="button" onClick={copy} className="btn btn-primary btn-sm flex-1">
                 {copied ? 'Copied' : 'Copy link'}
               </button>
@@ -217,6 +228,9 @@ export function ShareLinkDialog({
               >
                 QR &amp; details
               </Link>
+              <button type="button" onClick={downloadPinit} className="btn btn-secondary btn-sm w-full">
+                Download .pinit
+              </button>
             </div>
             <button
               type="button"

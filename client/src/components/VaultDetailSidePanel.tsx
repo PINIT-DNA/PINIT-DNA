@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -21,6 +21,7 @@ import {
   Pencil,
   Store,
   Plus,
+  FileDown,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
@@ -32,20 +33,15 @@ import {
   getVaultFileTypeDisplay,
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
-import { buildShareFileAttachment } from '../lib/share-file-open';
+import { createPinitFile, downloadPinitCarrier, sharePinitFile } from '../lib/download-pinit';
 import { API_BASE_URL } from '../config/api.config';
 import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard,
   getAssetGraph, type AssetGraph,
 } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
-import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard, verdictBadgeVariant } from './AuthenticityReportCard';
 import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
 import { formatSourcePlatform, vaultSourceCaption } from '../lib/source-platform';
-import {
-  buildPlatformShareOptions,
-  shareViaOs,
-} from '../lib/platform-share';
 import { formatReshareId, formatShareId, formatTrackId } from '../lib/lifecycle-ids';
 import { parseCoordsFromLabel } from '../lib/parse-location-label';
 
@@ -151,12 +147,12 @@ export function VaultDetailSidePanel({
   const [loadingTracking, setLoadingTracking] = useState(true);
   const [protectDownloading, setProtectDownloading] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
+  const [downloadingPinit, setDownloadingPinit] = useState(false);
+  /** Prepared .pinit carrier for WhatsApp / Email. Not a link and not a QR. */
+  const [pinitShare, setPinitShare] = useState<{ filename: string; file: File } | null>(null);
   const [listingOnExchange, setListingOnExchange] = useState(false);
   const [canListOnExchange, setCanListOnExchange] = useState(false);
   const [inPortfolio, setInPortfolio] = useState(false);
-  /** Prepared Share File attachment — share() must run on a fresh click (user gesture). */
-  const [shareReady, setShareReady] = useState(false);
-  const [readyShareUrl, setReadyShareUrl] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<VaultContentAnalysis | null>(
     record.contentAnalysis ?? null,
   );
@@ -166,11 +162,6 @@ export function VaultDetailSidePanel({
   >(record.contentAnalysis ? 'COMPLETED' : null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisRetrying, setAnalysisRetrying] = useState(false);
-  const preparedShareRef = useRef<{
-    recordId: string;
-    file: File;
-    shareUrl: string;
-  } | null>(null);
   const [copiedTep, setCopiedTep] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
@@ -253,10 +244,9 @@ export function VaultDetailSidePanel({
     setAnalysisStatus(record.contentAnalysis ? 'COMPLETED' : null);
     setAnalysisError(null);
     setAnalysisRetrying(false);
-    preparedShareRef.current = null;
-    setShareReady(false);
-    setReadyShareUrl(null);
     setSharingFile(false);
+    setDownloadingPinit(false);
+    setPinitShare(null);
     void (async () => {
       try {
         const r = await api.get(`${API_BASE_URL}/share/vault/${record.id}`);
@@ -404,156 +394,82 @@ export function VaultDetailSidePanel({
   };
 
   /**
-   * Open OS share sheet. On desktop, share the Pinit open URL (so Windows QR
-   * encodes a real link). On mobile, prefer the file attachment when supported.
-   */
-  const openNativeShareSheet = async (file: File, shareUrl: string) => {
-    const saveFileLocally = () => {
-      const url = URL.createObjectURL(file);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = file.name;
-      a.click();
-      URL.revokeObjectURL(url);
-    };
-
-    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const urlPayload: ShareData = {
-      title: file.name,
-      text: `Protected file via Pinit HUB\n${shareUrl}`,
-      url: shareUrl,
-    };
-    const filePayload: ShareData = {
-      ...urlPayload,
-      files: [file],
-    };
-
-    const canShareFiles =
-      typeof navigator !== 'undefined'
-      && typeof navigator.share === 'function'
-      && typeof navigator.canShare === 'function'
-      && navigator.canShare({ files: [file] });
-
-    const canShareUrl =
-      typeof navigator !== 'undefined'
-      && typeof navigator.share === 'function'
-      && (typeof navigator.canShare !== 'function' || navigator.canShare(urlPayload));
-
-    // Desktop: URL first — Windows "Scan QR" then works with phone cameras
-    if (!isMobile && canShareUrl) {
-      try {
-        await navigator.share(urlPayload);
-        toast.success('Shared — recipient opens Pinit HUB (tracked)');
-        return;
-      } catch (err) {
-        const name = (err as { name?: string })?.name ?? '';
-        const msg = err instanceof Error ? err.message : String(err);
-        if (name === 'AbortError' || /canceled|cancelled/i.test(msg)) return;
-      }
-    }
-
-    if (canShareFiles) {
-      try {
-        await navigator.share(filePayload);
-        toast.success('Share the file — when opened it goes to Pinit HUB (tracked)');
-        return;
-      } catch (err) {
-        const name = (err as { name?: string })?.name ?? '';
-        const msg = err instanceof Error ? err.message : String(err);
-        if (name === 'AbortError' || /canceled|cancelled/i.test(msg)) {
-          return;
-        }
-        if (
-          name === 'NotAllowedError'
-          || /permission denied|not allowed|secure context/i.test(msg)
-        ) {
-          if (canShareUrl) {
-            try {
-              await navigator.share(urlPayload);
-              toast.success('Shared link — opens Pinit HUB (tracked)');
-              return;
-            } catch (e2) {
-              const n2 = (e2 as { name?: string })?.name ?? '';
-              if (n2 === 'AbortError') return;
-            }
-          }
-          saveFileLocally();
-          toast.success(
-            'File saved — attach it in WhatsApp/Email. Opening it loads Pinit HUB.',
-            { duration: 5500 },
-          );
-          return;
-        }
-        throw err;
-      }
-    }
-
-    if (canShareUrl) {
-      try {
-        await navigator.share(urlPayload);
-        toast.success('Shared link — opens Pinit HUB (tracked)');
-        return;
-      } catch (err) {
-        const name = (err as { name?: string })?.name ?? '';
-        if (name === 'AbortError' || /canceled|cancelled/i.test(String(err))) return;
-      }
-    }
-
-    saveFileLocally();
-    toast.success(
-      'File saved — send that file in WhatsApp/Email. Opening it loads Pinit HUB.',
-      { duration: 5000 },
-    );
-  };
-
-  /**
-   * Share File = file attachment (not a chat link).
-   * File opens → Pinit page → tracked under Share Files.
-   * 1st click prepare · 2nd click share (browser user-gesture rule).
+   * Share File prepares filename.pinit. WhatsApp and Email send that file,
+   * not a link and not a QR. The recipient opens it on /open.
    */
   const handleShareFile = async () => {
-    const prepared = preparedShareRef.current;
-    if (prepared && prepared.recordId === record.id) {
-      try {
-        await openNativeShareSheet(prepared.file, prepared.shareUrl);
-        preparedShareRef.current = null;
-        setShareReady(false);
-        setReadyShareUrl(null);
-        await refreshTracking();
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/AbortError|canceled|cancelled/i.test(msg) || (err as { name?: string })?.name === 'AbortError') {
-          return;
-        }
-        toast.error(msg || 'Could not share file');
-      }
-      return;
-    }
-
+    if (sharingFile) return;
+    if (pinitShare) return;
     setSharingFile(true);
     try {
       const created = await createFileShare(record.id, { requestLocation: true });
-      const { blob } = await protectedDownloadFromVault(record.id);
-      const file = await buildShareFileAttachment({
-        source: blob,
-        originalFileName: displayName,
-        originalMimeType: record.originalMimeType,
-        openUrl: created.shareUrl,
+      const built = createPinitFile({
+        token: created.token,
+        name: created.filename || displayName,
       });
-
-      preparedShareRef.current = {
-        recordId: record.id,
-        file,
-        shareUrl: created.shareUrl,
-      };
-      setReadyShareUrl(created.shareUrl);
-      setShareReady(true);
-      toast.success('File ready — scan QR or click Share now', { duration: 4000 });
+      if (!built.ok) {
+        toast.error('Could not create the .pinit file');
+        return;
+      }
+      setPinitShare({ filename: built.filename, file: built.file });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       toast.error(msg || 'Could not prepare file share');
     } finally {
       setSharingFile(false);
+    }
+  };
+
+  const handleSharePinitChannel = (channel: 'whatsapp' | 'email') => {
+    if (!pinitShare) return;
+    sharePinitFile(pinitShare.file, channel);
+    const where = channel === 'whatsapp' ? 'WhatsApp' : 'Gmail';
+    toast.success(
+      `${where} is open. Attach the saved ${pinitShare.filename}.`,
+      { duration: 7000 },
+    );
+  };
+
+  const handleDownloadPinit = async () => {
+    if (downloadingPinit || loadingLinks) return;
+
+    const now = Date.now();
+    const active = links
+      .filter((link) => {
+        if (!link.isActive || !link.token) return false;
+        if (link.expiresAt && new Date(link.expiresAt).getTime() <= now) return false;
+        if (link.maxViews != null && link.viewCount >= link.maxViews) return false;
+        return true;
+      })
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const chosen = active[0];
+    if (chosen) {
+      const saved = downloadPinitCarrier({ token: chosen.token, name: displayName });
+      if (!saved.ok) {
+        toast.error('Could not create the .pinit file');
+        return;
+      }
+      toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
+      return;
+    }
+
+    setDownloadingPinit(true);
+    try {
+      const created = await createFileShare(record.id, { requestLocation: true });
+      const saved = downloadPinitCarrier({
+        token: created.token,
+        name: created.filename || displayName,
+      });
+      if (!saved.ok) {
+        toast.error('Could not create the .pinit file');
+        return;
+      }
+      toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(msg || 'Could not create the .pinit file');
+    } finally {
+      setDownloadingPinit(false);
     }
   };
 
@@ -1287,51 +1203,32 @@ export function VaultDetailSidePanel({
 
         <div className="p-3 border-t border-bg-border space-y-2.5">
           <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>
-          {shareReady && readyShareUrl && (
-            <>
-              <ShareQrBlock url={readyShareUrl} />
-              <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
-                <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Share to platforms
-                </p>
-                <p className="text-2xs text-gray-500 mono truncate">
-                  Share ID: {formatShareId(readyShareUrl.split('/').pop() || null)}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {buildPlatformShareOptions(readyShareUrl, record.originalFileName || 'Protected file').map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={async () => {
-                        if (opt.id === 'copy') {
-                          try {
-                            await navigator.clipboard.writeText(readyShareUrl);
-                            toast.success('Share link copied');
-                          } catch {
-                            toast.error('Could not copy link');
-                          }
-                          return;
-                        }
-                        if (opt.href) window.open(opt.href, '_blank', 'noopener,noreferrer');
-                      }}
-                      className="px-2 py-1 rounded-lg border border-bg-border text-2xs text-gray-300 hover:text-white hover:border-dna-500/40"
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      const ok = await shareViaOs(readyShareUrl, record.originalFileName || 'Protected file');
-                      if (!ok) toast('OS share not available — use WhatsApp, Email, or Copy link');
-                    }}
-                    className="px-2 py-1 rounded-lg border border-bg-border text-2xs text-gray-300 hover:text-white hover:border-dna-500/40"
-                  >
-                    Device share
-                  </button>
-                </div>
+          {pinitShare && (
+            <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
+              <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
+                Share file
+              </p>
+              <p className="text-xs text-white truncate">{pinitShare.filename}</p>
+              <p className="text-2xs text-gray-500">
+                Attach the saved .pinit file. The filename by itself is not the file.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSharePinitChannel('whatsapp')}
+                  className="btn btn-secondary btn-sm text-xs justify-center"
+                >
+                  WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSharePinitChannel('email')}
+                  className="btn btn-secondary btn-sm text-xs justify-center"
+                >
+                  Email
+                </button>
               </div>
-            </>
+            </div>
           )}
           {(latestTep?.tepCode || links[0]) && (
           <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
@@ -1379,9 +1276,15 @@ export function VaultDetailSidePanel({
             <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
             <QuickAction
               icon={sharingFile ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
-              label={sharingFile ? 'Preparing…' : shareReady ? 'Share now' : 'Share File'}
+              label={sharingFile ? 'Preparing…' : 'Share File'}
               disabled={sharingFile}
               onClick={() => { if (!sharingFile) void handleShareFile(); }}
+            />
+            <QuickAction
+              icon={downloadingPinit ? <RefreshCw size={18} className="animate-spin" /> : <FileDown size={18} />}
+              label={downloadingPinit ? 'Preparing…' : 'Download .pinit'}
+              disabled={downloadingPinit || loadingLinks}
+              onClick={() => { if (!downloadingPinit && !loadingLinks) void handleDownloadPinit(); }}
             />
             <QuickAction
               icon={<FileSearch size={18} />}

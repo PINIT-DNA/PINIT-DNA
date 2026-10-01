@@ -9,7 +9,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { useParams, useSearchParams } from 'react-router-dom';
-import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Copy, Printer } from 'lucide-react';
+import { Shield, Lock, Download, Eye, AlertTriangle, CheckCircle2, Clock, Ban, Share2, Printer } from 'lucide-react';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { API_BASE_URL } from '../config/api.config';
@@ -26,6 +26,7 @@ import {
 } from '../lib/precise-gps';
 import * as docxPreview from 'docx-preview';
 import { formatTextAsDocument, DOCUMENT_STYLES } from '../utils/document-formatter';
+import { createPinitFile, downloadPinitCarrier, sharePinitFile } from '../lib/download-pinit';
 
 interface LinkInfo {
   token:        string;
@@ -53,6 +54,7 @@ interface LinkInfo {
   // ── Privacy & Location ──────────────────────────────────────────────────
   privacyMaskingEnabled?: boolean;
   requestLocation?:       boolean;
+  locationAlreadyShared?: boolean;
   sourceContext?:         string | null;
   licenseTier?:           string | null;
 }
@@ -178,7 +180,7 @@ export function ShareViewerPage() {
   const [downloading, setDownloading] = useState(false);
   const [downloadNotice, setDownloadNotice] = useState<'success' | 'failed' | null>(null);
   const [fileLoadError, setFileLoadError] = useState<string | null>(null);
-  const [shareFurtherUrl, setShareFurtherUrl] = useState<string | null>(null);
+  const [shareFurtherFile, setShareFurtherFile] = useState<File | null>(null);
   const [shareFurtherBusy, setShareFurtherBusy] = useState(false);
   const [shareFurtherMsg, setShareFurtherMsg] = useState('');
   const hopRedirecting = useRef(false);
@@ -194,6 +196,13 @@ export function ShareViewerPage() {
   const [locationFailed, setLocationFailed] = useState(false);
   const [gpsData, setGpsData] = useState<GpsCapture | null>(null);
   const gpsDataRef = useRef<GpsCapture | null>(null);
+
+  const locationGrantedLocally = () => {
+    try { return localStorage.getItem('pinit_location_granted') === '1'; } catch { return false; }
+  };
+  const rememberLocationGrant = () => {
+    try { localStorage.setItem('pinit_location_granted', '1'); } catch { /* ignore */ }
+  };
 
   // ── Privacy Masking state ──────────────────────────────────────────────────
   const [maskedText, setMaskedText]           = useState<string | null>(null);
@@ -266,12 +275,27 @@ export function ShareViewerPage() {
       .then(() => setLoading(false), () => setLoading(false));
   }, [token]);
 
-  // When GPS not required, mark location gate complete immediately
+  // When GPS is not required, or this IP / browser already allowed it, open the file.
   useEffect(() => {
-    if (info && !info.requestLocation && !locationDone) {
+    if (!info || locationDone) return;
+    if (!info.requestLocation || info.locationAlreadyShared || locationGrantedLocally()) {
+      if (info.requestLocation) rememberLocationGrant();
       setLocationDone(true);
     }
   }, [info, locationDone]);
+
+  // Browser already granted geolocation for this site — do not show our prompt again.
+  useEffect(() => {
+    if (!info?.requestLocation || locationDone) return;
+    if (!navigator.permissions?.query) return;
+    let cancelled = false;
+    navigator.permissions.query({ name: 'geolocation' }).then((status) => {
+      if (cancelled || status.state !== 'granted') return;
+      rememberLocationGrant();
+      setLocationDone(true);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [info?.requestLocation, locationDone]);
 
   // Background GPS refine after Allow (iPhone often needs a longer second pass)
   useEffect(() => {
@@ -716,7 +740,7 @@ export function ShareViewerPage() {
     void handleDownload();
   }, [autoDownload, info?.allowDownload, info?.isActive, trackingReady]);
 
-  /** Mint a NEW tracked hop URL for the next person (WhatsApp / email). */
+  /** Mint the existing hop, then hand the next person a .pinit file for that hop. */
   const handleShareFurther = async () => {
     if (!token || shareFurtherBusy) return;
     setShareFurtherBusy(true);
@@ -726,17 +750,16 @@ export function ShareViewerPage() {
         recipientLabel: name.trim() ? `Shared by ${name.trim()}` : undefined,
         forwardedByLabel: name.trim() || undefined,
       });
-      const url = (data as { url?: string }).url;
-      if (!url) throw new Error('No hop URL returned');
-      setShareFurtherUrl(url);
-      try {
-        await navigator.clipboard.writeText(url);
-        setShareFurtherMsg('New tracked link copied — send this to the next person (not the old link).');
-      } catch {
-        setShareFurtherMsg('New tracked link ready — copy it below and send it.');
-      }
+      const hopToken = (data as { token?: string }).token;
+      if (!hopToken) throw new Error('No hop token returned');
+      const built = createPinitFile({ token: hopToken, name: info?.filename || 'file' });
+      if (!built.ok) throw new Error('Could not create the .pinit file');
+      const saved = downloadPinitCarrier({ token: hopToken, name: info?.filename || 'file' });
+      if (!saved.ok) throw new Error('Could not save the .pinit file');
+      setShareFurtherFile(built.file);
+      setShareFurtherMsg(`Saved ${saved.filename}. Send that file. The next person opens the PINIT website and chooses it.`);
     } catch {
-      setShareFurtherMsg('Could not create a new hop link. Try again.');
+      setShareFurtherMsg('Could not create the .pinit file. Try again.');
     } finally {
       setShareFurtherBusy(false);
     }
@@ -1084,7 +1107,7 @@ export function ShareViewerPage() {
   );
 
   // ── GPS Location Permission Gate (Chrome-style compact prompt) ─────────────
-  if (info.requestLocation && !locationDone) {
+  if (info.requestLocation && !locationDone && !info.locationAlreadyShared && !locationGrantedLocally()) {
     const handleAllow = () => {
       if (!navigator.geolocation) {
         // The owner made location a condition of opening this file. A browser
@@ -1104,6 +1127,7 @@ export function ShareViewerPage() {
           timestamp: new Date(pos.timestamp).toISOString(),
           locationSource: accuracy <= 75 ? 'gps' : 'network',
         });
+        rememberLocationGrant();
         setLocationDone(true);
         void captureQuickGps(20_000).then((quick) => {
           if (quick) setGpsData(quick);
@@ -1291,7 +1315,7 @@ export function ShareViewerPage() {
             onClick={handleShareFurther}
             disabled={shareFurtherBusy}
             className="btn btn-secondary btn-sm text-xs"
-            title="Create a new tracked link to send to someone else"
+            title="Save a .pinit file for the next person"
           >
             <Share2 size={12} />
             {shareFurtherBusy ? 'Creating…' : 'Share further'}
@@ -1354,25 +1378,26 @@ export function ShareViewerPage() {
         </div>
       )}
 
-      {(shareFurtherUrl || shareFurtherMsg) && (
+      {(shareFurtherFile || shareFurtherMsg) && (
         <div className="bg-amber-500/10 border-b border-amber-500/30 px-4 py-3 space-y-2">
           {shareFurtherMsg && (
             <p className="text-xs text-amber-200">{shareFurtherMsg}</p>
           )}
-          {shareFurtherUrl && (
-            <div className="flex items-center gap-2">
-              <code className="flex-1 text-2xs text-white/90 bg-black/30 rounded px-2 py-1.5 truncate">
-                {shareFurtherUrl}
-              </code>
+          {shareFurtherFile && (
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                className="btn btn-secondary btn-sm text-xs shrink-0"
-                onClick={() => {
-                  void navigator.clipboard.writeText(shareFurtherUrl);
-                  setShareFurtherMsg('Copied again — send this NEW link only.');
-                }}
+                className="btn btn-secondary btn-sm text-xs"
+                onClick={() => sharePinitFile(shareFurtherFile, 'whatsapp')}
               >
-                <Copy size={12} /> Copy
+                WhatsApp
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm text-xs"
+                onClick={() => sharePinitFile(shareFurtherFile, 'email')}
+              >
+                Email
               </button>
             </div>
           )}

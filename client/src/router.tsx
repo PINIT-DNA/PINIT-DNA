@@ -48,6 +48,7 @@ import { HomeRedirect } from './components/subscription/HomeRedirect';
 import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAccountTypeOnboarding';
 import { BRAND } from './config/brand.config';
 import { ShareViewerPage } from './pages/ShareViewerPage';
+import { OpenPinitPage } from './pages/OpenPinitPage';
 import { HelpPage } from './pages/HelpPage';
 import { HandoverPage } from './pages/HandoverPage';
 import { ClientReportPage } from './pages/ClientReportPage';
@@ -82,6 +83,9 @@ export const router = createBrowserRouter([
   },
 
   // ── Public share viewer ───────────────────────────────────────────────────
+  // .pinit opener. Public, like the viewer. It only reads a carrier and
+  // navigates to /s/:token — it does not authorize or track on its own.
+  { path: '/open', element: <OpenPinitPage /> },
   { path: '/s/:token', element: <ShareViewerPage /> },
   { path: '/share/:token', element: <ShareViewerPage /> },
   // Public, like the share viewer — the handover token is the authority.
