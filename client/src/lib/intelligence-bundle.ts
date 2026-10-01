@@ -95,6 +95,8 @@ export type IntelReportPayload = {
   identity: {
     ownerUserId: string;
     uploaderId: string;
+    pinitId?: string | null;
+    assetId?: string | null;
     mfid: string;
     dnaRecordId: string;
     filename: string;
@@ -102,6 +104,7 @@ export type IntelReportPayload = {
     fileSize: number;
     encryptedSize: number;
     fileType: string;
+    encryptionAlgorithm?: string;
     engineVersion: string;
   };
   provenance: {
@@ -116,12 +119,63 @@ export type IntelReportPayload = {
     country: string | null;
     city: string | null;
     deviceModel: string | null;
+    deviceMake?: string | null;
     software: string | null;
     timezone?: string | null;
     captureMethod?: string | null;
     imageWidth?: number | null;
     imageHeight?: number | null;
     gpsAccuracy?: number | null;
+    originalCapture?: {
+      capturedAt: string | null;
+      timezone: string | null;
+      gpsLatitude: number | null;
+      gpsLongitude: number | null;
+      gpsAltitude: number | null;
+      cameraMake: string | null;
+      cameraModel: string | null;
+      lens: string | null;
+      focalLength: string | null;
+      exposureTime: string | null;
+      aperture: string | null;
+      iso: string | null;
+      flash: string | null;
+      orientation: string | null;
+      software: string | null;
+      width: number | null;
+      height: number | null;
+      whiteBalance: string | null;
+      meteringMode: string | null;
+      exposureProgram: string | null;
+      colorSpace: string | null;
+      sceneCaptureType: string | null;
+      lightSource: string | null;
+      metadataPreserved: boolean;
+    };
+    protection?: {
+      protectedBy: string | null;
+      pinitId: string | null;
+      protectedAt: string;
+      dnaGeneratedAt: string;
+      vaultStoredAt: string;
+      vaultId: string;
+      method: string | null;
+      locationLabel: string | null;
+      locationGps: { lat: number; lng: number } | null;
+      gpsAccuracy: number | null;
+      timezone: string | null;
+      encryption: string;
+      watermarkPresent: boolean;
+      metadataPreserved: boolean;
+    };
+    lastAccess?: {
+      at: string;
+      action: string;
+      city: string | null;
+      country: string | null;
+      gpsLat: number | null;
+      gpsLng: number | null;
+    } | null;
   };
   integrity: {
     sha256Hash: string | null;
@@ -198,16 +252,16 @@ function shortId(v?: string | null) {
   return `${v.slice(0, 10)}…${v.slice(-8)}`;
 }
 
-function envVal(tracking: VaultTrackingDashboard | null, key: string): string | null {
-  const env = (tracking as { environment?: Record<string, unknown> } | null)?.environment;
-  const v = env?.[key];
-  if (v == null || String(v).trim() === '') return null;
-  return String(v);
-}
-
 function fact(label: string, value: string | null | undefined, source: SourceKind, copy?: string): IntelFact {
   if (!value || !String(value).trim()) return { label, value: 'Not recorded', source: 'unavailable' };
   return { label, value: String(value), source, copy };
+}
+
+function factExif(label: string, value: string | null | undefined, copy?: string): IntelFact {
+  if (!value || !String(value).trim()) {
+    return { label, value: 'Not available in original metadata', source: 'unavailable' };
+  }
+  return { label, value: String(value), source: 'recorded', copy };
 }
 
 export async function fetchIntelReportPayload(vaultId: string, adminMode = false): Promise<IntelReportPayload> {
@@ -298,10 +352,13 @@ export function buildIntelView(input: {
   const analysis = input.analysis;
   const dna = input.dna;
   const ownerName = r.owner?.fullName || tracking?.owner?.fullName || null;
-  const ownerShortId = r.owner?.shortId || tracking?.owner?.shortId || r.identity.ownerUserId || null;
-  const assetId = vault?.assetId ?? null;
+  const ownerShortId = r.owner?.shortId || tracking?.owner?.shortId || r.identity.pinitId || r.identity.ownerUserId || null;
+  const assetId = r.identity.assetId || vault?.assetId || null;
   const originId = assetId || r.identity.mfid || r.vaultId;
-  const captureTime = r.provenance.capturedAt || r.provenance.uploadedAt;
+  const oc = r.provenance.originalCapture;
+  const prot = r.provenance.protection;
+  const lastAccess = r.provenance.lastAccess;
+  const captureTime = oc?.capturedAt ?? r.provenance.capturedAt;
   const lastShare = r.distribution.timeline.length
     ? r.distribution.timeline[r.distribution.timeline.length - 1]?.at ?? null
     : null;
@@ -334,6 +391,7 @@ export function buildIntelView(input: {
 
   const identity: IntelFact[] = [
     fact('Asset ID', assetId, 'recorded', assetId ?? undefined),
+    fact('PINIT ID', r.identity.pinitId || ownerShortId, 'recorded', (r.identity.pinitId || ownerShortId) ?? undefined),
     fact('Vault ID', r.vaultId, 'recorded', r.vaultId),
     fact('Origin ID', originId, 'recorded', originId),
     fact('DNA ID', r.identity.dnaRecordId, 'recorded', r.identity.dnaRecordId),
@@ -343,49 +401,86 @@ export function buildIntelView(input: {
     fact('Structural hash', layersFlag.structural ? 'Registered with DNA record' : null, layersFlag.structural ? 'derived' : 'unavailable'),
   ];
 
+  const captureGps = oc?.gpsLatitude != null && oc?.gpsLongitude != null
+    ? `${oc.gpsLatitude.toFixed(5)}, ${oc.gpsLongitude.toFixed(5)}${oc.gpsAltitude != null ? ` · ${Math.round(oc.gpsAltitude)}m` : ''}`
+    : null;
   const capture: IntelFact[] = [
-    fact('Device', r.provenance.deviceModel, 'recorded'),
-    fact('Software / camera', r.provenance.software, 'recorded'),
-    fact('Capture method', r.provenance.captureMethod || source || getVaultFileTypeDisplay(r.identity.mimeType, r.identity.filename), r.provenance.captureMethod ? 'recorded' : (source ? 'recorded' : 'derived')),
-    fact('Capture date/time', fmtWhen(captureTime), r.provenance.capturedAt ? 'recorded' : 'derived'),
-    fact('Time zone', r.provenance.timezone, 'recorded'),
+    fact('Original filename', r.identity.filename, 'recorded'),
+    factExif('Capture date/time', fmtWhen(captureTime)),
+    factExif('Time zone', oc?.timezone ?? null),
+    factExif('Capture location', captureGps),
+    factExif('Camera manufacturer', oc?.cameraMake ?? null),
+    factExif('Camera model', oc?.cameraModel ?? r.provenance.deviceModel),
+    factExif('Lens', oc?.lens ?? null),
+    factExif('Focal length', oc?.focalLength ?? null),
+    factExif('Exposure time', oc?.exposureTime ?? null),
+    factExif('Aperture', oc?.aperture ?? null),
+    factExif('ISO', oc?.iso ?? null),
+    factExif('Flash', oc?.flash ?? null),
+    factExif('Orientation', oc?.orientation ?? null),
+    factExif('Software / editing app', oc?.software ?? null),
     fact('Original file type', r.identity.mimeType, 'recorded'),
-    fact('Resolution', r.provenance.imageWidth && r.provenance.imageHeight ? `${r.provenance.imageWidth} × ${r.provenance.imageHeight}` : (img?.widthPx && img?.heightPx ? `${img.widthPx} × ${img.heightPx}` : null), r.provenance.imageWidth ? 'recorded' : 'recorded'),
+    fact(
+      'Original dimensions',
+      oc?.width && oc?.height
+        ? `${oc.width} × ${oc.height}`
+        : r.provenance.imageWidth && r.provenance.imageHeight
+          ? `${r.provenance.imageWidth} × ${r.provenance.imageHeight}`
+          : (img?.widthPx && img?.heightPx ? `${img.widthPx} × ${img.heightPx}` : null),
+      oc?.width ? 'recorded' : 'derived',
+    ),
     fact('File size', fmtBytes(r.identity.fileSize), 'recorded'),
-    fact('GPS', r.provenance.gpsLatitude != null && r.provenance.gpsLongitude != null
-      ? `${r.provenance.gpsLatitude.toFixed(5)}, ${r.provenance.gpsLongitude.toFixed(5)}${r.provenance.gpsAccuracy != null ? ` · ±${Math.round(r.provenance.gpsAccuracy)}m` : ''}`
-      : null, 'recorded'),
   ];
 
-  const loc = tracking?.location;
+  const protectGps = prot?.locationLabel
+    || (prot?.locationGps ? `${prot.locationGps.lat.toFixed(5)}, ${prot.locationGps.lng.toFixed(5)}` : null);
+  const lastAccessLabel = lastAccess
+    ? [lastAccess.city, lastAccess.country].filter(Boolean).join(', ')
+      || (lastAccess.gpsLat != null && lastAccess.gpsLng != null
+        ? `${lastAccess.gpsLat.toFixed(5)}, ${lastAccess.gpsLng.toFixed(5)}`
+        : null)
+    : null;
   const environment: IntelFact[] = [
-    fact('Weather', envVal(tracking, 'weather'), 'recorded'),
-    fact('Temperature', envVal(tracking, 'temperature'), 'recorded'),
-    fact('Light', envVal(tracking, 'light'), 'recorded'),
-    fact('Direction', envVal(tracking, 'direction'), 'recorded'),
-    fact('Humidity', envVal(tracking, 'humidity'), 'recorded'),
-    fact('Atmosphere', envVal(tracking, 'atmosphere'), 'recorded'),
-    fact('Location', loc?.creationLabel || loc?.presentLabel || loc?.lastKnownLabel, 'recorded'),
-    fact('GPS accuracy', envVal(tracking, 'gpsAccuracy'), 'recorded'),
+    factExif('Capture GPS', captureGps),
+    factExif('GPS altitude', oc?.gpsAltitude != null ? `${Math.round(oc.gpsAltitude)} m` : null),
+    factExif('Orientation', oc?.orientation ?? null),
+    factExif('Flash', oc?.flash ?? null),
+    factExif('White balance', oc?.whiteBalance ?? null),
+    factExif('Metering', oc?.meteringMode ?? null),
+    factExif('Exposure program', oc?.exposureProgram ?? null),
+    factExif('Light source', oc?.lightSource ?? null),
+    factExif('Color space', oc?.colorSpace ?? null),
+    factExif('Scene type', oc?.sceneCaptureType ?? null),
   ];
 
   const protection: IntelFact[] = [
     fact('DNA status', r.integrity.dnaStatus, 'verified'),
+    fact('Protected by', prot?.protectedBy || ownerName, 'recorded'),
+    fact('PINIT ID', prot?.pinitId || ownerShortId, 'recorded', (prot?.pinitId || ownerShortId) ?? undefined),
+    fact('Protected on', fmtWhen(prot?.protectedAt || r.provenance.vaultedAt), 'recorded'),
+    fact('Protection location', protectGps, 'recorded'),
+    fact('Protection method', prot?.method || r.provenance.captureMethod || source || 'PinIT Vault encryption', 'recorded'),
+    fact('Vault ID', r.vaultId, 'recorded', r.vaultId),
+    fact('Encryption', prot?.encryption || r.identity.encryptionAlgorithm || 'AES-256-GCM', 'recorded'),
+    fact('Watermark / signature', prot?.watermarkPresent ? 'Present' : null, prot?.watermarkPresent ? 'derived' : 'unavailable'),
+    fact('Original metadata preserved', prot?.metadataPreserved ? 'Yes' : 'No camera EXIF in the stored file', prot?.metadataPreserved ? 'recorded' : 'unavailable'),
+    fact('Last accessed', lastAccess
+      ? `${lastAccess.action.replace(/_/g, ' ')} · ${fmtWhen(lastAccess.at)}${lastAccessLabel ? ` · ${lastAccessLabel}` : ''}`
+      : null, lastAccess ? 'recorded' : 'unavailable'),
     fact('Tamper status', tamperLabel, rawTamper === 'VERIFIED' || rawTamper === 'TAMPERED' ? 'verified' : 'unavailable'),
     fact('Authenticity', authenticityLabel, verdictPending ? 'unavailable' : 'ai'),
     fact('Embedded identity', layersFlag.steganography ? 'Steganography layer present' : null, 'derived'),
-    fact('Metadata provenance', r.provenance.software || r.provenance.deviceModel, 'recorded'),
     fact('AI manipulation check', aiLabel, verdictPending ? 'unavailable' : 'ai'),
     fact('Last verification', r.integrity.lastVerification ? `${r.integrity.lastVerification.passed ? 'Passed' : 'Failed'} · ${fmtWhen(r.integrity.lastVerification.at)}` : null, 'verified'),
-    fact('Protected on', fmtWhen(r.provenance.vaultedAt), 'recorded'),
-    fact('Protection method', 'PinIT Vault encryption', 'derived'),
   ];
 
   const journey: IntelEvent[] = [];
   journey.push({
     at: r.provenance.uploadedAt,
     title: 'Captured / received',
-    detail: `Original asset recorded${r.provenance.capturedAt ? ` · file time ${fmtWhen(r.provenance.capturedAt)}` : ''}`,
+    detail: oc?.capturedAt
+      ? `Original file capture time ${fmtWhen(oc.capturedAt)} (EXIF)`
+      : 'No DateTimeOriginal in the original file metadata',
     category: 'CAPTURED',
   });
   journey.push({
@@ -493,9 +588,12 @@ export function buildIntelView(input: {
   const verifications = r.integrity.lastVerification ? 1 : 0;
 
   const who = ownerName?.trim() || ownerShortId || 'the owner';
-  const deviceBit = r.provenance.deviceModel ? ` using ${r.provenance.deviceModel}` : '';
+  const deviceBit = oc?.cameraModel ? ` using ${oc.cameraMake ? `${oc.cameraMake} ` : ''}${oc.cameraModel}` : '';
+  const captureBit = fmtWhen(captureTime)
+    ? `originally captured on ${fmtWhen(captureTime)}${deviceBit}`
+    : 'has no original capture timestamp in file metadata';
   const snapParts = [
-    `PinIT knows this asset was captured on ${fmtWhen(captureTime) ?? 'an unrecorded time'}${deviceBit}, protected by ${who}, and registered with DNA ${shortId(r.identity.dnaRecordId)}.`,
+    `PinIT knows this asset ${captureBit}, was protected by ${who} on ${fmtWhen(r.provenance.vaultedAt)}, and registered with DNA ${shortId(r.identity.dnaRecordId)}.`,
     `It currently has protection status ${r.integrity.dnaStatus} and tamper status “${tamperLabel}”.`,
     `It has been viewed ${views} time${views === 1 ? '' : 's'}, shared across ${shares} link${shares === 1 ? '' : 's'}, downloaded ${downloads} time${downloads === 1 ? '' : 's'}, and ${r.integrity.lastVerification ? 'has a verification on record' : 'has not been independently re-checked'}.`,
   ];
@@ -522,7 +620,7 @@ export function buildIntelView(input: {
     dnaId: r.identity.dnaRecordId,
     originId,
     previewVaultId: r.vaultId,
-    firstSeen: fmtWhen(captureTime) ?? 'Unavailable',
+    firstSeen: fmtWhen(r.provenance.vaultedAt) ?? 'Unavailable',
     lastActivity: fmtWhen(lastActivity),
     captureSource: source,
     dnaStatus: r.integrity.dnaStatus,

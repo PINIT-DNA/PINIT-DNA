@@ -853,12 +853,13 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
       ...userContentHeaders(fullLink.mimeType),
     });
 
-    // Living-page view must match the owner's Hub original: watermarks and
-    // signatures already live inside the protected vault file. Do not TEP
-    // re-encode (that can soften/blur the pixels). File-share downloads still
-    // go through TEP below.
-    if (fullLink.linkType === 'LIVING') {
-      res.set('Content-Type', correctImageMime(fullLink.mimeType, result.originalBuffer));
+    // Living pages and image shares must match the uploaded pixels.
+    // TEP/DNA-B re-encode JPEG (default quality ~80) and that is what made
+    // recipients see a blurry copy. Tracking still records FILE_SERVED above.
+    const mime = result.originalMimeType || fullLink.mimeType || '';
+    const isImage = mime.startsWith('image/');
+    if (fullLink.linkType === 'LIVING' || isImage) {
+      res.set('Content-Type', correctImageMime(mime, result.originalBuffer));
       res.send(result.originalBuffer);
       return;
     }

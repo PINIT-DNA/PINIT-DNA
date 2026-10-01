@@ -57,6 +57,7 @@ import { formatBytes } from '../hooks/useApi';
 import { getVaultFileTypeDisplay } from '../lib/file-type-utils';
 import { bestCoordsFromLocation } from '../lib/parse-location-label';
 import { buildLiveBriefing, firstName, readCreatorNote, storyHighlights, writeCreatorNote, type BriefingEvent } from '../lib/asset-story-voice';
+import { getLivingAssetBrief, type LivingAssetBrief } from '../services/ask-pinit.api';
 import { vaultSourceCaption } from '../lib/source-platform';
 import { fetchIntelView } from '../lib/intelligence-bundle';
 import { downloadIntelligenceReportPdf } from '../services/intelligence-report-pdf';
@@ -261,9 +262,13 @@ export function VaultAssetStoryPage() {
   const [speaking, setSpeaking] = useState(false);
   const [voicePaused, setVoicePaused] = useState(false);
   const autoPlayTried = useRef(false);
+  const [livingBrief, setLivingBrief] = useState<LivingAssetBrief | null>(null);
+  const [livingBriefReady, setLivingBriefReady] = useState(false);
 
   useEffect(() => {
     autoPlayTried.current = false;
+    setLivingBrief(null);
+    setLivingBriefReady(false);
   }, [vaultId]);
   const [sharing, setSharing] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -575,7 +580,19 @@ export function VaultAssetStoryPage() {
     });
   }, [record, tracking, ownerName, locationLabel, hasIdentity, shares, views, downloads, intel, shareEvents, analysis, contentIsPending, tamperLabel, rawTamper]);
 
-  const spoken = briefing.spoken;
+  const aboutLines = (() => {
+    const desc = livingBrief
+      ? [livingBrief.line1, livingBrief.line2].filter(Boolean).slice(0, 2)
+      : [];
+    const when = record ? format(new Date(record.createdAt), 'd MMMM yyyy') : '';
+    const who = firstName(ownerName);
+    const place = locationLabel && !/^\s*-?\d+(\.\d+)?\s*,\s*-?\d+/.test(locationLabel) ? locationLabel : null;
+    const origin = who
+      ? `I was protected by ${who}${when ? ` on ${when}` : ''}${place ? ` in ${place}` : ''} and preserved in PinIT Vault.`
+      : `I was preserved in PinIT Vault${when ? ` on ${when}` : ''}${place ? ` in ${place}` : ''}.`;
+    return [...desc, origin].filter(Boolean);
+  })();
+  const spoken = aboutLines.slice(0, 3).join(' ').trim();
   const highlights = storyHighlights({
     hasIdentity,
     hasLocation: Boolean(locationLabel || (lat != null && lng != null)),
@@ -641,7 +658,8 @@ export function VaultAssetStoryPage() {
   const startVoice = useCallback((replay = false) => {
     if (!spoken) return;
     if (replay && vaultId) sessionStorage.removeItem(`pinit_story_stop_${vaultId}`);
-    const u = new SpeechSynthesisUtterance(spoken);
+    const twoLineSpoken = spoken.split(/(?<=[.!?])\s+/).filter(Boolean).slice(0, 3).join(' ');
+    const u = new SpeechSynthesisUtterance(twoLineSpoken);
     u.rate = 0.96;
     u.onend = () => {
       setSpeaking(false);
@@ -671,18 +689,42 @@ export function VaultAssetStoryPage() {
   useEffect(() => () => window.speechSynthesis.cancel(), []);
 
   useEffect(() => {
-    if (!spoken || !vaultId || loading) return;
+    if (guestMode || !vaultId) {
+      setLivingBriefReady(true);
+      return;
+    }
+    let cancelled = false;
+    setLivingBriefReady(false);
+    void getLivingAssetBrief(vaultId)
+      .then((brief) => {
+        if (cancelled) return;
+        setLivingBrief(brief);
+        setLivingBriefReady(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setLivingBrief(null);
+        setLivingBriefReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [guestMode, vaultId]);
+
+  useEffect(() => {
+    if (!spoken || !vaultId || loading || !livingBriefReady) return;
+    if (!guestMode && !livingBrief) return;
     if (autoPlayTried.current) return;
     autoPlayTried.current = true;
     if (sessionStorage.getItem(`pinit_story_stop_${vaultId}`)) return;
-    if (sessionStorage.getItem(`pinit_story_played_${vaultId}`)) return;
-    sessionStorage.setItem(`pinit_story_played_${vaultId}`, '1');
+    if (sessionStorage.getItem(`pinit_living_brief_played_${vaultId}`)) return;
+    sessionStorage.setItem(`pinit_living_brief_played_${vaultId}`, '1');
     try {
       startVoice();
     } catch {
       setSpeaking(false);
     }
-  }, [spoken, vaultId, loading, startVoice]);
+  }, [spoken, vaultId, loading, livingBriefReady, startVoice]);
 
   const applyDisplayName = (nextName: string) => {
     setRecord((prev) => (prev ? { ...prev, originalFileName: nextName } : prev));
@@ -1113,9 +1155,16 @@ export function VaultAssetStoryPage() {
           <div className="relative mt-3 rounded-xl border border-violet-100/80 bg-white/70 px-4 py-3 dark:border-violet-800/40 dark:bg-violet-950/20">
             <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-violet-500 mb-2">About me</p>
             <div className="space-y-1.5 border-l-2 border-violet-200 pl-3 dark:border-violet-700">
-              {briefing.about.map((line) => (
-                <p key={line} className="text-[13px] leading-relaxed text-slate-600">{line}</p>
-              ))}
+              {!livingBriefReady && !guestMode ? (
+                <>
+                  <p className="text-[13px] leading-relaxed text-slate-400">Describing this asset…</p>
+                  <p className="text-[13px] leading-relaxed text-slate-400">Who protected it and where will appear with the description.</p>
+                </>
+              ) : (
+                aboutLines.map((line) => (
+                  <p key={line} className="text-[13px] leading-relaxed text-slate-600">{line}</p>
+                ))
+              )}
             </div>
             {briefing.activity.length > 0 && (
               <>

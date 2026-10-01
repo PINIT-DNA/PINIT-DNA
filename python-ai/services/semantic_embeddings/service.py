@@ -229,5 +229,115 @@ class SemanticEmbeddingsService(EnterpriseAIService):
 
         return ServiceResult(True, {"candidates": candidates}, "OK", self.name)
 
+    def describe_scene(self, image_bytes: bytes) -> ServiceResult:
+        """CLIP zero-shot scene labels so Living Asset can say what the file is."""
+        if not self._ensure_model():
+            return ServiceResult(False, {}, "CLIP model unavailable", self.name)
+
+        import torch
+
+        groups: dict[str, list[str]] = {
+            "kind": [
+                "a fashion or clothing design photograph",
+                "a portrait photograph of a person",
+                "a landscape photograph of nature",
+                "a product photograph",
+                "a hand-drawn sketch or drawing",
+                "a painting or artwork",
+                "a scanned identity document such as a passport",
+                "a scanned paper document",
+                "a screenshot of a screen",
+                "an indoor interior photograph",
+            ],
+            "subject": [
+                "a woman",
+                "a man",
+                "a child",
+                "a group of people",
+                "clothing or a designer outfit",
+                "trees water and outdoor scenery",
+                "a building or house",
+                "an animal",
+                "handwriting or a sketch",
+                "an official document",
+            ],
+            "setting": [
+                "an indoor fashion studio with wallpaper and furniture",
+                "outdoors near water and palm trees",
+                "a street or city",
+                "an office or desk",
+                "a plain studio background",
+                "a natural landscape",
+                "no clear place or background",
+            ],
+            "look": [
+                "traditional embroidered ethnic clothing",
+                "a long flowing dress or gown",
+                "a suit or formal wear",
+                "casual everyday clothes",
+                "a uniform",
+                "pencil or ink sketch lines",
+                "no clothing is the main subject",
+            ],
+        }
+        flat: list[tuple[str, str]] = []
+        for group, prompts in groups.items():
+            for prompt in prompts:
+                flat.append((group, prompt))
+        labels = [p for _, p in flat]
+
+        try:
+            img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            inputs = self._processor(
+                text=labels,
+                images=img,
+                return_tensors="pt",
+                padding=True,
+            )
+            if torch.cuda.is_available():
+                inputs = {k: v.cuda() for k, v in inputs.items()}
+            with torch.no_grad():
+                outputs = self._model(**inputs)
+                logits = outputs.logits_per_image[0].detach().cpu()
+        except Exception as exc:
+            return ServiceResult(False, {}, str(exc), self.name)
+
+        best: dict[str, dict[str, float | str]] = {}
+        cursor = 0
+        for group, prompts in groups.items():
+            sl = logits[cursor: cursor + len(prompts)]
+            cursor += len(prompts)
+            probs = torch.softmax(sl, dim=-1)
+            top_i = int(torch.argmax(probs).item())
+            best[group] = {"label": prompts[top_i], "score": round(float(probs[top_i].item()), 4)}
+
+        kind = str(best.get("kind", {}).get("label") or "a protected photograph")
+        subject = str(best.get("subject", {}).get("label") or "")
+        setting = str(best.get("setting", {}).get("label") or "")
+        look = str(best.get("look", {}).get("label") or "")
+        look_score = float(best.get("look", {}).get("score") or 0)
+        setting_score = float(best.get("setting", {}).get("score") or 0)
+
+        line1 = f"I am {kind}"
+        if subject and "document" not in kind:
+            line1 += f" showing {subject}"
+        if look_score >= 0.18 and look and "no clothing" not in look:
+            look_bit = look[2:] if look.startswith("a ") else look
+            line1 += f", with {look_bit}"
+        line1 += "."
+        line2 = "This is a protected visual asset stored in PinIT Vault."
+        if setting_score >= 0.18 and setting and "no clear place" not in setting:
+            line2 = f"The setting looks like {setting}."
+        elif "document" in kind:
+            line2 = "I contain document pages; personal numbers are not spoken."
+
+        return ServiceResult(True, {
+            "line1": line1,
+            "line2": line2,
+            "kind": kind,
+            "scores": best,
+            "model": CLIP_MODEL_ID,
+        }, "OK", self.name)
+
 
 semantic_embeddings_service = SemanticEmbeddingsService()

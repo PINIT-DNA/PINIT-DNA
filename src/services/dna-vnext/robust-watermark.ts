@@ -69,11 +69,19 @@ function clamp(v: number): number {
  * lossless copy. Measured (tests/watermark/robust-watermark-transcode.test.ts):
  * that scheme needed a visually destructive delta (~180 on a 0-255 luma
  * scale) to survive JPEG q30, and never survived resize at any delta. This
- * scheme survives JPEG at every tested quality (q90 down to q10) at
- * WM_DELTA=12 — 15x smaller than that destructive threshold — because
- * averaging over 128 pixels per half-tile cancels per-pixel quantization
- * noise instead of relying on one small pixel neighborhood's coefficient
- * surviving by luck.
+ * scheme survives JPEG because averaging over 128 pixels per half-tile
+ * cancels per-pixel quantization noise instead of relying on one small
+ * pixel neighborhood's coefficient surviving by luck.
+ *
+ * 2026-10-01: WM_DELTA=12 applied as a *solid* ±shift on every pixel of
+ * each half-tile is JPEG-8×8 aligned (left/right halves are 8px wide in
+ * canonical space) and reads as a full-image checkerboard on smooth
+ * regions (fabric, walls, floors). The extractor only needs the *sign* of
+ * the half-tile mean-luma difference, so the same Patchwork geometry is
+ * kept with a texture-adaptive per-pixel delta. Smooth tiles (the dress /
+ * wall / floor case) use ~1.5 luma so the 8px grid is below JND; textured
+ * tiles still use up to the original strength of 12 so JPEG/resize recovery
+ * keeps majority votes where the signal is already masked.
  *
  * Resize tolerance (2026-09-23): tiles used to be addressed by absolute
  * native pixel position, so resizing the image changed the tile grid
@@ -92,9 +100,20 @@ function clamp(v: number): number {
  * only — crop and non-uniform stretch are ORB's job, not this layer's (see
  * the multi-layer agreement gate, which treats them as separate signals).
  */
-const WM_DELTA = 12;
+/** Canonical Patchwork geometry (must stay in lockstep with readBitFromTile). */
 const TILE = 16;
 const CANONICAL_LONG_SIDE = 1600;
+/**
+ * Per-pixel luma shift. Was a uniform 12 — that is ~4–6× JND on large
+ * smooth patches and paints a visible 8px-column grid. Extractor uses only
+ * the sign of (meanLeft − meanRight), plus 3× bits and multi-copy majority.
+ */
+const WM_DELTA_SMOOTH = 1.5;
+const WM_DELTA_TEXTURE = 12;
+const TEXTURE_STD_FLOOR = 2;
+const TEXTURE_STD_CEIL = 10;
+/** Support / confidence gate — not used for bit decisions. */
+const SUPPORT_STRENGTH = 0.9;
 
 function listTiles(width: number, height: number): Array<{ x: number; y: number }> {
   const tiles: Array<{ x: number; y: number }> = [];
@@ -152,13 +171,61 @@ export function canEmbedRobustWatermark(width: number, height: number): boolean 
   return listTiles(cw, ch).length >= PAYLOAD_MIN_TILES;
 }
 
+function lumaAt(rgba: Buffer, width: number, x: number, y: number): number {
+  const px = (y * width + x) * 4;
+  return 0.299 * (rgba[px] ?? 0) + 0.587 * (rgba[px + 1] ?? 0) + 0.114 * (rgba[px + 2] ?? 0);
+}
+
+/**
+ * Coarse (4×4 block-mean) luma stddev. Film grain / fine fabric noise has
+ * high pixel std but low coarse std — that is exactly where a ±12 half-tile
+ * step reads as a checkerboard. Edges and large-scale texture have high
+ * coarse std and can hide the original Patchwork strength.
+ */
+function rectCoarseStd(rgba: Buffer, width: number, x0: number, y0: number, x1: number, y1: number): number {
+  const gx = 4;
+  const gy = 4;
+  const means: number[] = [];
+  for (let iy = 0; iy < gy; iy++) {
+    const ya = y0 + Math.floor(((y1 - y0) * iy) / gy);
+    const yb = y0 + Math.floor(((y1 - y0) * (iy + 1)) / gy);
+    for (let ix = 0; ix < gx; ix++) {
+      const xa = x0 + Math.floor(((x1 - x0) * ix) / gx);
+      const xb = x0 + Math.floor(((x1 - x0) * (ix + 1)) / gx);
+      if (xb <= xa || yb <= ya) continue;
+      let s = 0;
+      let n = 0;
+      for (let y = ya; y < yb; y++) {
+        for (let x = xa; x < xb; x++) {
+          s += lumaAt(rgba, width, x, y);
+          n++;
+        }
+      }
+      if (n) means.push(s / n);
+    }
+  }
+  if (means.length < 2) return 0;
+  const mu = means.reduce((a, b) => a + b, 0) / means.length;
+  const varSum = means.reduce((a, b) => a + (b - mu) * (b - mu), 0) / means.length;
+  return Math.sqrt(Math.max(0, varSum));
+}
+
+function adaptiveDelta(coarseStd: number): number {
+  const t = Math.max(
+    0,
+    Math.min(1, (coarseStd - TEXTURE_STD_FLOOR) / (TEXTURE_STD_CEIL - TEXTURE_STD_FLOOR)),
+  );
+  return WM_DELTA_SMOOTH + t * (WM_DELTA_TEXTURE - WM_DELTA_SMOOTH);
+}
+
 /** Embed one bit into an arbitrary-size rectangle of the NATIVE image (proportional tile mapping). */
 function embedBitInRect(rgba: Buffer, width: number, x0: number, y0: number, x1: number, y1: number, bit: number): void {
   const midX = (x0 + x1) / 2;
+  const delta = adaptiveDelta(rectCoarseStd(rgba, width, x0, y0, x1, y1));
   for (let y = y0; y < y1; y++) {
     for (let x = x0; x < x1; x++) {
       const left = x < midX;
-      const shift = (left === (bit === 1)) ? WM_DELTA : -WM_DELTA;
+      const shift = (left === (bit === 1)) ? delta : -delta;
       const px = (y * width + x) * 4;
       rgba[px] = clamp((rgba[px] ?? 0) + shift);
       rgba[px + 1] = clamp((rgba[px + 1] ?? 0) + shift);
@@ -183,7 +250,7 @@ function readBitFromTile(rgba: Buffer, width: number, tx: number, ty: number): {
 /**
  * Embeds into the NATIVE-resolution buffer (no forced resize) by mapping
  * each CANONICAL tile to a proportional native-pixel rectangle — see the
- * header comment above WM_DELTA for why this is resize-tolerant.
+ * header comment above the Patchwork delta constants for why this is resize-tolerant.
  */
 function embedBitsInRgba(rgba: Buffer, nativeWidth: number, nativeHeight: number, bits: number[]): Buffer {
   const out = Buffer.from(rgba);
@@ -229,7 +296,7 @@ function readBitsFromRgba(rgba: Buffer, width: number, height: number): {
   for (const t of tiles) {
     const { bit, strength } = readBitFromTile(rgba, width, t.x, t.y);
     bits.push(bit);
-    if (strength >= WM_DELTA / 2) support.push(t);
+    if (strength >= SUPPORT_STRENGTH) support.push(t);
   }
   return { bits, support };
 }
@@ -255,9 +322,11 @@ export async function embedRobustProvenanceWatermark(params: {
   }
   const rgba = embedBitsInRgba(data, info.width, info.height, bits);
   const format = params.mimeType.includes('png') ? 'png' : 'jpeg';
-  const out = await sharp(rgba, {
-    raw: { width: info.width, height: info.height, channels: 4 },
-  }).toFormat(format).toBuffer();
+  const out = format === 'png'
+    ? await sharp(rgba, { raw: { width: info.width, height: info.height, channels: 4 } }).png().toBuffer()
+    : await sharp(rgba, { raw: { width: info.width, height: info.height, channels: 4 } })
+      .jpeg({ quality: 100, chromaSubsampling: '4:4:4', mozjpeg: true })
+      .toBuffer();
   return { buffer: out, embedded: true, method: DNA_VNEXT_WATERMARK_VERSION };
 }
 

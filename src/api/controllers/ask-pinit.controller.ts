@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { getAuthUserId } from '../../lib/tenant-scope';
 import { AppError } from '../middleware/error.middleware';
 import { askPinit, getAskPinitInsights } from '../../services/intelligence/ask-pinit.service';
+import { getOrCreateLivingBrief } from '../../services/intelligence/living-asset-brief.service';
 import type { ConversationHint } from '../../services/intelligence/ask-pinit-resolve';
 
 function strOpt(v: unknown, max: number): string | undefined {
@@ -71,6 +72,19 @@ export async function askPinitInsightsHandler(req: Request, res: Response, next:
     const ownerUserId = getAuthUserId(req);
     const insights = await getAskPinitInsights(ownerUserId);
     res.json({ success: true, ...insights });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function livingAssetBriefHandler(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const ownerUserId = getAuthUserId(req);
+    const vaultId = String(req.params.vaultId || '').trim();
+    if (!vaultId) throw new AppError(400, 'Vault ID required');
+    const brief = await getOrCreateLivingBrief(ownerUserId, vaultId);
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ success: true, ...brief });
   } catch (err) {
     next(err);
   }

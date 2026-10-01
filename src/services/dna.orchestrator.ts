@@ -81,20 +81,11 @@ async function mergeProtectCaptureIntoMetadata(
     && Number.isFinite(universalCtx.gpsLatitude)
     && Number.isFinite(universalCtx.gpsLongitude),
   );
-  if (result.data.gpsLatitude == null && hasGps) {
-    result.data.gpsLatitude = universalCtx!.gpsLatitude!;
-    result.data.gpsLongitude = universalCtx!.gpsLongitude!;
-  }
-  if (!result.data.deviceModel && cap?.deviceModel) result.data.deviceModel = cap.deviceModel;
-  if (!result.data.software && cap?.software) result.data.software = cap.software;
-  if (!result.data.capturedAt && cap?.capturedAt) {
-    const parsed = new Date(cap.capturedAt);
-    if (!Number.isNaN(parsed.getTime())) result.data.capturedAt = parsed;
-  }
-  if (!result.data.capturedAt) result.data.capturedAt = new Date();
-  const lat = result.data.gpsLatitude ?? (hasGps ? universalCtx!.gpsLatitude! : null);
-  const lng = result.data.gpsLongitude ?? (hasGps ? universalCtx!.gpsLongitude! : null);
-  const place = lat != null && lng != null ? await reverseGeocodePlace(lat, lng) : null;
+  const protectLat = hasGps ? universalCtx!.gpsLatitude! : null;
+  const protectLng = hasGps ? universalCtx!.gpsLongitude! : null;
+  const geoLat = result.data.gpsLatitude ?? protectLat;
+  const geoLng = result.data.gpsLongitude ?? protectLng;
+  const place = geoLat != null && geoLng != null ? await reverseGeocodePlace(geoLat, geoLng) : null;
   const exif = result.data.exifData && typeof result.data.exifData === 'object'
     ? result.data.exifData
     : {};
@@ -106,6 +97,8 @@ async function mergeProtectCaptureIntoMetadata(
       width: cap?.width ?? null,
       height: cap?.height ?? null,
       gpsAccuracy: cap?.gpsAccuracy ?? null,
+      gpsLatitude: protectLat,
+      gpsLongitude: protectLng,
       recordedAt: 'protect',
       placeName: place?.label ?? null,
       fullAddress: place?.fullAddress ?? null,

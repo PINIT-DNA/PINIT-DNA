@@ -1336,7 +1336,8 @@ export function ShareViewerPage() {
         ) : isImage ? (
           <img
             src={fileUrl} alt={info.filename}
-            className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl"
+            className="max-w-full max-h-[80vh] w-auto h-auto object-contain rounded-xl shadow-2xl"
+            style={{ imageRendering: 'auto' }}
             draggable={false}
             onDragStart={e => e.preventDefault()}
           />

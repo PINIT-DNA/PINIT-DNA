@@ -662,6 +662,23 @@ async def cv_compare_noise_residuals(
         "processingMs": round((time.time() - start) * 1000, 1),
     }
 
+@app.post("/cv/describe-scene")
+async def cv_describe_scene(image: UploadFile = File(...)):
+    """CLIP zero-shot description of what an image shows (Living Asset About me)."""
+    from services.semantic_embeddings import semantic_embeddings_service
+
+    start = time.time()
+    image_bytes = await image.read()
+    result = await _cv_read(semantic_embeddings_service.describe_scene, image_bytes)
+    if not result.success:
+        raise HTTPException(503, result.message or "Scene describe failed")
+    return {
+        "success": True,
+        **result.data,
+        "processingMs": round((time.time() - start) * 1000, 1),
+    }
+
+
 @app.post("/cv/authenticity-ensemble")
 async def cv_authenticity_ensemble(
     image: UploadFile = File(...),

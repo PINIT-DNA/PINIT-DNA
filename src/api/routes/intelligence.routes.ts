@@ -15,7 +15,7 @@ import {
   getIntelligenceReport,
 } from '../controllers/document-intelligence.controller';
 import { tikaHealth, extractTikaMetadata } from '../controllers/tika.controller';
-import { askPinitHandler, askPinitInsightsHandler } from '../controllers/ask-pinit.controller';
+import { askPinitHandler, askPinitInsightsHandler, livingAssetBriefHandler } from '../controllers/ask-pinit.controller';
 import { requireAuth } from '../middleware/auth.middleware';
 import { requireDnaOwnership, requireVaultOwnership } from '../middleware/ownership.middleware';
 
@@ -24,6 +24,7 @@ const router = Router();
 /** POST /intelligence/ask — Ask PINIT (owner-scoped facts only) */
 router.post('/ask', requireAuth, askPinitHandler);
 router.get('/ask/insights', requireAuth, askPinitInsightsHandler);
+router.get('/living-brief/:vaultId', requireAuth, requireVaultOwnership, livingAssetBriefHandler);
 
 /** POST /intelligence/ocr/:dnaRecordId — Extract text via OCR */
 router.post('/ocr/:dnaRecordId', requireAuth, requireDnaOwnership, runOcr);

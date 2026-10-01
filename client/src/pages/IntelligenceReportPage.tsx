@@ -252,7 +252,7 @@ export function IntelligenceReportPage({ adminMode = false }: { adminMode?: bool
         </Card>
         <Card
           title="Original Capture"
-          kicker="Recorded from the original file / device"
+          kicker="From the original file EXIF — not PINIT protection"
           action={<SourceChip source="recorded" />}
         >
           {view.capture.map((f) => <FactRow key={f.label} fact={f} />)}
@@ -293,10 +293,10 @@ export function IntelligenceReportPage({ adminMode = false }: { adminMode?: bool
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Environment at Capture" kicker="Only values the system stored">
+        <Card title="Environment at Capture" kicker="Only EXIF values from the original image">
           {view.environment.map((f) => <FactRow key={f.label} fact={f} />)}
         </Card>
-        <Card title="Protection & Authenticity">
+        <Card title="Protection & Authenticity" kicker="PINIT record — separate from original capture">
           {view.protection.map((f) => <FactRow key={f.label} fact={f} />)}
         </Card>
       </div>

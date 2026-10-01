@@ -601,6 +601,28 @@ export class AIEmbeddingsService {
     }
   }
 
+  async describeScene(
+    buffer: Buffer,
+    mimeType: string,
+    filename?: string,
+  ): Promise<{ line1: string; line2: string } | null> {
+    try {
+      const FormData = require('form-data');
+      const form = new FormData();
+      form.append('image', buffer, { filename: filename ?? 'asset.jpg', contentType: mimeType || 'image/jpeg' });
+      const { data } = await client.post('/cv/describe-scene', form, {
+        headers: form.getHeaders(),
+        timeout: 45_000,
+      });
+      const d = data as { success?: boolean; line1?: string; line2?: string };
+      if (!d?.line1 || !d?.line2) return null;
+      return { line1: d.line1, line2: d.line2 };
+    } catch (err) {
+      this.logError('cv/describe-scene', err);
+      return null;
+    }
+  }
+
   /**
    * Real, content-derived noise-residual descriptor (Layer 9 Origin) — NOT
    * camera-identification PRNU (needs a reference pattern averaged across

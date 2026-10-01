@@ -60,3 +60,18 @@ export async function getAskPinitInsights(): Promise<AskPinitInsights> {
   const { data } = await api.get<AskPinitInsights & { success: boolean }>(`${API_BASE_URL}/intelligence/ask/insights`);
   return data;
 }
+
+export type LivingAssetBrief = {
+  line1: string;
+  line2: string;
+  spoken: string;
+  source: 'vision' | 'clip' | 'document' | 'fallback';
+};
+
+export async function getLivingAssetBrief(vaultId: string): Promise<LivingAssetBrief> {
+  const { data } = await api.get<LivingAssetBrief & { success: boolean }>(
+    `${API_BASE_URL}/intelligence/living-brief/${encodeURIComponent(vaultId)}`,
+    { timeout: 120_000, headers: { 'Cache-Control': 'no-cache' } },
+  );
+  return data;
+}

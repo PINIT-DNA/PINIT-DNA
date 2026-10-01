@@ -5,6 +5,7 @@ import { prisma } from '../../lib/prisma';
 import { SYSTEM_VERSION } from '../../config/dna-versions';
 import { toPublicCameraForensics } from '../forensics/prnu-camera.service';
 import type { CameraForensicsStored } from '../../types/camera-forensics.types';
+import { parseOriginalCaptureExif, readPinitProtect } from './original-capture-exif';
 
 export async function buildIntelligenceReportPayload(vaultId: string) {
   const vault = await prisma.vaultRecord.findUnique({
@@ -15,6 +16,7 @@ export async function buildIntelligenceReportPayload(vaultId: string) {
           cryptoLayer: true,
           metadataLayer: true,
           perceptualLayer: true,
+          stegoLayer: true,
           ocrRecord: true,
           verifications: { orderBy: { createdAt: 'desc' }, take: 1 },
           monitorRecords: {
@@ -49,9 +51,19 @@ export async function buildIntelligenceReportPayload(vaultId: string) {
       })
     : null;
 
+  const asset = await prisma.asset.findFirst({
+    where: {
+      OR: [{ vaultId }, { dnaId: dna.id }],
+    },
+    select: { id: true },
+    orderBy: { createdAt: 'asc' },
+  });
+
   const identity = {
     ownerUserId: owner?.shortId ?? 'PINIT-UNKNOWN',
     uploaderId: owner?.shortId ?? 'PINIT-UNKNOWN',
+    pinitId: owner?.shortId ?? null,
+    assetId: asset?.id ?? null,
     mfid: vault.id,
     dnaRecordId: dna.id,
     filename: vault.originalFileName,
@@ -59,44 +71,74 @@ export async function buildIntelligenceReportPayload(vaultId: string) {
     fileSize: vault.originalSizeBytes,
     encryptedSize: vault.encryptedSizeBytes,
     fileType: dna.fileType ?? 'IMAGE',
-    // WHY SYSTEM_VERSION (Task A1): same legacy fallback '1.0.0' when engineVersion is null.
+    encryptionAlgorithm: vault.encryptionAlgorithm,
     engineVersion: dna.engineVersion ?? SYSTEM_VERSION,
   };
 
   const meta = dna.metadataLayer;
-  const pinitProtect = (meta?.exifData && typeof meta.exifData === 'object'
-    ? (meta.exifData as { pinitProtect?: {
-      timezone?: string | null;
-      captureMethod?: string | null;
-      width?: number | null;
-      height?: number | null;
-      gpsAccuracy?: number | null;
-    } }).pinitProtect
-    : null) ?? null;
+  const originalCapture = parseOriginalCaptureExif(meta?.exifData);
+  const pinitProtect = readPinitProtect(meta?.exifData);
   const allAccessLogs = shareLinks
     .flatMap((l) => l.accessLogs)
     .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
   const geoAccess = allAccessLogs.find((l) => l.country) ?? allAccessLogs[0] ?? null;
   const gpsAccess = allAccessLogs.find((l) => l.gpsLat !== null) ?? null;
+  const lastAccess = allAccessLogs.length ? allAccessLogs[allAccessLogs.length - 1] : null;
+  const protectLocation = pinitProtect?.placeName
+    || [pinitProtect?.village, pinitProtect?.city, pinitProtect?.state, pinitProtect?.country].filter(Boolean).join(', ')
+    || null;
+  const protectGps = pinitProtect?.gpsLatitude != null && pinitProtect?.gpsLongitude != null
+    ? { lat: pinitProtect.gpsLatitude, lng: pinitProtect.gpsLongitude }
+    : originalCapture.gpsLatitude == null && meta?.gpsLatitude != null && meta?.gpsLongitude != null
+      ? { lat: meta.gpsLatitude, lng: meta.gpsLongitude }
+      : null;
 
   const provenance = {
     uploadedAt: dna.createdAt.toISOString(),
     vaultedAt: vault.createdAt.toISOString(),
-    capturedAt: meta?.capturedAt?.toISOString() ?? null,
-    gpsLatitude: meta?.gpsLatitude ?? null,
-    gpsLongitude: meta?.gpsLongitude ?? null,
+    capturedAt: originalCapture.capturedAt,
+    gpsLatitude: originalCapture.gpsLatitude,
+    gpsLongitude: originalCapture.gpsLongitude,
     accessGpsLat: gpsAccess?.gpsLat ?? null,
     accessGpsLng: gpsAccess?.gpsLng ?? null,
     accessGpsCity: gpsAccess?.gpsCity ?? null,
     country: geoAccess?.country ?? null,
     city: geoAccess?.city ?? null,
-    deviceModel: meta?.deviceModel ?? null,
-    software: meta?.software ?? null,
-    timezone: pinitProtect?.timezone ?? null,
+    deviceModel: originalCapture.cameraModel,
+    deviceMake: originalCapture.cameraMake,
+    software: originalCapture.software,
+    timezone: originalCapture.timezone,
     captureMethod: pinitProtect?.captureMethod ?? null,
-    imageWidth: dna.imageWidthPx ?? pinitProtect?.width ?? null,
-    imageHeight: dna.imageHeightPx ?? pinitProtect?.height ?? null,
-    gpsAccuracy: pinitProtect?.gpsAccuracy ?? null,
+    imageWidth: originalCapture.width ?? dna.imageWidthPx ?? pinitProtect?.width ?? null,
+    imageHeight: originalCapture.height ?? dna.imageHeightPx ?? pinitProtect?.height ?? null,
+    gpsAccuracy: null as number | null,
+    originalCapture,
+    protection: {
+      protectedBy: owner?.fullName ?? null,
+      pinitId: owner?.shortId ?? null,
+      protectedAt: vault.createdAt.toISOString(),
+      dnaGeneratedAt: dna.createdAt.toISOString(),
+      vaultStoredAt: vault.createdAt.toISOString(),
+      vaultId: vault.id,
+      method: pinitProtect?.captureMethod ?? null,
+      locationLabel: protectLocation || null,
+      locationGps: protectGps,
+      gpsAccuracy: pinitProtect?.gpsAccuracy ?? null,
+      timezone: pinitProtect?.timezone ?? null,
+      encryption: vault.encryptionAlgorithm,
+      watermarkPresent: Boolean(dna.stegoLayer?.embedded),
+      metadataPreserved: originalCapture.metadataPreserved,
+    },
+    lastAccess: lastAccess
+      ? {
+          at: lastAccess.createdAt.toISOString(),
+          action: lastAccess.action,
+          city: lastAccess.city ?? lastAccess.gpsCity ?? null,
+          country: lastAccess.country ?? null,
+          gpsLat: lastAccess.gpsLat ?? null,
+          gpsLng: lastAccess.gpsLng ?? null,
+        }
+      : null,
   };
 
   const lastVerif = dna.verifications[0];
