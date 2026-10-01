@@ -66,11 +66,7 @@ import {
   listForensicReports,
   type StoredForensicReport,
 } from '../lib/forensic-reports-storage';
-import {
-  investigationDisplayScore,
-  investigationVerdictLabel,
-  resolveInvestigationOwner,
-} from '../lib/forensic-report-display';
+import { attachShareCaptureGuards } from '../lib/share-capture-guards';
 
 type IntelLite = {
   provenance?: {
@@ -439,10 +435,27 @@ export function VaultAssetStoryPage() {
 
   useEffect(() => {
     if (!guestMode || !liveToken || !record) return;
-    void axios.post(`${API_BASE_URL}/share/${encodeURIComponent(liveToken)}/access`, {
-      action: 'VIEWED',
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    }).catch(() => { /* tracking is best-effort */ });
+    const accessUrl = `${API_BASE_URL}/share/${encodeURIComponent(liveToken)}/access`;
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const post = (action: string) => {
+      const body = JSON.stringify({ action, timezone });
+      const send = () => fetch(accessUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        keepalive: true,
+        credentials: 'same-origin',
+      }).catch(() => undefined);
+      if (document.hidden && typeof navigator.sendBeacon === 'function') {
+        try {
+          const ok = navigator.sendBeacon(accessUrl, new Blob([body], { type: 'application/json' }));
+          if (ok) return;
+        } catch { /* fall through */ }
+      }
+      void send();
+    };
+    post('VIEWED');
+    return attachShareCaptureGuards(post);
   }, [guestMode, liveToken, record?.id]);
 
   useEffect(() => {

@@ -25,7 +25,7 @@ import {
   type GpsCapture,
 } from '../lib/precise-gps';
 import * as docxPreview from 'docx-preview';
-import { formatTextAsDocument, DOCUMENT_STYLES } from '../utils/document-formatter';
+import { attachShareCaptureGuards } from '../lib/share-capture-guards';
 
 interface LinkInfo {
   token:        string;
@@ -210,6 +210,8 @@ export function ShareViewerPage() {
   const nameRef = useRef('');
   useEffect(() => { nameRef.current = name; }, [name]);
   const viewedSentRef = useRef(false);
+  const locationDoneRef = useRef(false);
+  useEffect(() => { locationDoneRef.current = locationDone; }, [locationDone]);
 
   // ── OTP / email-verification gate state ───────────────────────────────────
   const [otp, setOtp]               = useState('');
@@ -313,9 +315,8 @@ export function ShareViewerPage() {
     if (info.requireName && !nameSubmitted) return;
     if (info.requireOtp && !info.otpVerified && !otpVerifiedLocal) return;
     if (!info.isActive) return;
-    if (info.requestLocation && !locationDone) return;
     setTrackingReady(true);
-  }, [info, nameSubmitted, otpVerifiedLocal, trackingReady, locationDone]);
+  }, [info, nameSubmitted, otpVerifiedLocal, trackingReady]);
 
   // ── Attach all behavioral tracking listeners (runs exactly once) ──────────
   useEffect(() => {
@@ -439,12 +440,6 @@ export function ShareViewerPage() {
       });
     };
 
-    // Wait for the best GPS we can get before VIEWED so Access Intelligence shows
-    // village-level fix — shorter wait after hop redirect so forwards still register.
-    const sendViewed = () => {
-      viewedSentRef.current = true;
-      void track('VIEWED');
-    };
     try {
       const hopTo = sessionStorage.getItem('pinit_hop_to');
       if (hopTo && token && hopTo === token) {
@@ -452,7 +447,27 @@ export function ShareViewerPage() {
         sessionStorage.removeItem('pinit_hop_from');
       }
     } catch { /* ignore */ }
-    sendViewed();
+
+    // VIEWED still waits for GPS when the owner asked for it. Copy/screenshot
+    // listeners are already attached so a phone screenshot is not lost behind
+    // the location prompt.
+    let viewedWait: ReturnType<typeof setInterval> | null = null;
+    const sendViewed = () => {
+      if (viewedSentRef.current) return;
+      viewedSentRef.current = true;
+      if (viewedWait) {
+        clearInterval(viewedWait);
+        viewedWait = null;
+      }
+      void track('VIEWED');
+    };
+    if (!info?.requestLocation || locationDoneRef.current) {
+      sendViewed();
+    } else {
+      viewedWait = setInterval(() => {
+        if (locationDoneRef.current) sendViewed();
+      }, 250);
+    }
 
     // ── Mouse activity / idle detection ───────────────────────────────────
     // Fires IDLE once after 60s of no mouse/keyboard/scroll activity, and
@@ -500,77 +515,12 @@ export function ShareViewerPage() {
     };
     window.addEventListener('scroll', onScroll, { passive: true });
 
-    // ── Copy attempt detection ─────────────────────────────────────────────
-    // Desktop: Ctrl/Cmd+C. Mobile: long-press Copy / cut (capture phase so
-    // select-none on the overlay does not swallow the event).
-    const copyCooldown = { last: 0 };
-    const screenshotCooldown = { last: 0 };
-    const onCopy = () => {
-      const now = Date.now();
-      if (now - copyCooldown.last < 1000) return;
-      copyCooldown.last = now;
-      track('COPY_ATTEMPT');
-    };
-    document.addEventListener('copy', onCopy, true);
-    document.addEventListener('cut', onCopy, true);
+    const detachCaptureGuards = attachShareCaptureGuards((action) => {
+      void track(action);
+    });
 
-    // ── Keyboard-based detection: copy, screenshot, devtools ──────────────
-    const onKeyDown = (e: KeyboardEvent) => {
-      const now = Date.now();
-      const key = e.key?.toLowerCase?.() ?? '';
-
-      // Ctrl+C / Cmd+C — copy shortcut
-      const isCopyShortcut = (e.ctrlKey || e.metaKey) && key === 'c';
-      if (isCopyShortcut && now - copyCooldown.last > 1000) {
-        copyCooldown.last = now;
-        track('COPY_ATTEMPT');
-      }
-
-      // Screenshot shortcuts ONLY — an actual screen-capture key combination.
-      //
-      // Deliberately NOT treated as screenshots (they were, and produced false
-      // "screenshot attempt" entries against viewers who never took one):
-      //   F12 / Ctrl+Shift+I  → DevTools, a different action entirely
-      //   Ctrl+Shift+S        → not a Windows capture shortcut (that is Win+Shift+S,
-      //                         which arrives as metaKey+shift+s and is matched below)
-      const isScreenshot =
-        e.key === 'PrintScreen' ||
-        (e.metaKey && e.shiftKey && ['3', '4', '5', 's'].includes(key)) || // Mac Cmd+Shift+3/4/5, Win+Shift+S
-        (e.metaKey && key === 'printscreen');                              // Win+PrtScn
-      if (isScreenshot && now - screenshotCooldown.last > 1000) {
-        screenshotCooldown.last = now;
-        track('SCREENSHOT_ATTEMPT');
-        // Cmd/Win+Shift+5 is also the OS screen-recording picker on macOS/Windows.
-        if (e.metaKey && e.shiftKey && key === '5') track('SCREEN_RECORDING_ATTEMPT');
-      }
-
-      // Win+Alt+R (Xbox Game Bar) / Alt+R with Windows key
-      const isRecordingShortcut =
-        (e.altKey && (e.metaKey || e.ctrlKey) && key === 'r')
-        || (e.altKey && e.shiftKey && key === 'r');
-      if (isRecordingShortcut && now - screenshotCooldown.last > 1000) {
-        screenshotCooldown.last = now;
-        track('SCREEN_RECORDING_ATTEMPT');
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-
-    // PrintScreen frequently only emits a `keyup` event (no keydown) on
-    // Windows — listen there too as a fallback.
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'PrintScreen') {
-        const now = Date.now();
-        if (now - screenshotCooldown.last > 1000) {
-          screenshotCooldown.last = now;
-          track('SCREENSHOT_ATTEMPT');
-        }
-      }
-    };
-    document.addEventListener('keyup', onKeyUp);
-
-    // ── Tab switch / visibility change ────────────────────────────────────
-    // Mobile hardware screenshots do not emit PrintScreen. iOS/Android often
-    // flash `hidden` for a few hundred ms; a longer hide is an app switch.
+    // Tab switch only — never treat a hide as a screenshot on desktop/Android.
+    // iOS hardware screenshots are handled inside attachShareCaptureGuards.
     let hiddenAt = 0;
     const onVisibility = () => {
       if (document.hidden) {
@@ -580,15 +530,7 @@ export function ShareViewerPage() {
       }
       const dur = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = 0;
-      if (isMobile && dur > 40 && dur < 800) {
-        const now = Date.now();
-        if (now - screenshotCooldown.last > 1000) {
-          screenshotCooldown.last = now;
-          track('SCREENSHOT_ATTEMPT');
-        }
-      } else if (isMobile && dur >= 800) {
-        track('TAB_SWITCH');
-      }
+      if (isMobile && dur >= 800) track('TAB_SWITCH');
       flushQueued();
     };
     document.addEventListener('visibilitychange', onVisibility);
@@ -605,58 +547,13 @@ export function ShareViewerPage() {
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('online', flushQueued);
 
-    // ── Removed: the "brief window blur = OS screenshot" heuristic.
-    //
-    // A sub-100ms blur/focus cycle is produced by far more than screen capture:
-    // alt-tabbing, a notification toast stealing focus, clicking browser chrome,
-    // an OS dialog, even normal focus churn. It cannot distinguish those from a
-    // screenshot, so it reported SCREENSHOT_ATTEMPT against viewers who never
-    // took one — and those false hits then fed "multiple suspicious attempts"
-    // and "high event velocity", inflating the risk score off a single bad signal.
-    //
-    // Only real capture keystrokes are recorded now (see isScreenshot above).
-    // Genuine OS-level captures that emit no key event are simply not detectable
-    // from a web page; claiming otherwise is worse than not reporting it.
-
-    // ── Print detection ───────────────────────────────────────────────────
-    // `beforeprint` doesn't fire reliably in every browser for Ctrl+P —
-    // also hook matchMedia('print') as a cross-browser fallback.
-    const onPrint = () => track('PRINT_ATTEMPT');
-    window.addEventListener('beforeprint', onPrint);
-
-    let mql: MediaQueryList | null = null;
-    const onPrintMql = (e: MediaQueryListEvent) => { if (e.matches) track('PRINT_ATTEMPT'); };
-    try {
-      mql = window.matchMedia('print');
-      mql.addEventListener?.('change', onPrintMql);
-    } catch { /* not supported — ignore */ }
-
-    // Best-effort: this origin started a display capture (cannot see OS-level
-    // recording of other apps). Still useful when a viewer records via browser APIs.
-    let displayPerm: PermissionStatus | null = null;
-    const onDisplayCapture = () => {
-      if (displayPerm?.state === 'granted') track('SCREEN_RECORDING_ATTEMPT');
-    };
-    try {
-      void navigator.permissions?.query({ name: 'display-capture' as PermissionName }).then((status) => {
-        displayPerm = status;
-        status.addEventListener('change', onDisplayCapture);
-        if (status.state === 'granted') onDisplayCapture();
-      }).catch(() => {});
-    } catch { /* PermissionName not supported */ }
-
     return () => {
+      if (viewedWait) clearInterval(viewedWait);
       window.removeEventListener('scroll', onScroll);
-      document.removeEventListener('copy', onCopy, true);
-      document.removeEventListener('cut', onCopy, true);
-      document.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('keyup', onKeyUp);
+      detachCaptureGuards();
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('online', flushQueued);
-      window.removeEventListener('beforeprint', onPrint);
-      mql?.removeEventListener?.('change', onPrintMql);
-      displayPerm?.removeEventListener?.('change', onDisplayCapture);
       if (idleTimer) clearTimeout(idleTimer);
       for (const evt of activityEvents) document.removeEventListener(evt, resetIdle);
     };

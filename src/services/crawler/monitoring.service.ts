@@ -40,12 +40,12 @@ export const MATCH = {
   NONE:     'NO_MATCH',
 } as const;
 
-/** On in production by default; set MONITORING_CRAWLER_ENABLED=false to disable. */
+/** Background auto-scans are off until Watch crawler is finished. Set MONITORING_CRAWLER_ENABLED=true to enable. */
 export function isMonitoringCrawlerEnabled(): boolean {
   const v = (process.env['MONITORING_CRAWLER_ENABLED'] ?? '').trim().toLowerCase();
   if (v === '0' || v === 'false' || v === 'no') return false;
   if (v === '1' || v === 'true' || v === 'yes') return true;
-  return process.env['NODE_ENV'] === 'production';
+  return false;
 }
 
 export type MatchType = typeof MATCH[keyof typeof MATCH];
@@ -203,8 +203,8 @@ export class MonitoringService {
     monitorRecordId: string,
     trigger: 'MANUAL' | 'SCHEDULED' | 'CONTINUOUS' = 'SCHEDULED'
   ): Promise<MonitoringSummary | ImageMonitoringSummary> {
-    if (!isMonitoringCrawlerEnabled()) {
-      throw new Error('Monitoring crawler is disabled. Set MONITORING_CRAWLER_ENABLED=true when ready.');
+    if (trigger !== 'MANUAL' && !isMonitoringCrawlerEnabled()) {
+      throw new Error('Background monitoring is disabled. Set MONITORING_CRAWLER_ENABLED=true when the crawler is ready.');
     }
 
     const monitor = await prisma.monitorRecord.findUnique({

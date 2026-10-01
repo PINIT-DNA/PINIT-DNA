@@ -27,7 +27,9 @@ function optionalBool(key: string, fallback: boolean): boolean {
 }
 
 function productionDefaultEnabled(): boolean {
-  return process.env['NODE_ENV'] === 'production';
+  // Incomplete crawler must not run 24/7 in production — it saturates Postgres
+  // and the API. Turn on explicitly: CRAWLER_ENGINE_ENABLED=true
+  return false;
 }
 
 export const crawlerEngineConfig = {
