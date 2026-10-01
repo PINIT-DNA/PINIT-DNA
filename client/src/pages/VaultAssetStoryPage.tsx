@@ -31,7 +31,6 @@ import {
   X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import axios from 'axios';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { VaultDetailSidePanel } from '../components/VaultDetailSidePanel';
 import { ShareLinkDialog } from '../components/share/ShareLinkDialog';
@@ -67,6 +66,11 @@ import {
   type StoredForensicReport,
 } from '../lib/forensic-reports-storage';
 import { attachShareCaptureGuards } from '../lib/share-capture-guards';
+import {
+  investigationDisplayScore,
+  investigationVerdictLabel,
+  resolveInvestigationOwner,
+} from '../lib/forensic-report-display';
 
 type IntelLite = {
   provenance?: {

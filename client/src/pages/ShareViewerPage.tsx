@@ -26,6 +26,7 @@ import {
 } from '../lib/precise-gps';
 import * as docxPreview from 'docx-preview';
 import { attachShareCaptureGuards } from '../lib/share-capture-guards';
+import { DOCUMENT_STYLES, formatTextAsDocument } from '../utils/document-formatter';
 
 interface LinkInfo {
   token:        string;

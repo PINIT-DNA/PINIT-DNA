@@ -26,7 +26,6 @@ interface FaceRoundScanProps {
 export function FaceRoundScan({
   title = 'Face Enrollment',
   mode = 'register',
-  claimedShortId,
   identityError,
   onClearIdentity,
   onEmbedding,

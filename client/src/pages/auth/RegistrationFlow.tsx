@@ -100,9 +100,11 @@ export function RegistrationFlow() {
             <>
               <FaceRoundScan
                 mode="register"
+                identityError={error}
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
                 onPadEvidence={(ev) => { padEvidenceRef.current = ev; }}
                 onNext={afterFace}
+                onError={(m) => setError(m)}
               />
             </>
           )}

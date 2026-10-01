@@ -9,6 +9,7 @@ import {
   Sun, Moon, Bell, ShieldCheck, Download,
 } from 'lucide-react';
 import { api, listVaultRecords, retrieveFromVault } from '../../services/dashboard.api';
+import { formatBytes } from '../../hooks/useApi';
 import { API_BASE_URL } from '../../config/api.config';
 import { useOrganization, invalidateOrganizationCache } from '../../hooks/useOrganization';
 import { useSubscription } from '../../hooks/useSubscription';

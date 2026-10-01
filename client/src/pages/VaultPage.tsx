@@ -32,7 +32,7 @@ const PROTECTED_STEPS = [
   { id: 'ready', label: 'Ready' },
 ];
 
-function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
+export function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onClose: () => void }) {
   const [phase, setPhase] = useState<'idle' | 'running' | 'done' | 'error'>('idle');
   const [activeStep, setActiveStep] = useState(0);
   const [error, setError] = useState<string | null>(null);

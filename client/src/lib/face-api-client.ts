@@ -25,15 +25,12 @@ async function postFace(path: string, body: unknown): Promise<{ status: number; 
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     const attemptStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    const controller = new AbortController();
-    const abortTimer = setTimeout(() => controller.abort(), timeout);
     try {
       if (isLogin) {
         console.info(`[Client:Perf] Sending /auth/face/login (attempt ${i + 1}/${attempts}, timeout ${timeout}ms)`);
       }
       const res = await axios.post(`${BASE}${path}`, body, {
         timeout,
-        signal: controller.signal,
         withCredentials: true,
       });
       if (isLogin) {
@@ -60,8 +57,6 @@ async function postFace(path: string, body: unknown): Promise<{ status: number; 
       const retryable = status === undefined || status >= 500;
       if (!retryable || i === attempts - 1) break;
       await new Promise((r) => setTimeout(r, 1500));
-    } finally {
-      clearTimeout(abortTimer);
     }
   }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

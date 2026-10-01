@@ -212,7 +212,7 @@ export function LoginFlow() {
     setClaimedShortId('');
     setScanAttempts(0);
     setError('');
-    go(resolveSignInEntryStep(getSignInStartMethod(), ''));
+    go(resolveSignInEntryStep(getSignInStartMethod(), rememberedIdentity()));
   }
 
   function clearClaimedIdentity() {
