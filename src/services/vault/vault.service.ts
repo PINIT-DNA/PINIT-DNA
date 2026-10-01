@@ -32,6 +32,7 @@ import { cachedRetrieve } from './investigation-retrieval-cache';
 import { uploadVaultFile, downloadVaultFile, deleteVaultFile, findVaultFileInCloudStorage, isCloudStorageConfigured, isCloudStorageRestricted } from '../../lib/vault-storage-backend';
 import { vaultEncryptedLooksLikeLocalPath } from './vault-storage-path';
 import { assertRecordOwner } from '../../lib/tenant-scope';
+import { capturedViaForProtect } from '../../lib/protect-origin';
 import { identityEmbeddingPipeline } from '../identity/identity-embedding-pipeline.service';
 import { documentPageProtectionService } from '../documents/document-page-protection.service';
 import { videoPageProtectionService } from '../videos/video-page-protection.service';
@@ -134,7 +135,10 @@ export class VaultService {
     });
 
     // ── Check DNA record exists ────────────────────────────────────────────
-    const dnaRecord = await prisma.dnaRecord.findUnique({ where: { id: dnaRecordId } });
+    const dnaRecord = await prisma.dnaRecord.findUnique({
+      where: { id: dnaRecordId },
+      include: { metadataLayer: { select: { exifData: true } } },
+    });
     if (!dnaRecord) throw new Error(`DNA record not found: ${dnaRecordId}`);
     assertRecordOwner(dnaRecord.ownerUserId, ownerUserId, 'DNA record');
 
@@ -349,7 +353,11 @@ export class VaultService {
           monitorStatus: 'PENDING',
           sourcePlatform: 'hub',
           sourceUrl: null,
-          capturedVia: 'hub_protect_file',
+          capturedVia: capturedViaForProtect(
+            (dnaRecord.metadataLayer?.exifData && typeof dnaRecord.metadataLayer.exifData === 'object'
+              ? (dnaRecord.metadataLayer.exifData as { pinitProtect?: { captureMethod?: string | null } }).pinitProtect?.captureMethod
+              : null) ?? null,
+          ),
           clientRequestId: `hub:${dnaRecordId}`,
           status: ASSET_STATUS.PROTECTED,
           protectedPostId: '',

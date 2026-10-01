@@ -83,7 +83,7 @@ export async function collectProtectCaptureContext(file: File): Promise<ProtectC
     timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
     captureMethod: method === 'Upload' ? 'Upload' : method,
     deviceModel: guessDevice(),
-    software: method.includes('PinIT') ? 'PinIT Secure Capture' : 'PinIT HUB',
+    software: method === 'Upload' ? 'PinIT HUB' : 'PinIT Camera',
     capturedAt: new Date().toISOString(),
     width: dims?.width,
     height: dims?.height,

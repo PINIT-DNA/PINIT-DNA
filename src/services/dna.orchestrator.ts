@@ -50,9 +50,10 @@ import {
   mergeIdentityDeterministicPackage,
 } from './dna/deterministic-identity';
 import { persistEnterpriseDnaPackage } from './dna/enterprise-dna-package.service';
+import { reverseGeocodePlace } from '../lib/reverse-geocode';
 import { prnuCameraService } from './forensics/prnu-camera.service';
 
-function mergeProtectCaptureIntoMetadata(
+async function mergeProtectCaptureIntoMetadata(
   metadataResult: unknown,
   universalCtx?: {
     gpsLatitude?: number;
@@ -91,6 +92,9 @@ function mergeProtectCaptureIntoMetadata(
     if (!Number.isNaN(parsed.getTime())) result.data.capturedAt = parsed;
   }
   if (!result.data.capturedAt) result.data.capturedAt = new Date();
+  const lat = result.data.gpsLatitude ?? (hasGps ? universalCtx!.gpsLatitude! : null);
+  const lng = result.data.gpsLongitude ?? (hasGps ? universalCtx!.gpsLongitude! : null);
+  const place = lat != null && lng != null ? await reverseGeocodePlace(lat, lng) : null;
   const exif = result.data.exifData && typeof result.data.exifData === 'object'
     ? result.data.exifData
     : {};
@@ -103,6 +107,15 @@ function mergeProtectCaptureIntoMetadata(
       height: cap?.height ?? null,
       gpsAccuracy: cap?.gpsAccuracy ?? null,
       recordedAt: 'protect',
+      placeName: place?.label ?? null,
+      fullAddress: place?.fullAddress ?? null,
+      village: place?.village ?? null,
+      mandal: place?.mandal ?? null,
+      district: place?.district ?? null,
+      city: place?.city ?? null,
+      state: place?.state ?? null,
+      pincode: place?.pincode ?? null,
+      country: place?.country ?? null,
     },
   };
 }
@@ -206,7 +219,7 @@ export class DnaOrchestrator {
       () => this.layer5.generate(image, dnaRecordId, layer1HashForMeta),
       'layer5'
     );
-    mergeProtectCaptureIntoMetadata(metadataResult, universalCtx);
+    await mergeProtectCaptureIntoMetadata(metadataResult, universalCtx);
 
     let widthPx = universalCtx?.captureContext?.width ?? null;
     let heightPx = universalCtx?.captureContext?.height ?? null;

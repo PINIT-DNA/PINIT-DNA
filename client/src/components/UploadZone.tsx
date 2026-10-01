@@ -4,6 +4,7 @@ import { Pencil, Check, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useSubscription } from '../hooks/useSubscription';
 import { ProtectCaptureStudio } from './ProtectCaptureStudio';
+import { readProtectMethod, tagProtectFile } from '../lib/protect-capture-context';
 import {
   formatBytes,
   getFileIcon,
@@ -42,7 +43,8 @@ function renameFile(file: File, nextBase: string): File | null {
   if (!base) return null;
   const name = `${base}${ext}`;
   if (name === file.name) return file;
-  return new File([file], name, { type: file.type, lastModified: file.lastModified });
+  const next = new File([file], name, { type: file.type, lastModified: file.lastModified });
+  return tagProtectFile(next, readProtectMethod(file));
 }
 
 function FilePreview({ file }: { file: File }) {
@@ -162,6 +164,11 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-dna-400 font-semibold text-sm">Ready to Generate</p>
                 <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">{fileLabel}</span>
+                <span className="mono text-xs bg-white/10 text-white/80 px-2 py-0.5 rounded">
+                  {readProtectMethod(selectedFile) === 'Upload'
+                    ? 'Will be recorded as uploaded'
+                    : 'Will be recorded as PINIT camera capture'}
+                </span>
               </div>
 
               {renaming ? (

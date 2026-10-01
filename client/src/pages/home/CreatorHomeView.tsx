@@ -1,8 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  Archive, AlertTriangle, RefreshCw, Eye, Globe, Plus, Link2, Radio,
-  FileText, Briefcase, MapPin, Pencil, Shield, Share2, FileSearch, ChevronRight,
+  Archive, AlertTriangle, RefreshCw, Globe, Plus, Link2, Radio,
+  FileText, Briefcase, Shield, Share2, ChevronRight,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { VaultFileThumbnail } from '../../components/VaultFileThumbnail';
@@ -30,6 +30,13 @@ export type HomePortfolioGroup = {
   itemCount?: number;
 };
 
+export type HomeSavedPortfolio = {
+  title: string;
+  status: string;
+  viewUrl: string;
+  photoUrl?: string;
+};
+
 export type HomeWorkspaceModule = {
   to: string;
   title: string;
@@ -50,21 +57,6 @@ function initialsFrom(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return 'P';
   return parts.slice(0, 2).map((p) => p[0]).join('').toUpperCase();
-}
-
-function groupItemCount(g: HomePortfolioGroup): number {
-  return g.itemCount ?? g.vault_ids.length;
-}
-
-function latestVaultDate(ids: string[], vaultRecords: VaultRecord[]): Date | null {
-  let latest = 0;
-  for (const id of ids) {
-    const rec = vaultRecords.find((v) => v.id === id);
-    if (!rec) continue;
-    const t = new Date(rec.createdAt).getTime();
-    if (!Number.isNaN(t) && t > latest) latest = t;
-  }
-  return latest ? new Date(latest) : null;
 }
 
 function activityIcon(type: string) {
@@ -96,6 +88,7 @@ interface Props {
   activityQuery: string;
   onActivityQuery: (q: string) => void;
   portfolioGroups: HomePortfolioGroup[];
+  savedPortfolio?: HomeSavedPortfolio | null;
   portfolioHeadline?: string;
   portfolioAbout?: string;
   portfolioLocation: string;
@@ -140,12 +133,9 @@ export function CreatorHomeView({
   onActivityFilter,
   activityQuery,
   onActivityQuery,
-  portfolioGroups,
-  portfolioLocation,
-  monitoringEnabled,
+  savedPortfolio = null,
   monitoringMatches,
   evidenceCount,
-  suspiciousCount,
   trackingPoints,
   trackingRecent,
   trackingTotal,
@@ -155,27 +145,21 @@ export function CreatorHomeView({
   lede = 'Pinit HUB protects creative assets, keeps originals secure, lets you share them, tracks access, monitors usage, helps investigate matches, and preserves evidence.',
   projectStatLabel = 'Projects',
   extraQuickActions,
-  extraShortcuts,
   workspaceModules,
   portfolioSectionTitle = 'Portfolio',
   portfolioSectionTo = '/profile?tab=portfolio',
   portfolioItemLabel = 'Portfolio items',
-  recentProjectsTitle = 'Recent projects',
-  profilePortfolioTo = '/profile?tab=portfolio',
   children,
 }: Props) {
   const hour = new Date().getHours();
   const hello = greetingForHour(hour);
   const displayName = greetingName
     || (isRealDisplayName(profile?.fullName) ? profile!.fullName.trim() : null);
-  const roleLine = [profile?.jobTitle, profile?.organization].filter(Boolean).join(' · ');
-  const location = portfolioLocation || profile?.country || '';
   const avatar = profile?.avatarUrl;
   const recentAssets = vaultRecords.slice(0, 6);
   const shareHref = recentAssets[0]
     ? `/vault/assets/${encodeURIComponent(recentAssets[0].id)}/share`
     : '/vault';
-  const featuredProjects = portfolioGroups.slice(0, 3);
   const modules = workspaceModules ?? [
     {
       to: portfolioSectionTo,
@@ -309,8 +293,7 @@ export function CreatorHomeView({
         </div>
       )}
 
-      <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_300px] gap-8 items-start">
-        <div className="space-y-8 min-w-0">
+      <div className="space-y-8 min-w-0">
           <section className="hub-home-block">
             <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
               <h2 className="hub-home-section">Needs your attention</h2>
@@ -392,36 +375,41 @@ export function CreatorHomeView({
           <section className="hub-home-block">
             <div className="flex items-center justify-between gap-3 mb-4">
               <h2 className="hub-home-section">{portfolioSectionTitle}</h2>
-              <Link to={portfolioSectionTo} className="hub-home-link">View {portfolioSectionTitle}</Link>
+              {savedPortfolio?.viewUrl ? (
+                <a href={savedPortfolio.viewUrl} target="_blank" rel="noreferrer" className="hub-home-link">
+                  View {portfolioSectionTitle}
+                </a>
+              ) : null}
             </div>
-            {featuredProjects.length === 0 ? (
-              <p className="hub-home-body">No {portfolioSectionTitle.toLowerCase()} yet.</p>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {featuredProjects.map((g) => {
-                  const coverId = g.vault_ids[0];
-                  const cover = coverId ? vaultRecords.find((v) => v.id === coverId) : undefined;
-                  return (
-                    <Link key={g.id} to={g.href ?? portfolioSectionTo} className="hub-home-panel overflow-hidden group">
-                      <div className="aspect-[16/10] bg-bg-muted overflow-hidden">
-                        {cover ? (
-                          <VaultFileThumbnail vaultId={cover.id} fileName={cover.originalFileName} mimeType={cover.originalMimeType} variant="gallery" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-slate-400">
-                            <Briefcase size={22} />
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-3.5">
-                        <p className="hub-home-card-title truncate">{g.title}</p>
-                        <p className="hub-home-meta mt-1">
-                          {[g.category, `${groupItemCount(g)} ${groupItemCount(g) === 1 ? 'asset' : 'assets'}`].filter(Boolean).join(' · ')}
-                        </p>
-                      </div>
-                    </Link>
-                  );
-                })}
+            {!savedPortfolio ? (
+              <div>
+                <p className="hub-home-body">No saved portfolio yet.</p>
+                <p className="hub-home-meta mt-1">Create and save a portfolio to see it here — this box is not a list of protected assets.</p>
+                <Link to="/profile?tab=portfolio" className="btn btn-secondary btn-sm mt-4 inline-flex">
+                  Create portfolio
+                </Link>
               </div>
+            ) : (
+              <a
+                href={savedPortfolio.viewUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="hub-home-panel overflow-hidden group flex items-stretch max-w-md"
+              >
+                <div className="w-24 sm:w-32 shrink-0 bg-bg-muted overflow-hidden">
+                  {savedPortfolio.photoUrl ? (
+                    <img src={savedPortfolio.photoUrl} alt="" className="w-full h-full object-cover min-h-[96px]" />
+                  ) : (
+                    <div className="w-full min-h-[96px] h-full flex items-center justify-center text-slate-400">
+                      <Briefcase size={22} />
+                    </div>
+                  )}
+                </div>
+                <div className="p-3.5 min-w-0 flex-1">
+                  <p className="hub-home-card-title truncate">{savedPortfolio.title}</p>
+                  <p className="hub-home-meta mt-1">{savedPortfolio.status}</p>
+                </div>
+              </a>
             )}
           </section>
 
@@ -528,119 +516,6 @@ export function CreatorHomeView({
               </p>
             )}
           </section>
-        </div>
-
-        <aside className="space-y-5 xl:sticky xl:top-20">
-          <div className="hub-home-panel p-5">
-            <div className="flex items-start gap-3">
-              <div className="w-12 h-12 rounded-xl overflow-hidden bg-dna-500 shrink-0">
-                {avatar ? (
-                  <img src={avatar} alt={displayName ? `${displayName} profile photo` : 'Profile photo'} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-sm font-semibold text-white" aria-hidden>
-                    {initialsFrom(displayName || 'P')}
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0">
-                <p className="hub-home-card-title truncate">{displayName || 'Your profile'}</p>
-                {roleLine && <p className="hub-home-meta mt-0.5">{roleLine}</p>}
-                {location && (
-                  <p className="hub-home-meta mt-1 flex items-center gap-1">
-                    <MapPin size={12} /> {location}
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="flex gap-2 mt-4">
-              <Link to={profilePortfolioTo} className="btn btn-secondary btn-sm flex-1 justify-center">{portfolioSectionTitle}</Link>
-              <Link to="/profile?tab=profile" className="btn btn-primary btn-sm flex-1 justify-center gap-1">
-                <Pencil size={12} /> Edit profile
-              </Link>
-            </div>
-          </div>
-
-          <div className="hub-home-block">
-            <p className="hub-home-kicker mb-3">Shortcuts</p>
-            <div className="flex flex-col gap-2">
-              <Link to={shareHref} className="hub-home-link">Share a protected file</Link>
-              <Link to={portfolioSectionTo} className="hub-home-link">{portfolioSectionTitle}</Link>
-              <Link to="/monitoring" className="hub-home-link">Monitoring</Link>
-              <Link to="/reports" className="hub-home-link">Evidence</Link>
-              <Link to={BRAND.investigationPath} className="hub-home-link">Intelligence</Link>
-              {extraShortcuts}
-            </div>
-          </div>
-
-          <div className="hub-home-block">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="hub-home-section text-[18px]">{recentProjectsTitle}</h3>
-              <Link to={portfolioSectionTo} className="hub-home-link">View</Link>
-            </div>
-            {portfolioGroups.length === 0 ? (
-              <p className="hub-home-meta">No {portfolioSectionTitle.toLowerCase()} yet.</p>
-            ) : (
-              <ul className="space-y-3">
-                {portfolioGroups.slice(0, 4).map((g) => {
-                  const coverId = g.vault_ids[0];
-                  const cover = coverId ? vaultRecords.find((v) => v.id === coverId) : undefined;
-                  const updated = latestVaultDate(g.vault_ids, vaultRecords);
-                  return (
-                    <li key={g.id}>
-                      <Link to={g.href ?? portfolioSectionTo} className="flex items-center gap-3 rounded-xl p-1 -mx-1 hover:bg-black/[0.03] dark:hover:bg-white/[0.04]">
-                        <div className="w-14 h-14 rounded-xl overflow-hidden bg-bg-muted shrink-0">
-                          {cover ? (
-                            <VaultFileThumbnail vaultId={cover.id} fileName={cover.originalFileName} mimeType={cover.originalMimeType} variant="compact" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-slate-400"><Briefcase size={16} /></div>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="hub-home-card-title truncate">{g.title}</p>
-                          <p className="hub-home-meta mt-0.5">
-                            {[g.category, `${groupItemCount(g)} ${groupItemCount(g) === 1 ? 'asset' : 'assets'}`].filter(Boolean).join(' · ')}
-                            {updated ? ` · ${formatDistanceToNow(updated, { addSuffix: true })}` : ''}
-                          </p>
-                        </div>
-                      </Link>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-
-          <div className="hub-home-block">
-            <h3 className="hub-home-section text-[18px] mb-3">Protection</h3>
-            <ul className="space-y-2.5">
-              <li className="flex items-center justify-between gap-2">
-                <Link to="/vault" className="hub-home-meta flex items-center gap-2 hover:text-dna-500"><Archive size={14} /> My Assets</Link>
-                <span className="hub-home-card-title tabular-nums">{protectedCount}</span>
-              </li>
-              <li className="flex items-center justify-between gap-2">
-                <Link to={BRAND.investigationPath} className="hub-home-meta flex items-center gap-2 hover:text-dna-500"><FileSearch size={14} /> Intelligence</Link>
-              </li>
-              <li className="flex items-center justify-between gap-2">
-                <Link to="/reports" className="hub-home-meta flex items-center gap-2 hover:text-dna-500"><Shield size={14} /> Evidence</Link>
-                <span className="hub-home-card-title tabular-nums">{evidenceCount}</span>
-              </li>
-              <li className="flex items-center justify-between gap-2">
-                <Link to="/monitoring" className="hub-home-meta flex items-center gap-2 hover:text-dna-500"><Radio size={14} /> Monitoring</Link>
-                <span className="hub-home-card-title">
-                  {monitoringEnabled === null ? '—' : monitoringEnabled ? 'On' : 'Paused'}
-                </span>
-              </li>
-              <li className="flex items-center justify-between gap-2">
-                <Link to="/monitoring" className="hub-home-meta flex items-center gap-2 hover:text-dna-500"><Eye size={14} /> Matches</Link>
-                <span className="hub-home-card-title tabular-nums">{monitoringMatches}</span>
-              </li>
-              <li className="flex items-center justify-between gap-2">
-                <Link to="/access-intelligence" className="hub-home-meta flex items-center gap-2 hover:text-dna-500"><AlertTriangle size={14} /> Suspicious activity</Link>
-                <span className="hub-home-card-title tabular-nums">{suspiciousCount}</span>
-              </li>
-            </ul>
-          </div>
-        </aside>
       </div>
     </div>
   );

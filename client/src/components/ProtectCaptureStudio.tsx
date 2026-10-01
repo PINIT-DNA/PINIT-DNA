@@ -48,7 +48,7 @@ function timestampName(prefix: string, ext: string) {
   return `${prefix}-${stamp}${ext}`;
 }
 
-function blobToFile(blob: Blob, name: string, method = 'PinIT Secure Capture'): File {
+function blobToFile(blob: Blob, name: string, method = 'PinIT Camera'): File {
   const file = new File([blob], name, { type: blob.type || 'application/octet-stream', lastModified: Date.now() });
   return tagProtectFile(file, method);
 }
