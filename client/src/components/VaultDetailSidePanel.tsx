@@ -35,6 +35,7 @@ import {
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
 import { createPinitFile, downloadPinitCarrier, sharePinitFile } from '../lib/download-pinit';
+import { pinitShareSheetFilename } from '../../../src/lib/pinit-file';
 import { API_BASE_URL } from '../config/api.config';
 import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard,
   getAssetGraph, type AssetGraph,
@@ -416,7 +417,11 @@ export function VaultDetailSidePanel({
     }
   };
 
-  const shareablePinitFile = (file: File) => new File([file], file.name, { type: 'text/plain' });
+  const shareablePinitFile = (file: File) => new File(
+    [file],
+    pinitShareSheetFilename(file.name),
+    { type: 'text/plain' },
+  );
 
   const isShareAbort = (err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);

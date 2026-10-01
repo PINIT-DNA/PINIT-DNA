@@ -6,6 +6,7 @@ import {
   buildPinitDocument,
   parsePinitText,
   pinitDownloadFilename,
+  pinitShareSheetFilename,
   readPinitFile,
   shareViewerPath,
 } from '../../src/lib/pinit-file';
@@ -139,6 +140,23 @@ describe('.pinit carrier', () => {
     }));
     expect(marked.ok).toBe(false);
     if (!marked.ok) expect(marked.code).toBe('invalid_file');
+  });
+
+  test('uses a .txt name so the OS share sheet will open', () => {
+    expect(pinitShareSheetFilename('vaibhavi.pinit')).toBe('vaibhavi.pinit.txt');
+    expect(pinitShareSheetFilename('vaibhavi.pinit.txt')).toBe('vaibhavi.pinit.txt');
+  });
+
+  test('opens a share-sheet copy named .pinit.txt', async () => {
+    const doc = buildPinitDocument({ token: TOKEN, name: 'Vaibhavi.jpg' });
+    expect(doc.ok).toBe(true);
+    if (!doc.ok) return;
+    const result = await readPinitFile({
+      name: pinitShareSheetFilename(doc.filename),
+      size: doc.body.length,
+      text: async () => doc.body,
+    });
+    expect(result.ok).toBe(true);
   });
 
   test('rejects the wrong extension before reading', async () => {
