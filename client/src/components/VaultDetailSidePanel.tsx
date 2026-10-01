@@ -22,6 +22,7 @@ import {
   Store,
   Plus,
   LayoutGrid,
+  FileDown,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { VaultFileThumbnail } from './VaultFileThumbnail';
@@ -34,6 +35,7 @@ import {
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
 import { fileFromVaultBlob } from '../lib/share-file-open';
+import { createPinitFile, downloadPinitCarrier, sharePinitFile } from '../lib/download-pinit';
 import { API_BASE_URL } from '../config/api.config';
 import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard,
   getAssetGraph, type AssetGraph,
@@ -167,6 +169,9 @@ export function VaultDetailSidePanel({
   const [loadingTracking, setLoadingTracking] = useState(true);
   const [protectDownloading, setProtectDownloading] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
+  const [downloadingPinit, setDownloadingPinit] = useState(false);
+  /** Prepared .pinit carrier for WhatsApp / Email. Not a link and not a QR. */
+  const [pinitShare, setPinitShare] = useState<{ filename: string; file: File } | null>(null);
   const [listingOnExchange, setListingOnExchange] = useState(false);
   const [canListOnExchange, setCanListOnExchange] = useState(false);
   const [inPortfolio, setInPortfolio] = useState(false);
@@ -273,6 +278,8 @@ export function VaultDetailSidePanel({
     setShareReady(false);
     setReadyShareUrl(null);
     setSharingFile(false);
+    setDownloadingPinit(false);
+    setPinitShare(null);
     void (async () => {
       try {
         const r = await api.get(`${API_BASE_URL}/share/vault/${record.id}`);
@@ -490,6 +497,66 @@ export function VaultDetailSidePanel({
       toast.error(msg || 'Could not share file');
     } finally {
       setSharingFile(false);
+    }
+  };
+
+  const handleSharePinitChannel = (channel: 'whatsapp' | 'email') => {
+    if (!pinitShare) return;
+    sharePinitFile(pinitShare.file, channel);
+    const where = channel === 'whatsapp' ? 'WhatsApp' : 'Gmail';
+    toast.success(
+      `${where} is open. Attach the saved ${pinitShare.filename}.`,
+      { duration: 7000 },
+    );
+  };
+
+  const handleDownloadPinit = async () => {
+    if (downloadingPinit || loadingLinks) return;
+
+    const now = Date.now();
+    const active = links
+      .filter((link) => {
+        if (!link.isActive || !link.token) return false;
+        if (link.expiresAt && new Date(link.expiresAt).getTime() <= now) return false;
+        if (link.maxViews != null && link.viewCount >= link.maxViews) return false;
+        return true;
+      })
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    const chosen = active[0];
+    if (chosen) {
+      const saved = downloadPinitCarrier({ token: chosen.token, name: displayName });
+      if (!saved.ok) {
+        toast.error('Could not create the .pinit file');
+        return;
+      }
+      const built = createPinitFile({ token: chosen.token, name: displayName });
+      if (built.ok) setPinitShare({ filename: built.filename, file: built.file });
+      toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
+      return;
+    }
+
+    setDownloadingPinit(true);
+    try {
+      const created = await createFileShare(record.id, { requestLocation: true });
+      const saved = downloadPinitCarrier({
+        token: created.token,
+        name: created.filename || displayName,
+      });
+      if (!saved.ok) {
+        toast.error('Could not create the .pinit file');
+        return;
+      }
+      const built = createPinitFile({
+        token: created.token,
+        name: created.filename || displayName,
+      });
+      if (built.ok) setPinitShare({ filename: built.filename, file: built.file });
+      toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '';
+      toast.error(msg || 'Could not create the .pinit file');
+    } finally {
+      setDownloadingPinit(false);
     }
   };
 
@@ -1277,6 +1344,33 @@ export function VaultDetailSidePanel({
               </div>
             </>
           )}
+          {pinitShare && !embedded && (
+            <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
+              <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
+                Share file
+              </p>
+              <p className="text-xs text-white truncate">{pinitShare.filename}</p>
+              <p className="text-2xs text-gray-500">
+                Attach the saved .pinit file. The filename by itself is not the file.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleSharePinitChannel('whatsapp')}
+                  className="btn btn-secondary btn-sm text-xs justify-center"
+                >
+                  WhatsApp
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSharePinitChannel('email')}
+                  className="btn btn-secondary btn-sm text-xs justify-center"
+                >
+                  Email
+                </button>
+              </div>
+            </div>
+          )}
           {(latestTep?.tepCode || links[0]) && !embedded && (
           <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
             {latestTep?.tepCode && (
@@ -1401,6 +1495,12 @@ export function VaultDetailSidePanel({
               label={sharingFile ? 'Opening apps…' : 'Share File'}
               disabled={sharingFile}
               onClick={() => { if (!sharingFile) void handleShareFile(); }}
+            />
+            <QuickAction
+              icon={downloadingPinit ? <RefreshCw size={18} className="animate-spin" /> : <FileDown size={18} />}
+              label={downloadingPinit ? 'Preparing…' : 'Download .pinit'}
+              disabled={downloadingPinit || loadingLinks}
+              onClick={() => { if (!downloadingPinit && !loadingLinks) void handleDownloadPinit(); }}
             />
             <QuickAction
               icon={<FileSearch size={18} />}

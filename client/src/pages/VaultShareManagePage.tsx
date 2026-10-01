@@ -18,6 +18,7 @@ import { Badge } from '../components/ui/Badge';
 import { BRAND } from '../config/brand.config';
 import { API_BASE_URL } from '../config/api.config';
 import { api, getVaultRecord } from '../services/dashboard.api';
+import { downloadPinitCarrier } from '../lib/download-pinit';
 import type { VaultRecord } from '../types/dashboard.types';
 
 interface ShareManageState {
@@ -151,6 +152,15 @@ export function VaultShareManagePage() {
     } catch {
       toast.error('Could not copy link');
     }
+  };
+
+  const handleDownloadPinit = () => {
+    const saved = downloadPinitCarrier({ token, name: filename });
+    if (!saved.ok) {
+      toast.error('Could not create the .pinit file');
+      return;
+    }
+    toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
   };
 
   const handleNativeShare = async () => {
@@ -354,7 +364,7 @@ export function VaultShareManagePage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <a
               href={`https://wa.me/?text=${encodeURIComponent(`Secure file: ${shareUrl}`)}`}
               target="_blank"
@@ -369,6 +379,13 @@ export function VaultShareManagePage() {
             >
               Email
             </a>
+            <button
+              type="button"
+              onClick={handleDownloadPinit}
+              className="btn btn-secondary btn-sm text-xs justify-center"
+            >
+              Download .pinit
+            </button>
             <Link
               to={`/access-intelligence?vaultId=${encodeURIComponent(assetId)}`}
               className="btn btn-secondary btn-sm text-xs justify-center"

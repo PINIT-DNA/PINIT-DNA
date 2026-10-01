@@ -185,6 +185,8 @@ export interface ShareLinkPublicInfo {
   signatureValid:   boolean;
   privacyMaskingEnabled: boolean;
   requestLocation:  boolean;
+  /** This IP already shared location once. The viewer should not ask again. */
+  locationAlreadyShared?: boolean;
   inactiveReason?:  'expired' | 'exhausted' | 'revoked' | 'one_time' | 'tampered' | null;
   viewerRevoked?:   boolean;
   sourceContext?:   string | null;
@@ -1210,6 +1212,15 @@ export class ShareLinkService {
       viewerRevoked = await this.isViewerBlocked(link.id, viewer);
     }
 
+    let locationAlreadyShared = false;
+    if (link.requestLocation && viewer?.ipAddress) {
+      const prior = await prisma.shareAccessLog.findFirst({
+        where: { ipAddress: viewer.ipAddress, locationShared: true },
+        select: { id: true },
+      });
+      locationAlreadyShared = prior != null;
+    }
+
     return {
       token:         link.token,
       filename:      link.filename,
@@ -1233,6 +1244,7 @@ export class ShareLinkService {
       signatureValid,
       privacyMaskingEnabled: link.privacyMaskingEnabled,
       requestLocation:       link.requestLocation,
+      locationAlreadyShared,
       inactiveReason,
       viewerRevoked,
       sourceContext: link.sourceContext ?? 'hub',
