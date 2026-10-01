@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -166,6 +166,8 @@ export function VaultDetailSidePanel({
   const [downloadingPinit, setDownloadingPinit] = useState(false);
   /** Prepared .pinit carrier for WhatsApp / Email. Not a link and not a QR. */
   const [pinitShare, setPinitShare] = useState<{ filename: string; file: File } | null>(null);
+  /** Ready before the click so the app list can open in the same tap. */
+  const pinitReadyRef = useRef<File | null>(null);
   const [listingOnExchange, setListingOnExchange] = useState(false);
   const [canListOnExchange, setCanListOnExchange] = useState(false);
   const [inPortfolio, setInPortfolio] = useState(false);
@@ -263,6 +265,7 @@ export function VaultDetailSidePanel({
     setSharingFile(false);
     setDownloadingPinit(false);
     setPinitShare(null);
+    pinitReadyRef.current = null;
     void (async () => {
       try {
         const r = await api.get(`${API_BASE_URL}/share/vault/${record.id}`);
@@ -413,34 +416,50 @@ export function VaultDetailSidePanel({
     }
   };
 
-  const saveShareFileLocally = (file: File) => {
-    const url = URL.createObjectURL(file);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = file.name;
-    a.click();
-    URL.revokeObjectURL(url);
+  const shareablePinitFile = (file: File) => new File([file], file.name, { type: 'text/plain' });
+
+  const isShareAbort = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /AbortError|canceled|cancelled/i.test(msg) || (err as { name?: string })?.name === 'AbortError';
   };
 
-  const shareOrSavePinit = async (file: File) => {
-    const payload: ShareData = { files: [file], title: file.name };
-    const canFileShare = typeof navigator.share === 'function'
-      && (typeof navigator.canShare !== 'function' || navigator.canShare(payload));
-    if (canFileShare) {
-      try {
-        await navigator.share(payload);
-        toast.success(`Shared ${file.name}. It does not contain the asset.`);
-        return;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (/AbortError|canceled|cancelled/i.test(msg) || (err as { name?: string })?.name === 'AbortError') {
-          return;
-        }
-      }
+  /** Opens the device app list with the .pinit file. Must run in the click, before any await. */
+  const openPinitShareSheet = async (file: File): Promise<'shared' | 'aborted' | 'unavailable'> => {
+    if (typeof navigator.share !== 'function') return 'unavailable';
+    try {
+      await navigator.share({ files: [file], title: file.name });
+      return 'shared';
+    } catch (err) {
+      if (isShareAbort(err)) return 'aborted';
+      return 'unavailable';
     }
-    saveShareFileLocally(file);
-    toast.success(`Saved ${file.name}. Send that file — it does not contain the asset.`, { duration: 5000 });
   };
+
+  const preparePinitFile = async (): Promise<File | null> => {
+    if (pinitReadyRef.current) return pinitReadyRef.current;
+    const created = await createFileShare(record.id, { requestLocation: true });
+    const built = createPinitFile({
+      token: created.token,
+      name: created.filename || displayName,
+    });
+    if (!built.ok) return null;
+    const shareable = shareablePinitFile(built.file);
+    pinitReadyRef.current = shareable;
+    setPinitShare({ filename: built.filename, file: shareable });
+    return shareable;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void preparePinitFile().then((file) => {
+      if (cancelled && file && pinitReadyRef.current === file) {
+        pinitReadyRef.current = null;
+      }
+    });
+    return () => { cancelled = true; };
+    // Prepare once per asset so Share File can open the app list on the first tap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record.id]);
 
   /**
    * Share File exports a .pinit carrier, not the raw asset.
@@ -448,25 +467,36 @@ export function VaultDetailSidePanel({
    */
   const handleShareFile = async () => {
     if (sharingFile) return;
+    const ready = pinitReadyRef.current;
+    if (ready) {
+      const opened = await openPinitShareSheet(ready);
+      if (opened === 'shared') {
+        toast.success('Pick WhatsApp, choose the person, and send the .pinit file.');
+        void refreshTracking();
+        return;
+      }
+      if (opened === 'aborted') return;
+    }
+
     setSharingFile(true);
     try {
-      const created = await createFileShare(record.id, { requestLocation: true });
-      const built = createPinitFile({
-        token: created.token,
-        name: created.filename || displayName,
-      });
-      if (!built.ok) {
+      const file = ready ?? await preparePinitFile();
+      if (!file) {
         toast.error('Could not create the .pinit file');
         return;
       }
-      setPinitShare({ filename: built.filename, file: built.file });
-      await shareOrSavePinit(built.file);
+      const opened = await openPinitShareSheet(file);
+      if (opened === 'shared') {
+        toast.success('Pick WhatsApp, choose the person, and send the .pinit file.');
+      } else if (opened === 'aborted') {
+        return;
+      } else {
+        toast('Tap Share File again to open your apps.');
+      }
       await refreshTracking();
     } catch (err) {
+      if (isShareAbort(err)) return;
       const msg = err instanceof Error ? err.message : String(err);
-      if (/AbortError|canceled|cancelled/i.test(msg) || (err as { name?: string })?.name === 'AbortError') {
-        return;
-      }
       toast.error(msg || 'Could not share file');
     } finally {
       setSharingFile(false);
