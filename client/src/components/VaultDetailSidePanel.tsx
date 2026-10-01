@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -34,21 +34,15 @@ import {
   getVaultFileTypeDisplay,
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
-import { fileFromVaultBlob } from '../lib/share-file-open';
 import { createPinitFile, downloadPinitCarrier, sharePinitFile } from '../lib/download-pinit';
 import { API_BASE_URL } from '../config/api.config';
 import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard,
   getAssetGraph, type AssetGraph,
 } from '../services/dashboard.api';
 import { useAuth } from '../context/AuthContext';
-import { ShareQrBlock } from './ShareQrBlock';
 import { AuthenticityReportCard, verdictBadgeVariant } from './AuthenticityReportCard';
 import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
 import { formatSourcePlatform, vaultSourceCaption } from '../lib/source-platform';
-import {
-  buildPlatformShareOptions,
-  shareWithOsSheet,
-} from '../lib/platform-share';
 import { formatReshareId, formatShareId, formatTrackId } from '../lib/lifecycle-ids';
 import { parseCoordsFromLabel } from '../lib/parse-location-label';
 
@@ -175,9 +169,6 @@ export function VaultDetailSidePanel({
   const [listingOnExchange, setListingOnExchange] = useState(false);
   const [canListOnExchange, setCanListOnExchange] = useState(false);
   const [inPortfolio, setInPortfolio] = useState(false);
-  /** Cached original file so Share File can open the OS app sheet again instantly. */
-  const [shareReady, setShareReady] = useState(false);
-  const [readyShareUrl, setReadyShareUrl] = useState<string | null>(null);
   const [analysis, setAnalysis] = useState<VaultContentAnalysis | null>(
     record.contentAnalysis ?? null,
   );
@@ -187,11 +178,6 @@ export function VaultDetailSidePanel({
   >(record.contentAnalysis ? 'COMPLETED' : null);
   const [analysisError, setAnalysisError] = useState<string | null>(null);
   const [analysisRetrying, setAnalysisRetrying] = useState(false);
-  const preparedShareRef = useRef<{
-    recordId: string;
-    file: File;
-    shareUrl: string;
-  } | null>(null);
   const [copiedTep, setCopiedTep] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
@@ -274,9 +260,6 @@ export function VaultDetailSidePanel({
     setAnalysisStatus(record.contentAnalysis ? 'COMPLETED' : null);
     setAnalysisError(null);
     setAnalysisRetrying(false);
-    preparedShareRef.current = null;
-    setShareReady(false);
-    setReadyShareUrl(null);
     setSharingFile(false);
     setDownloadingPinit(false);
     setPinitShare(null);
@@ -439,55 +422,45 @@ export function VaultDetailSidePanel({
     URL.revokeObjectURL(url);
   };
 
-  const isCoarsePointer = () =>
-    typeof window !== 'undefined'
-    && (window.matchMedia('(pointer: coarse)').matches || /Android|iPhone|iPad|iPod/i.test(navigator.userAgent));
-
-  /** Same picker as gallery: every installed app that accepts this file. */
-  const openNativeShareSheet = async (file: File, shareUrl: string) => {
-    const result = await shareWithOsSheet({
-      title: file.name,
-      shareUrl,
-      file,
-    });
-    if (result === 'shared') {
-      toast.success(isCoarsePointer()
-        ? 'Pick an app — this lists every app on your phone that can take this file'
-        : 'Choose an app — phones list every app you have for this file');
-      return;
-    }
-    if (result === 'aborted') return;
-    if (isCoarsePointer()) {
-      toast('Tap Share File again to open your apps');
-      return;
+  const shareOrSavePinit = async (file: File) => {
+    const payload: ShareData = { files: [file], title: file.name };
+    const canFileShare = typeof navigator.share === 'function'
+      && (typeof navigator.canShare !== 'function' || navigator.canShare(payload));
+    if (canFileShare) {
+      try {
+        await navigator.share(payload);
+        toast.success(`Shared ${file.name}. It does not contain the asset.`);
+        return;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (/AbortError|canceled|cancelled/i.test(msg) || (err as { name?: string })?.name === 'AbortError') {
+          return;
+        }
+      }
     }
     saveShareFileLocally(file);
-    toast.success('File saved — attach it from your gallery or files app', { duration: 5000 });
+    toast.success(`Saved ${file.name}. Send that file — it does not contain the asset.`, { duration: 5000 });
   };
 
   /**
-   * One tap opens this device’s share sheet (WhatsApp, Messages, Drive, …).
-   * Laptop pickers are smaller; phones show every app that can take the file.
+   * Share File exports a .pinit carrier, not the raw asset.
+   * The recipient opens that file at /open.
    */
   const handleShareFile = async () => {
+    if (sharingFile) return;
     setSharingFile(true);
     try {
-      let prepared = preparedShareRef.current;
-      if (!prepared || prepared.recordId !== record.id) {
-        const created = await createFileShare(record.id, { requestLocation: true });
-        const { blob } = await protectedDownloadFromVault(record.id);
-        const file = fileFromVaultBlob(blob, displayName, record.originalMimeType);
-        prepared = {
-          recordId: record.id,
-          file,
-          shareUrl: created.shareUrl,
-        };
-        preparedShareRef.current = prepared;
-        setReadyShareUrl(created.shareUrl);
-        setShareReady(true);
+      const created = await createFileShare(record.id, { requestLocation: true });
+      const built = createPinitFile({
+        token: created.token,
+        name: created.filename || displayName,
+      });
+      if (!built.ok) {
+        toast.error('Could not create the .pinit file');
+        return;
       }
-
-      await openNativeShareSheet(prepared.file, prepared.shareUrl);
+      setPinitShare({ filename: built.filename, file: built.file });
+      await shareOrSavePinit(built.file);
       await refreshTracking();
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -1298,52 +1271,6 @@ export function VaultDetailSidePanel({
 
         <div className={`${embedded ? 'p-0' : 'p-3 border-t border-bg-border'} space-y-2.5`}>
           {!embedded && <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>}
-          {shareReady && readyShareUrl && !embedded && (
-            <>
-              <ShareQrBlock url={readyShareUrl} />
-              <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
-                <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
-                  Your apps
-                </p>
-                <p className="text-2xs text-gray-500">
-                  Share File opens this device’s app list. Phones show every app you have; laptops show fewer.
-                </p>
-                <p className="text-2xs text-gray-500 mono truncate">
-                  Share ID: {formatShareId(readyShareUrl.split('/').pop() || null)}
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {buildPlatformShareOptions(readyShareUrl, record.originalFileName || 'Protected file').map((opt) => (
-                    <button
-                      key={opt.id}
-                      type="button"
-                      onClick={async () => {
-                        if (opt.id === 'copy') {
-                          try {
-                            await navigator.clipboard.writeText(readyShareUrl);
-                            toast.success('Share link copied');
-                          } catch {
-                            toast.error('Could not copy link');
-                          }
-                          return;
-                        }
-                        if (opt.href) window.open(opt.href, '_blank', 'noopener,noreferrer');
-                      }}
-                      className="px-2 py-1 rounded-lg border border-bg-border text-2xs text-gray-300 hover:text-white hover:border-dna-500/40"
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                  <button
-                    type="button"
-                    onClick={() => { if (!sharingFile) void handleShareFile(); }}
-                    className="px-2 py-1 rounded-lg border border-dna-500/40 text-2xs text-dna-400 hover:text-white"
-                  >
-                    All apps
-                  </button>
-                </div>
-              </div>
-            </>
-          )}
           {pinitShare && !embedded && (
             <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
               <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -1398,7 +1325,7 @@ export function VaultDetailSidePanel({
                   <QuickAction
                     appearance="plain"
                     icon={sharingFile ? <RefreshCw size={22} className="animate-spin" /> : <LayoutGrid size={22} />}
-                    label={sharingFile ? 'Opening apps…' : 'Share File'}
+                    label={sharingFile ? 'Preparing…' : 'Share File'}
                     disabled={sharingFile}
                     onClick={() => { if (!sharingFile) void handleShareFile(); }}
                   />
@@ -1492,7 +1419,7 @@ export function VaultDetailSidePanel({
             <QuickAction icon={<Share2 size={18} />} label="Share Secure Link" onClick={onShare} />
             <QuickAction
               icon={sharingFile ? <RefreshCw size={18} className="animate-spin" /> : <Send size={18} />}
-              label={sharingFile ? 'Opening apps…' : 'Share File'}
+              label={sharingFile ? 'Preparing…' : 'Share File'}
               disabled={sharingFile}
               onClick={() => { if (!sharingFile) void handleShareFile(); }}
             />
