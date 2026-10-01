@@ -30,7 +30,6 @@ import {
   rankFaceMatches,
   rankVoiceMatches,
   isFaceProbeQualityOk,
-  isConfidentFaceMatch,
   isIdentifyAccept,
   verifyClaimedFace,
   THRESHOLDS as MATCH_THRESHOLDS,

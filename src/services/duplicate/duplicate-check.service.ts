@@ -79,8 +79,6 @@ const VIDEO_SCAN_LIMIT = parseInt(process.env['DUPLICATE_VIDEO_SCAN_LIMIT'] ?? '
  * a false positive here wrongly refuses someone their own upload.
  */
 const ORB_NEAR_DUPLICATE_THRESHOLD = parseFloat(process.env['DUPLICATE_ORB_THRESHOLD'] ?? '0.50');
-/** Same idea as PHASH_STRONG_THRESHOLD — above this, ORB blocks alone. */
-const ORB_STRONG_THRESHOLD = parseFloat(process.env['DUPLICATE_ORB_STRONG_THRESHOLD'] ?? '0.75');
 /** /cv/match-descriptors re-extracts the probe's ORB descriptors on every call
  * (no way to reuse across candidates), so the scan pool stays well below
  * PHASH_SCAN_LIMIT. */
