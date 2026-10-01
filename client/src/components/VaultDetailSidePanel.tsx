@@ -521,28 +521,6 @@ export function VaultDetailSidePanel({
   const handleDownloadPinit = async () => {
     if (downloadingPinit || loadingLinks) return;
 
-    const now = Date.now();
-    const active = links
-      .filter((link) => {
-        if (!link.isActive || !link.token) return false;
-        if (link.expiresAt && new Date(link.expiresAt).getTime() <= now) return false;
-        if (link.maxViews != null && link.viewCount >= link.maxViews) return false;
-        return true;
-      })
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    const chosen = active[0];
-    if (chosen) {
-      const saved = downloadPinitCarrier({ token: chosen.token, name: displayName });
-      if (!saved.ok) {
-        toast.error('Could not create the .pinit file');
-        return;
-      }
-      const built = createPinitFile({ token: chosen.token, name: displayName });
-      if (built.ok) setPinitShare({ filename: built.filename, file: built.file });
-      toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
-      return;
-    }
-
     setDownloadingPinit(true);
     try {
       const created = await createFileShare(record.id, { requestLocation: true });

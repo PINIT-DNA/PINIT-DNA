@@ -269,7 +269,7 @@ export function ShareViewerPage() {
         } else if (status === 403) {
           setError('NO_ACCESS');
         } else if (status === 404) {
-          setError('UNAVAILABLE');
+          setError('NOT_FOUND');
         } else {
           const raw = apiErr?.error || '';
           setError(/bridge token|expired Exchange/i.test(raw) ? 'NO_ACCESS' : 'UNAVAILABLE');
@@ -868,23 +868,35 @@ export function ShareViewerPage() {
   // ── Error ──────────────────────────────────────────────────────────────────
   if (error || !info) {
     const noAccess = error === 'NO_ACCESS';
+    const notFound = error === 'NOT_FOUND' || !error;
+    const backendWait = Boolean(error && error !== 'NO_ACCESS' && error !== 'NOT_FOUND' && error !== 'UNAVAILABLE');
+    const title = noAccess
+      ? 'You don\'t have access to this file.'
+      : notFound
+        ? 'This share is not on this Hub'
+        : backendWait
+          ? 'Hub is starting'
+          : 'Link unavailable';
+    const detail = noAccess
+      ? 'You don\'t have access to this file.'
+      : notFound
+        ? 'A .pinit file only points at a share token. That token is not registered here. Use Share File on this same Hub, then drop the new .pinit on /open.'
+        : backendWait
+          ? error
+          : 'This sharing link has expired or is no longer available.';
     return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
-        <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
-          <AlertTriangle size={28} className="text-danger" />
-        </div>
-        <h1 className="text-white font-bold text-lg mb-2">
-          {noAccess ? 'You don\'t have access to this file.' : 'Link unavailable'}
-        </h1>
-        <p className="text-gray-400 text-sm">
+        <div className={`w-16 h-16 ${noAccess ? 'bg-danger/10' : 'bg-warning/10'} rounded-full flex items-center justify-center mx-auto mb-4`}>
           {noAccess
-            ? 'You don\'t have access to this file.'
-            : 'This sharing link has expired or is no longer available.'}
-        </p>
-        <button type="button" className="btn btn-secondary btn-sm mt-4" onClick={() => window.close()}>
-          Close
-        </button>
+            ? <AlertTriangle size={28} className="text-danger" />
+            : <Ban size={28} className="text-warning" />}
+        </div>
+        <h1 className="text-white font-bold text-lg mb-2">{title}</h1>
+        <p className="text-gray-400 text-sm">{detail}</p>
+        <a href="/open" className="btn btn-secondary btn-sm mt-4 inline-flex">
+          Open another .pinit
+        </a>
       </div>
     </div>
     );
