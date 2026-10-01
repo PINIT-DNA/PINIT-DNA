@@ -58,6 +58,8 @@ interface LinkInfo {
   locationAlreadyShared?: boolean;
   sourceContext?:         string | null;
   licenseTier?:           string | null;
+  linkType?:              string | null;
+  livingPage?:            boolean;
 }
 
 // Generate a session ID for grouping events
@@ -260,7 +262,14 @@ export function ShareViewerPage() {
       },
     })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then(({ data }) => setInfo((data as any).link))
+      .then(({ data }) => {
+        const link = (data as { link?: LinkInfo }).link;
+        if (link?.livingPage && token && !window.location.pathname.endsWith('/live')) {
+          window.location.replace(`/s/${encodeURIComponent(token)}/live`);
+          return;
+        }
+        setInfo(link);
+      })
       .catch((err) => {
         const status = (err as { response?: { status?: number; data?: { error?: string; code?: string } } })?.response?.status;
         const apiErr = (err as { response?: { data?: { error?: string; code?: string } } })?.response?.data;
@@ -392,7 +401,7 @@ export function ShareViewerPage() {
           sessionStorage.setItem('pinit_hop_from', token);
           sessionStorage.setItem('pinit_hop_to', next);
         } catch { /* ignore */ }
-        window.location.replace(`/s/${next}`);
+        window.location.replace(info?.livingPage ? `/s/${next}/live` : `/s/${next}`);
       }
     };
 

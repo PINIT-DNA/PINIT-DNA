@@ -147,13 +147,14 @@ function classifyAccessKind(
   log: AccessLog,
   seenDirectOnParent: boolean,
 ): AccessKind {
-  const isReshare =
+  const isHop =
     log.isReshareLink === true
-    || (log.linkType != null && log.linkType !== 'PARENT')
+    || log.linkType === 'CHILD'
+    || log.linkType === 'GRANDCHILD'
     || (typeof log.linkDepth === 'number' && log.linkDepth > 0)
     || log.action === 'FORWARDING_DETECTED';
 
-  if (isReshare) return 'reshared';
+  if (isHop) return 'reshared';
   if (!seenDirectOnParent) return 'direct_recipient';
   return 'direct_share';
 }

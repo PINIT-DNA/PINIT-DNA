@@ -1,29 +1,19 @@
-import { useEffect, useMemo, useState } from 'react';
+﻿import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Shield,
   Eye,
-  Download,
   Globe,
   Users,
   Clock,
   RefreshCw,
   AlertTriangle,
   ChevronRight,
-  XCircle,
-  Ban,
-  Send,
-  Copy,
-  Check,
-  MapPin,
   ArrowLeft,
-  Sparkles,
 } from 'lucide-react';
-import toast from 'react-hot-toast';
 import {
   api,
   listProtectedFileShares,
-  revokeVaultTep,
   getLiveTrackingMap,
   getVaultTracking,
   type ProtectedFileShare,
@@ -72,15 +62,11 @@ interface ShareLink {
   }>;
 }
 
-type TrackingTab = 'links' | 'files' | 'living';
-
 export function AccessIntelligencePage() {
-  const [tab, setTab] = useState<TrackingTab>('links');
   const [links, setLinks] = useState<ShareLink[]>([]);
   const [fileShares, setFileShares] = useState<ProtectedFileShare[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingFiles, setLoadingFiles] = useState(true);
-  const [copiedTep, setCopiedTep] = useState<string | null>(null);
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const vaultFilter = searchParams.get('vaultId')?.trim() || null;
@@ -139,7 +125,7 @@ export function AccessIntelligencePage() {
     return () => { cancelled = true; };
   }, [vaultFilter]);
 
-  // Vault → Tracking lands on ?vaultId=… so all share links for that file stay visible.
+  // Vault â†’ Tracking lands on ?vaultId=â€¦ so all share links for that file stay visible.
   // Do not auto-jump to a single token (that hid other shares of the same file).
 
   const filteredLinks = useMemo(
@@ -159,20 +145,72 @@ export function AccessIntelligencePage() {
   const hubLinks = filteredLinks.filter((l) => l.linkType !== 'LIVING');
   const livingLinks = filteredLinks.filter((l) => l.linkType === 'LIVING');
   const activeLinks = hubLinks.filter((l) => l.isActive);
-  const totalViews = hubLinks.reduce((s, l) => s + (l.activityStats?.views ?? l.viewCount ?? 0), 0);
-  const uniqueCountries = new Set(hubLinks.flatMap((l) => l.activityStats?.countries ?? []));
-  const securityEvents = hubLinks.reduce(
-    (s, l) => s + (l.activityStats?.securityEvents ?? 0),
-    0,
-  );
-  const uniqueViewersCount = hubLinks.reduce((s, l) => s + (l.activityStats?.uniqueViewers ?? 0), 0);
-
   const openFileShares = filteredFileShares.filter((s) => s.kind === 'file_open' && s.token);
   const exchangeLinks = filteredLinks.filter((l) => l.sourceContext === 'exchange_license');
   const exchangeCtx = exchangeLinks[0] ?? null;
-  const activeFiles = openFileShares.filter((s) => s.status === 'ACTIVE');
   const totalFileViews = openFileShares.reduce((s, f) => s + (f.viewCount ?? 0), 0);
   const fileCountries = new Set(openFileShares.map((s) => s.geoCountry).filter(Boolean));
+  const allChannelLinks = [...hubLinks, ...livingLinks];
+  const totalViews = allChannelLinks.reduce((s, l) => s + (l.activityStats?.views ?? l.viewCount ?? 0), 0)
+    + totalFileViews;
+  const uniqueCountries = new Set([
+    ...allChannelLinks.flatMap((l) => l.activityStats?.countries ?? []),
+    ...[...fileCountries].filter((c): c is string => Boolean(c)),
+  ]);
+  const securityEvents = allChannelLinks.reduce(
+    (s, l) => s + (l.activityStats?.securityEvents ?? 0),
+    0,
+  );
+  const uniqueViewersCount = allChannelLinks.reduce((s, l) => s + (l.activityStats?.uniqueViewers ?? 0), 0);
+
+  const assetGroups = useMemo(() => {
+    const map = new Map<string, {
+      vaultId: string;
+      filename: string;
+      token: string;
+      views: number;
+      viewers: number;
+      countries: number;
+      lastAt: string | null;
+      isActive: boolean;
+      kinds: string[];
+    }>();
+    const touch = (vaultId: string, filename: string, token: string, views: number, viewers: number, countries: string[], lastAt: string | null, isActive: boolean, kind: string) => {
+      const key = vaultId || token;
+      const prev = map.get(key);
+      if (!prev) {
+        map.set(key, {
+          vaultId: key,
+          filename,
+          token,
+          views,
+          viewers,
+          countries: countries.length,
+          lastAt,
+          isActive,
+          kinds: [kind],
+        });
+        return;
+      }
+      prev.views += views;
+      prev.viewers += viewers;
+      prev.countries += countries.length;
+      if (lastAt && (!prev.lastAt || lastAt > prev.lastAt)) prev.lastAt = lastAt;
+      prev.isActive = prev.isActive || isActive;
+      if (!prev.kinds.includes(kind)) prev.kinds.push(kind);
+      if (views >= (prev.views - views)) prev.token = token;
+    };
+    for (const l of hubLinks) {
+      touch(l.vaultId || l.token, l.filename, l.token, l.activityStats?.views ?? l.viewCount ?? 0, l.activityStats?.uniqueViewers ?? 0, l.activityStats?.countries ?? [], l.activityStats?.lastActivityAt ?? null, l.isActive, 'Link');
+    }
+    for (const l of livingLinks) {
+      touch(l.vaultId || l.token, l.filename, l.token, l.activityStats?.views ?? l.viewCount ?? 0, l.activityStats?.uniqueViewers ?? 0, l.activityStats?.countries ?? [], l.activityStats?.lastActivityAt ?? null, l.isActive, 'Living page');
+    }
+    for (const s of openFileShares) {
+      touch(s.vaultId, s.filename, s.token!, s.viewCount ?? 0, 0, s.geoCountry ? [s.geoCountry] : [], s.lastViewedAt ?? null, s.status === 'ACTIVE', 'File');
+    }
+    return [...map.values()].sort((a, b) => (b.lastAt || '').localeCompare(a.lastAt || ''));
+  }, [hubLinks, livingLinks, openFileShares]);
 
   const filterFilename =
     filteredLinks[0]?.filename
@@ -184,61 +222,10 @@ export function AccessIntelligencePage() {
     next.delete('vaultId');
     setSearchParams(next, { replace: true });
   };
-  const copyText = async (value: string, okMsg: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setCopiedTep(value);
-      setTimeout(() => setCopiedTep(null), 1600);
-      toast.success(okMsg);
-    } catch {
-      toast.error('Could not copy');
-    }
-  };
 
-  const revokeFileShare = async (share: ProtectedFileShare) => {
-    if (share.kind === 'file_open' && share.token) {
-      if (!confirm(`Revoke Share File open link ${share.token}? New opens will be blocked.`)) return;
-      try {
-        await api.delete(`${API_BASE_URL}/share/${share.token}`);
-        setFileShares((prev) =>
-          prev.map((s) => (s.id === share.id ? { ...s, status: 'REVOKED' } : s)),
-        );
-        toast.success('Share File link revoked');
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Revoke failed');
-      }
-      return;
-    }
+  const busy = loading || loadingFiles;
 
-    if (!share.tepCode) return;
-    if (!confirm(`Revoke tracking for ${share.tepCode}? This marks the shared file package as revoked.`)) return;
-    try {
-      await revokeVaultTep(share.vaultId, share.tepCode, 'Revoked from Asset Activity');
-      setFileShares((prev) =>
-        prev.map((s) => (s.id === share.id ? { ...s, status: 'REVOKED' } : s)),
-      );
-      toast.success('Share File tracking revoked');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Revoke failed');
-    }
-  };
-
-  const openAccessIntelligence = (share: ProtectedFileShare) => {
-    if (share.kind === 'file_open' && share.token) {
-      navigate(`/access-intelligence/${encodeURIComponent(share.token)}`);
-      return;
-    }
-    const related = openFileShares.find((s) => s.vaultId === share.vaultId && s.token);
-    if (related?.token) {
-      navigate(`/access-intelligence/${encodeURIComponent(related.token)}`);
-      return;
-    }
-    toast.error('No activity view for this item — use a Pinit open Share File row');
-  };
-
-  const busy = tab === 'files' ? loadingFiles : loading;
-
-  if (busy && ((tab === 'files' && fileShares.length === 0) || (tab !== 'files' && links.length === 0)) && !loadError) {
+  if (busy && links.length === 0 && fileShares.length === 0 && !loadError) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <RefreshCw size={24} className="animate-spin text-dna-400" />
@@ -252,7 +239,7 @@ export function AccessIntelligencePage() {
       <div className="flex items-end justify-end mb-6 gap-3 mt-4">
         <button
           type="button"
-          onClick={() => (tab === 'files' ? loadFileShares() : loadLinks())}
+          onClick={() => { loadLinks(); loadFileShares(); }}
           className="p-2 rounded-lg border border-bg-border text-gray-400 hover:text-white hover:border-dna-500/40 transition-colors shrink-0"
           title="Refresh"
         >
@@ -272,7 +259,7 @@ export function AccessIntelligencePage() {
           {exchangeCtx && (
             <div className="rounded-xl border border-dna-500/30 bg-dna-500/5 px-4 py-3">
               <p className="text-2xs font-semibold text-dna-300 uppercase tracking-wide">Commercial context</p>
-              <p className="text-sm font-semibold text-white mt-1">Pinit Exchange · licensed delivery</p>
+              <p className="text-sm font-semibold text-white mt-1">Pinit Exchange Â· licensed delivery</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-1 text-2xs text-gray-400 mt-2">
                 <span>Asset</span><span className="text-white truncate">{exchangeCtx.filename}</span>
                 <span>License</span><span className="text-white capitalize">{exchangeCtx.licenseTier || 'Licensed'}</span>
@@ -298,8 +285,8 @@ export function AccessIntelligencePage() {
                 </p>
                 <p className="text-2xs text-gray-400">
                   Protected
-                  {vaultTrack?.status ? ` · ${vaultTrack.status}` : ''}
-                  {activeLinks.length > 0 ? ' · Sharing active' : ' · No live share'}
+                  {vaultTrack?.status ? ` Â· ${vaultTrack.status}` : ''}
+                  {activeLinks.length > 0 ? ' Â· Sharing active' : ' Â· No live share'}
                 </p>
               </div>
             </div>
@@ -341,359 +328,75 @@ export function AccessIntelligencePage() {
         </div>
       )}
 
-      <div className="flex gap-2 mb-5">
-        <TabButton
-          active={tab === 'links'}
-          onClick={() => setTab('links')}
-          icon={<Shield size={13} />}
-          label="Share Links"
-          count={hubLinks.length}
-        />
-        <TabButton
-          active={tab === 'files'}
-          onClick={() => setTab('files')}
-          icon={<Send size={13} />}
-          label="Share Files"
-          count={openFileShares.length}
-        />
-        <TabButton
-          active={tab === 'living'}
-          onClick={() => setTab('living')}
-          icon={<Sparkles size={13} />}
-          label="Living pages"
-          count={livingLinks.length}
-        />
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+        <StatCard icon={<Users size={14} />} label="Viewers" value={uniqueViewersCount} color="text-cyan-400" />
+        <StatCard icon={<Eye size={14} />} label="Views" value={totalViews} color="text-blue-400" />
+        <StatCard icon={<Clock size={14} />} label="Downloads" value={hubLinks.reduce((s, l) => s + (l.activityStats?.downloads ?? l.downloadCount ?? 0), 0)} color="text-green-400" />
+        <StatCard icon={<AlertTriangle size={14} />} label="Security events" value={securityEvents} color="text-orange-400" />
+        <StatCard icon={<Globe size={14} />} label="Countries" value={uniqueCountries.size} color="text-orange-400" />
       </div>
+      <p className="text-2xs text-gray-500 mb-4">
+        One row per asset. Link, file, and living-page opens, reshares, location, and activity are on the same trail.
+      </p>
 
-      {tab === 'links' ? (
-        <>
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
-            <StatCard icon={<Users size={14} />} label="Viewers" value={uniqueViewersCount} color="text-cyan-400" />
-            <StatCard icon={<Eye size={14} />} label="Views" value={totalViews} color="text-blue-400" />
-            <StatCard icon={<Clock size={14} />} label="Downloads" value={hubLinks.reduce((s, l) => s + (l.activityStats?.downloads ?? l.downloadCount ?? 0), 0)} color="text-green-400" />
-            <StatCard icon={<AlertTriangle size={14} />} label="Security events" value={securityEvents} color="text-orange-400" />
-            <StatCard icon={<Globe size={14} />} label="Countries" value={uniqueCountries.size} color="text-orange-400" />
-          </div>
-
-          {hubLinks.length === 0 ? (
-            <div className="card text-center py-16">
-              <Shield size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">
-                {vaultFilter ? 'No activity yet' : 'No shares yet'}
-              </p>
-              <p className="text-2xs text-gray-500 mt-1">
-                {vaultFilter
-                  ? 'Activity will appear here when someone accesses or interacts with your shared asset.'
-                  : 'Create a secure link to share an asset.'}
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {hubLinks
-                .slice()
-                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                .map((link) => {
-                  const stats = link.activityStats;
-                  const uniqueIps = stats?.uniqueViewers ?? 0;
-                  const hasRisk = stats?.hasHighRisk ?? false;
-                  const countries = new Set(stats?.countries ?? []);
-                  const lastAccessAt = stats?.lastActivityAt ?? null;
-
-                  return (
-                    <button
-                      key={link.id}
-                      type="button"
-                      onClick={() => navigate(`/access-intelligence/${encodeURIComponent(link.token)}`)}
-                      className="w-full text-left card hover:border-dna-500/30 transition-all group"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`w-2 h-2 rounded-full ${link.isActive ? 'bg-green-400' : 'bg-gray-500'}`} />
-                            <p className="text-sm font-semibold text-white truncate">{link.filename}</p>
-                            {link.sourceContext === 'exchange_license' && (
-                              <span className="text-2xs text-dna-300 bg-dna-500/15 px-1.5 py-0.5 rounded">
-                                Exchange licensed delivery
-                              </span>
-                            )}
-                            {hasRisk && (
-                              <span className="flex items-center gap-1 text-2xs text-red-400 bg-red-500/20 px-1.5 py-0.5 rounded">
-                                <AlertTriangle size={9} /> Risk
-                              </span>
-                            )}
-                          </div>
-                          <p className="text-2xs text-gray-500 mb-2">
-                            Shared {formatDistanceToNow(new Date(link.createdAt))} ago
-                            {link.isActive ? ' · Live' : ' · Stopped'}
-                          </p>
-
-                          <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
-                            <span className="flex items-center gap-1">
-                              <Users size={10} className="text-dna-400" />
-                              {uniqueIps} viewer{uniqueIps !== 1 ? 's' : ''}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Eye size={10} className="text-blue-400" />
-                              {stats?.views ?? link.viewCount} view{(stats?.views ?? link.viewCount) !== 1 ? 's' : ''}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Download size={10} className="text-green-400" />
-                              {link.downloadCount ?? 0} download{(link.downloadCount ?? 0) !== 1 ? 's' : ''}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Globe size={10} className="text-orange-400" />
-                              {countries.size} countr{countries.size !== 1 ? 'ies' : 'y'}
-                            </span>
-                            {lastAccessAt && (
-                              <span className="flex items-center gap-1">
-                                <Clock size={10} />
-                                Last: {formatDistanceToNow(new Date(lastAccessAt))} ago
-                              </span>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="flex flex-col gap-1.5 shrink-0">
-                          {link.isActive ? (
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (!confirm(`Stop access for “${link.filename}”? People with this link will no longer be able to open it.`)) return;
-                                api.delete(`${API_BASE_URL}/share/${link.token}`).then(() => {
-                                  setLinks((prev) => prev.map((l) => (l.id === link.id ? { ...l, isActive: false } : l)));
-                                });
-                              }}
-                              className="flex items-center gap-1 px-2 py-1 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-2xs font-medium rounded-lg transition-colors"
-                            >
-                              <XCircle size={10} /> Stop access
-                            </button>
-                          ) : (
-                            <span className="flex items-center gap-1 px-2 py-1 bg-gray-500/10 border border-gray-500/30 text-gray-500 text-2xs rounded-lg">
-                              <Ban size={10} /> Stopped
-                            </span>
-                          )}
-                          <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors mx-auto" />
-                        </div>
-                      </div>
-                    </button>
-                  );
-                })}
-            </div>
-          )}
-        </>
-      ) : tab === 'living' ? (
-        <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            <StatCard icon={<Sparkles size={14} />} label="Living pages" value={livingLinks.length} color="text-violet-400" />
-            <StatCard icon={<Eye size={14} />} label="Views" value={livingLinks.reduce((s, l) => s + (l.activityStats?.views ?? l.viewCount ?? 0), 0)} color="text-blue-400" />
-            <StatCard icon={<Users size={14} />} label="Viewers" value={livingLinks.reduce((s, l) => s + (l.activityStats?.uniqueViewers ?? 0), 0)} color="text-cyan-400" />
-            <StatCard icon={<Globe size={14} />} label="Countries" value={new Set(livingLinks.flatMap((l) => l.activityStats?.countries ?? [])).size} color="text-orange-400" />
-          </div>
-          {livingLinks.length === 0 ? (
-            <div className="card text-center py-16">
-              <Sparkles size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No living pages shared yet</p>
-              <p className="text-2xs text-gray-500 mt-1">Use Share on a Living Asset to send a read-only story page. Opens are tracked here, separate from file and link shares.</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {livingLinks
-                .slice()
-                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-                .map((link) => {
-                  const stats = link.activityStats;
-                  const lastAccessAt = stats?.lastActivityAt ?? null;
-                  return (
-                    <button
-                      key={link.id}
-                      type="button"
-                      onClick={() => navigate(`/access-intelligence/${encodeURIComponent(link.token)}`)}
-                      className="w-full text-left card hover:border-dna-500/30 transition-all group"
-                    >
-                      <div className="flex items-start justify-between gap-4">
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`w-2 h-2 rounded-full ${link.isActive ? 'bg-green-400' : 'bg-gray-500'}`} />
-                            <p className="text-sm font-semibold text-white truncate">{link.filename}</p>
-                            <span className="text-2xs text-violet-300 bg-violet-500/15 px-1.5 py-0.5 rounded">Living page</span>
-                          </div>
-                          <p className="text-2xs text-gray-500 mb-2">
-                            Shared {formatDistanceToNow(new Date(link.createdAt))} ago
-                            {link.isActive ? ' · Live' : ' · Stopped'}
-                            {' · '}read-only story
-                          </p>
-                          <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
-                            <span className="flex items-center gap-1">
-                              <Eye size={10} className="text-blue-400" />
-                              {stats?.views ?? link.viewCount} view{(stats?.views ?? link.viewCount) !== 1 ? 's' : ''}
-                            </span>
-                            {lastAccessAt && (
-                              <span className="flex items-center gap-1">
-                                <Clock size={10} />
-                                Last: {formatDistanceToNow(new Date(lastAccessAt))} ago
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors" />
-                      </div>
-                    </button>
-                  );
-                })}
-            </div>
-          )}
-        </>
+      {assetGroups.length === 0 ? (
+        <div className="card text-center py-16">
+          <Shield size={40} className="text-gray-500 mx-auto mb-3" />
+          <p className="text-sm text-gray-500">
+            {vaultFilter ? 'No activity yet' : 'No shares yet'}
+          </p>
+          <p className="text-2xs text-gray-500 mt-1">
+            {vaultFilter
+              ? 'Activity will appear here when someone opens this file, a living page, or a reshared link.'
+              : 'Share a file or living page to start tracking.'}
+          </p>
+        </div>
       ) : (
-        <>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            <StatCard icon={<Send size={14} />} label="File shares" value={openFileShares.length} color="text-dna-400" />
-            <StatCard icon={<Eye size={14} />} label="Active" value={activeFiles.length} color="text-green-400" />
-            <StatCard icon={<Users size={14} />} label="Views" value={totalFileViews} color="text-blue-400" />
-            <StatCard icon={<Globe size={14} />} label="Countries" value={fileCountries.size} color="text-orange-400" />
-          </div>
-
-          {openFileShares.length === 0 ? (
-            <div className="card text-center py-16">
-              <Send size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No shares yet</p>
-              <p className="text-2xs text-gray-500 mt-1">
-                Create a secure link to share an asset.
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {openFileShares.map((share) => {
-                const locationLabel = [share.geoCity, share.geoCountry].filter(Boolean).join(', ') || null;
-                const isActive = share.status === 'ACTIVE';
-                const statusColor = isActive ? 'bg-green-400' : 'bg-gray-500';
-                const token = share.token!;
-
-                return (
-                  <button
-                    key={`file_open-${share.id}`}
-                    type="button"
-                    onClick={() => openAccessIntelligence(share)}
-                    className="w-full text-left card hover:border-dna-500/30 transition-all group"
-                  >
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className={`w-2 h-2 rounded-full ${statusColor}`} />
-                          <p className="text-sm font-semibold text-white truncate group-hover:text-dna-300 transition-colors">
-                            {share.filename}
-                          </p>
-                          <span className="text-2xs px-1.5 py-0.5 rounded bg-dna-500/15 text-dna-300 border border-dna-500/25">
-                            Share File
-                          </span>
-                          <span className="text-2xs px-1.5 py-0.5 rounded bg-bg-elevated text-gray-400 border border-bg-border">
-                            {share.status}
-                          </span>
-                        </div>
-                        <p className="text-2xs text-gray-500 mb-2 truncate">
-                          Shared {formatDistanceToNow(new Date(share.createdAt))} ago
-                        </p>
-                        <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
-                          <span className="flex items-center gap-1">
-                            <Eye size={10} className="text-blue-400" />
-                            {share.viewCount} view{share.viewCount !== 1 ? 's' : ''}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Download size={10} className="text-green-400" />
-                            {share.downloadCount} download{share.downloadCount !== 1 ? 's' : ''}
-                          </span>
-                          {locationLabel && (
-                            <span className="flex items-center gap-1">
-                              <MapPin size={10} className="text-orange-400" />
-                              {locationLabel}
-                            </span>
-                          )}
-                          {share.deviceContext && (
-                            <span className="flex items-center gap-1 capitalize">
-                              <Users size={10} className="text-dna-400" />
-                              {share.deviceContext}
-                            </span>
-                          )}
-                          {share.lastViewedAt && (
-                            <span className="flex items-center gap-1">
-                              <Clock size={10} />
-                              Last: {formatDistanceToNow(new Date(share.lastViewedAt))} ago
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col gap-1.5 shrink-0">
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            void copyText(token, 'Token copied');
-                          }}
-                          className="flex items-center gap-1 px-2 py-1 bg-bg-elevated hover:bg-dna-500/10 border border-bg-border text-gray-300 text-2xs font-medium rounded-lg transition-colors"
-                        >
-                          {copiedTep === token ? <Check size={10} /> : <Copy size={10} />}
-                          {copiedTep === token ? 'Copied' : 'Copy'}
-                        </button>
-                        {isActive ? (
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              void revokeFileShare(share);
-                            }}
-                            className="flex items-center gap-1 px-2 py-1 bg-red-500/10 hover:bg-red-500/20 border border-red-500/30 text-red-400 text-2xs font-medium rounded-lg transition-colors"
-                          >
-                            <XCircle size={10} /> Revoke
-                          </button>
-                        ) : (
-                          <span className="flex items-center gap-1 px-2 py-1 bg-gray-500/10 border border-gray-500/30 text-gray-500 text-2xs rounded-lg">
-                            <Ban size={10} /> Revoked
-                          </span>
-                        )}
-                        <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors mx-auto" />
-                      </div>
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-          )}
-        </>
+        <div className="space-y-3">
+          {assetGroups.map((group) => (
+            <button
+              key={group.vaultId}
+              type="button"
+              onClick={() => navigate(`/access-intelligence/${encodeURIComponent(group.token)}`)}
+              className="w-full text-left card hover:border-dna-500/30 transition-all group"
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className={`w-2 h-2 rounded-full ${group.isActive ? 'bg-green-400' : 'bg-gray-500'}`} />
+                    <p className="text-sm font-semibold text-white truncate">{group.filename}</p>
+                    {group.kinds.map((kind) => (
+                      <span key={kind} className="text-2xs text-dna-300 bg-dna-500/15 px-1.5 py-0.5 rounded">{kind}</span>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
+                    <span className="flex items-center gap-1">
+                      <Users size={10} className="text-dna-400" />
+                      {group.viewers} viewer{group.viewers !== 1 ? 's' : ''}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Eye size={10} className="text-blue-400" />
+                      {group.views} view{group.views !== 1 ? 's' : ''}
+                    </span>
+                    <span className="flex items-center gap-1">
+                      <Globe size={10} className="text-orange-400" />
+                      {group.countries} countr{group.countries !== 1 ? 'ies' : 'y'}
+                    </span>
+                    {group.lastAt && (
+                      <span className="flex items-center gap-1">
+                        <Clock size={10} />
+                        Last: {formatDistanceToNow(new Date(group.lastAt))} ago
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors" />
+              </div>
+            </button>
+          ))}
+        </div>
       )}
     </div>
-  );
-}
-
-function TabButton({
-  active,
-  onClick,
-  icon,
-  label,
-  count,
-}: {
-  active: boolean;
-  onClick: () => void;
-  icon: React.ReactNode;
-  label: string;
-  count: number;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
-        active
-          ? 'bg-dna-500/15 border-dna-500/40 text-white'
-          : 'bg-bg-elevated border-bg-border text-gray-400 hover:text-white hover:border-dna-500/30'
-      }`}
-    >
-      {icon}
-      {label}
-      <span className={`text-2xs px-1.5 py-0.5 rounded-md ${active ? 'bg-dna-500/25 text-dna-300' : 'bg-bg-surface text-gray-500'}`}>
-        {count}
-      </span>
-    </button>
   );
 }
 

@@ -66,7 +66,7 @@ import {
   listForensicReports,
   type StoredForensicReport,
 } from '../lib/forensic-reports-storage';
-import { attachShareCaptureGuards } from '../lib/share-capture-guards';
+import { LivingPageGuestTracker } from '../components/LivingPageGuestTracker';
 import {
   investigationDisplayScore,
   investigationVerdictLabel,
@@ -251,6 +251,7 @@ function shortHash(h: string | null | undefined) {
 export function VaultAssetStoryPage() {
   const { vaultId: routeVaultId, token: liveToken } = useParams<{ vaultId?: string; token?: string }>();
   const guestMode = Boolean(liveToken);
+  const [livingBlocked, setLivingBlocked] = useState(false);
   const navigate = useNavigate();
   const { user } = useAuth();
   const [record, setRecord] = useState<VaultRecord | null>(null);
@@ -441,31 +442,6 @@ export function VaultAssetStoryPage() {
       cancelled = true;
     };
   }, [guestMode, liveToken, routeVaultId, navigate]);
-
-  useEffect(() => {
-    if (!guestMode || !liveToken || !record) return;
-    const accessUrl = `${API_BASE_URL}/share/${encodeURIComponent(liveToken)}/access`;
-    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const post = (action: string) => {
-      const body = JSON.stringify({ action, timezone });
-      const send = () => fetch(accessUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body,
-        keepalive: true,
-        credentials: 'same-origin',
-      }).catch(() => undefined);
-      if (document.hidden && typeof navigator.sendBeacon === 'function') {
-        try {
-          const ok = navigator.sendBeacon(accessUrl, new Blob([body], { type: 'application/json' }));
-          if (ok) return;
-        } catch { /* fall through */ }
-      }
-      void send();
-    };
-    post('VIEWED');
-    return attachShareCaptureGuards(post);
-  }, [guestMode, liveToken, record?.id]);
 
   useEffect(() => {
     if (guestMode) return;
@@ -839,6 +815,15 @@ export function VaultAssetStoryPage() {
 
   return (
     <div className={`${guestMode ? 'min-h-screen bg-bg-base px-4 pt-6' : ''} max-w-[1180px] mx-auto pb-8 text-[13px] space-y-3`}>
+      {guestMode && liveToken && (
+        <LivingPageGuestTracker
+          token={liveToken}
+          ready={Boolean(record)}
+          onBlockedChange={setLivingBlocked}
+        />
+      )}
+      {!(guestMode && livingBlocked) && (
+      <>
       <div className="flex flex-wrap items-center justify-between gap-3">
         {guestMode ? (
           <p className="text-xs font-medium text-slate-500">PinIT · Read-only living asset</p>
@@ -1548,6 +1533,8 @@ export function VaultAssetStoryPage() {
           sizeBytes={record.originalSizeBytes}
           onClose={() => setSharing(false)}
         />
+      )}
+      </>
       )}
     </div>
   );
