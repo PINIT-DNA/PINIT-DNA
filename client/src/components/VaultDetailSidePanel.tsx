@@ -34,7 +34,7 @@ import {
   getVaultFileTypeDisplay,
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
-import { createPinitFile, downloadPinitCarrier, sharePinitFile } from '../lib/download-pinit';
+import { createPinitFile, downloadPinitCarrier } from '../lib/download-pinit';
 import { pinitShareSheetFilename } from '../../../src/lib/pinit-file';
 import { API_BASE_URL } from '../config/api.config';
 import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard,
@@ -165,7 +165,7 @@ export function VaultDetailSidePanel({
   const [protectDownloading, setProtectDownloading] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
   const [downloadingPinit, setDownloadingPinit] = useState(false);
-  /** Prepared .pinit carrier for WhatsApp / Email. Not a link and not a QR. */
+  /** Prepared .pinit carrier for the device share sheet. Not a link and not a QR. */
   const [pinitShare, setPinitShare] = useState<{ filename: string; file: File } | null>(null);
   /** Ready before the click so the app list can open in the same tap. */
   const pinitReadyRef = useRef<File | null>(null);
@@ -431,13 +431,26 @@ export function VaultDetailSidePanel({
   /** Opens the device app list with the .pinit file. Must run in the click, before any await. */
   const openPinitShareSheet = async (file: File): Promise<'shared' | 'aborted' | 'unavailable'> => {
     if (typeof navigator.share !== 'function') return 'unavailable';
-    try {
-      await navigator.share({ files: [file], title: file.name });
-      return 'shared';
-    } catch (err) {
-      if (isShareAbort(err)) return 'aborted';
-      return 'unavailable';
+    const payloads: ShareData[] = [
+      { files: [file], title: file.name },
+      { files: [file] },
+    ];
+    for (const data of payloads) {
+      if (typeof navigator.canShare === 'function') {
+        try {
+          if (!navigator.canShare(data)) continue;
+        } catch {
+          continue;
+        }
+      }
+      try {
+        await navigator.share(data);
+        return 'shared';
+      } catch (err) {
+        if (isShareAbort(err)) return 'aborted';
+      }
     }
+    return 'unavailable';
   };
 
   const preparePinitFile = async (): Promise<File | null> => {
@@ -472,33 +485,30 @@ export function VaultDetailSidePanel({
    */
   const handleShareFile = async () => {
     if (sharingFile) return;
-    const ready = pinitReadyRef.current;
-    if (ready) {
-      const opened = await openPinitShareSheet(ready);
-      if (opened === 'shared') {
-        toast.success('Pick WhatsApp, choose the person, and send the .pinit file.');
-        void refreshTracking();
-        return;
-      }
-      if (opened === 'aborted') return;
-    }
-
     setSharingFile(true);
     try {
-      const file = ready ?? await preparePinitFile();
+      const file = pinitReadyRef.current ?? await preparePinitFile();
       if (!file) {
         toast.error('Could not create the .pinit file');
         return;
       }
       const opened = await openPinitShareSheet(file);
       if (opened === 'shared') {
-        toast.success('Pick WhatsApp, choose the person, and send the .pinit file.');
-      } else if (opened === 'aborted') {
+        void refreshTracking();
         return;
-      } else {
-        toast('Tap Share File again to open your apps.');
       }
-      await refreshTracking();
+      if (opened === 'aborted') return;
+      const url = URL.createObjectURL(file);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = file.name;
+      anchor.rel = 'noopener';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+      toast.success(`Saved ${file.name}. Attach that file in any app.`);
+      void refreshTracking();
     } catch (err) {
       if (isShareAbort(err)) return;
       const msg = err instanceof Error ? err.message : String(err);
@@ -506,16 +516,6 @@ export function VaultDetailSidePanel({
     } finally {
       setSharingFile(false);
     }
-  };
-
-  const handleSharePinitChannel = (channel: 'whatsapp' | 'email') => {
-    if (!pinitShare) return;
-    sharePinitFile(pinitShare.file, channel);
-    const where = channel === 'whatsapp' ? 'WhatsApp' : 'Gmail';
-    toast.success(
-      `${where} is open. Attach the saved ${pinitShare.filename}.`,
-      { duration: 7000 },
-    );
   };
 
   const handleDownloadPinit = async () => {
@@ -1313,24 +1313,8 @@ export function VaultDetailSidePanel({
               </p>
               <p className="text-xs text-white truncate">{pinitShare.filename}</p>
               <p className="text-2xs text-gray-500">
-                Attach the saved .pinit file. The filename by itself is not the file.
+                Opens your device apps. Choose any app and send the file.
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleSharePinitChannel('whatsapp')}
-                  className="btn btn-secondary btn-sm text-xs justify-center"
-                >
-                  WhatsApp
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSharePinitChannel('email')}
-                  className="btn btn-secondary btn-sm text-xs justify-center"
-                >
-                  Email
-                </button>
-              </div>
             </div>
           )}
           {(latestTep?.tepCode || links[0]) && !embedded && (

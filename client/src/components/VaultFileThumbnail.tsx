@@ -127,6 +127,10 @@ export function VaultFileThumbnail({
   const fillMedia = `w-full h-full object-center ${objectFit === 'cover' ? 'object-cover' : 'object-contain bg-neutral-950'}`;
   const naturalMedia = 'mx-auto block max-h-[min(60vh,36rem)] max-w-full w-auto h-auto object-contain object-center';
   const mediaClass = sizeToImage ? naturalMedia : fillMedia;
+  /** Images supply their own height; PDF/HTML/DOCX iframes are absolute and collapse without this. */
+  const documentHeroClass = sizeToImage
+    ? `${frameClass} h-[min(70vh,42rem)] min-h-[24rem]`
+    : frameClass;
 
   useEffect(() => {
     const el = rootRef.current;
@@ -233,7 +237,7 @@ export function VaultFileThumbnail({
 
   const fallback = (
     <div
-      className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1.5 ${variant === 'gallery' ? 'p-4' : ''}`}
+      className={`relative ${isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1.5 ${variant === 'gallery' ? 'p-4' : ''}`}
       title={fileName}
     >
       <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
@@ -257,7 +261,7 @@ export function VaultFileThumbnail({
 
   if (!shouldLoad) {
     return (
-      <div ref={rootRef} className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1`}>
+      <div ref={rootRef} className={`relative ${isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1`}>
         <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
         {lockBadge}
       </div>
@@ -272,7 +276,7 @@ export function VaultFileThumbnail({
     return (
       <div
         ref={rootRef}
-        className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
+        className={`relative ${shouldLoad && (isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName)) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
         title={fileName}
       >
         {loading ? (
@@ -332,11 +336,11 @@ export function VaultFileThumbnail({
 
   if (isPdfMime(effectiveMime, fileName)) {
     return (
-      <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
+      <div ref={rootRef} className={`relative ${documentHeroClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
         <iframe
-          src={`${url}#page=1&toolbar=0&navpanes=0&view=FitH`}
+          src={`${url}#page=1&view=FitH`}
           title={fileName}
-          className="absolute inset-0 w-full h-full border-0 pointer-events-none bg-white"
+          className={`absolute inset-0 w-full h-full border-0 bg-white ${sizeToImage ? '' : 'pointer-events-none'}`}
         />
         <div className="absolute top-0 left-0 right-0 bg-red-500/90 text-white text-2xs font-bold px-2 py-0.5 z-[1]">
           PDF
@@ -348,7 +352,7 @@ export function VaultFileThumbnail({
 
   if (isHtmlMime(effectiveMime, fileName)) {
     return (
-      <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
+      <div ref={rootRef} className={`relative ${documentHeroClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
         <iframe
           src={url}
           title={fileName}
@@ -388,7 +392,7 @@ export function VaultFileThumbnail({
   if (isDocxMime(effectiveMime, fileName)) {
     if (variant === 'gallery') {
       return (
-        <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
+        <div ref={rootRef} className={`relative ${documentHeroClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
           <div
             ref={docxRef}
             className="absolute inset-0 overflow-hidden pointer-events-none scale-[0.35] origin-top-left w-[285%] h-[285%] text-black"

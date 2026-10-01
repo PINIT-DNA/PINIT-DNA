@@ -9,7 +9,8 @@ import { logger } from '../../lib/logger';
 import { VaultService } from '../vault/vault.service';
 import { aiService } from '../ai/ai-embeddings.service';
 import { describeFromDocumentText, describeFromImage } from './ask-pinit-llm';
-import { twoLines } from './living-asset-brief-text';
+import { twoLines, looksLikeShreddedBrief, readableExcerpt, redactSensitiveTokens } from './living-asset-brief-text';
+import { extractDocumentText } from '../text-extraction/document-text-extractor';
 
 const vaultService = new VaultService();
 
@@ -27,6 +28,7 @@ function asObject(raw: unknown): Record<string, unknown> {
 function looksLikeFallback(line1?: string, line2?: string, source?: string): boolean {
   if (source === 'fallback') return true;
   const blob = `${line1 || ''} ${line2 || ''}`;
+  if (looksLikeShreddedBrief(blob)) return true;
   return /named .+\.|description is not recorded yet|could not be generated yet|protected photograph named|protected file named/i.test(blob);
 }
 
@@ -35,10 +37,7 @@ function isSensitiveIdDoc(text: string, name: string): boolean {
 }
 
 function redactIds(text: string): string {
-  return text
-    .replace(/\b[A-Z0-9]{6,}\b/g, '[id]')
-    .replace(/\b\d{4,}\b/g, '[number]')
-    .replace(/[A-Z0-9<]{20,}/g, '[code]');
+  return redactSensitiveTokens(text);
 }
 
 export async function getOrCreateLivingBrief(ownerUserId: string, vaultId: string): Promise<LivingBrief> {
@@ -82,14 +81,17 @@ export async function getOrCreateLivingBrief(ownerUserId: string, vaultId: strin
     || /\.(jpe?g|png|webp|gif|heic|bmp)$/i.test(name);
   const isDoc =
     mime.includes('pdf') || mime.includes('word') || mime.includes('text')
-    || /\.(pdf|docx?|txt)$/i.test(name);
+    || mime.includes('presentation') || mime.includes('rtf')
+    || /\.(pdf|docx?|txt|pptx|rtf)$/i.test(name);
 
   const fallback1 = isImage
     ? `I am a photograph named ${name}.`
     : isDoc
       ? `I am a document named ${name}.`
       : `I am a file named ${name}.`;
-  const fallback2 = 'A visual description could not be generated yet.';
+  const fallback2 = isDoc
+    ? 'I hold the written topic of this file in a short summary.'
+    : 'A visual description could not be generated yet.';
 
   let source: LivingBrief['source'] = 'fallback';
   let generated = '';
@@ -125,11 +127,31 @@ export async function getOrCreateLivingBrief(ownerUserId: string, vaultId: strin
   }
 
   if (!generated && (isDoc || isImage)) {
-    const ocr = await prisma.ocrRecord.findUnique({
-      where: { dnaRecordId: vault.dnaRecordId },
-      select: { extractedText: true },
-    });
-    const excerpt = redactIds((ocr?.extractedText || '').trim());
+    let excerpt = '';
+    if (isDoc) {
+      try {
+        const file = await vaultService.retrieve(vaultId, ownerUserId);
+        const extracted = await extractDocumentText(
+          file.originalBuffer,
+          /\.pdf$/i.test(name) ? 'application/pdf' : (file.originalMimeType || mime),
+          name,
+        );
+        excerpt = readableExcerpt(extracted.text || '');
+      } catch (err) {
+        logger.warn('[living-brief] document extract failed', {
+          vaultId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (!excerpt) {
+      const ocr = await prisma.ocrRecord.findUnique({
+        where: { dnaRecordId: vault.dnaRecordId },
+        select: { extractedText: true },
+      });
+      excerpt = readableExcerpt(ocr?.extractedText || '');
+    }
+    excerpt = redactIds(excerpt);
     if (isSensitiveIdDoc(excerpt, name)) {
       generated = 'I am an identity or official document such as a passport or ID. Personal numbers are not spoken here.';
       source = 'document';

@@ -103,11 +103,11 @@ export async function describeFromDocumentText(excerpt: string): Promise<string 
     {
       role: 'system',
       content:
-        'Say what kind of document this is (invoice, letter, certificate, sketch notes, passport, etc.) in exactly two short first-person sentences. Use only the excerpt. Never copy ID numbers, account numbers, or personal names from identity documents. No markdown.',
+        'Say in exactly two short first-person sentences what this file is about, as a simple content summary. Example: “I am an internship report about social media marketing. I explain how brands use platforms to reach customers.” Use only the excerpt. Do not copy heading blocks, registration numbers, or lists of IDs. No markdown.',
     },
     {
       role: 'user',
-      content: `Document text excerpt:\n${excerpt.slice(0, 4000)}\n\nWrite exactly two short sentences about what this document is.`,
+      content: `Document excerpt:\n${excerpt.slice(0, 4000)}\n\nWrite exactly two short sentences describing what this document is about.`,
     },
   ]);
 }
