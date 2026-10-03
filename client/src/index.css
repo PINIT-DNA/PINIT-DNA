@@ -169,6 +169,26 @@
   html.dark ::-webkit-scrollbar-thumb:hover { background: #3a4254; }
   html.dark h1, html.dark h2, html.dark h3, html.dark h4, html.dark h5, html.dark h6 { color: #F5F7FA; }
 
+  /* Public portfolio themes own heading colour (editorial dark type, studio light type). */
+  html:not(.dark) .pf .text-white,
+  html:not(.dark) .pf .text-gray-200,
+  html:not(.dark) .pf .text-gray-300 { color: var(--f-ink) !important; }
+  html:not(.dark) .pf .pf-hero .text-white,
+  html:not(.dark) .pf .pf-about .text-white,
+  html:not(.dark) .pf .pf-certs-page .text-white { color: var(--f-on-dark) !important; }
+  html:not(.dark) .pf h1,
+  html:not(.dark) .pf h2,
+  html:not(.dark) .pf h3,
+  html:not(.dark) .pf h4,
+  html:not(.dark) .pf h5,
+  html:not(.dark) .pf h6,
+  html.dark .pf h1,
+  html.dark .pf h2,
+  html.dark .pf h3,
+  html.dark .pf h4,
+  html.dark .pf h5,
+  html.dark .pf h6 { color: var(--f-ink); }
+
   html.dark .text-white   { color: #F5F7FA !important; }
   html.dark .text-gray-200{ color: #F5F7FA !important; }
   html.dark .text-gray-300{ color: #E8ECF2 !important; }

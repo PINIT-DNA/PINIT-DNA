@@ -24,6 +24,8 @@
 .pf * { box-sizing: border-box; }
 .pf h1, .pf h2, .pf h3, .pf h4, .pf p, .pf ol, .pf ul { margin: 0; }
 .pf ol, .pf ul { list-style: none; padding: 0; }
+/* Hub @layer h1–h6 colours must not replace theme ink. */
+.pf h1, .pf h2, .pf h3, .pf h4, .pf h5, .pf h6 { color: var(--f-ink); }
 
 .pf-theme-atelier {
   --f-bg: #faf6ef; --f-panel: #fffdf9; --f-sunk: #f2ebdf;
@@ -87,6 +89,11 @@
 .pf .pf-hero {
   position: relative; min-height: 0; display: block; place-items: unset;
   background: var(--f-dark); color: var(--f-on-dark); padding: 0;
+  /* Hero is always a dark band. Rebind ink so headings stay light on every theme,
+     including Hub light mode where h1 is forced navy. */
+  --f-ink: var(--f-on-dark);
+  --f-soft: var(--f-on-dark);
+  --f-faint: var(--f-on-dark);
 }
 .pf .pf-hero__inner {
   position: relative; text-align: left;
@@ -117,30 +124,33 @@
 
 .pf-kicker {
   font-size: 0.68rem; letter-spacing: 0.19em; text-transform: uppercase;
-  color: rgba(246, 244, 241, 0.62); margin-bottom: 10px;
+  color: var(--f-faint); margin-bottom: 10px; opacity: 0.72;
 }
 .pf-name {
   font-family: var(--font-heading, Outfit), sans-serif; font-weight: 700;
   font-size: clamp(2.1rem, 5vw, 3.3rem); line-height: 1.02;
   letter-spacing: -0.03em; margin-bottom: 10px;
+  color: var(--f-ink);
 }
-.pf-tagline { font-size: 1.02rem; color: rgba(246, 244, 241, 0.9); margin-bottom: 12px; }
+.pf-tagline { font-size: 1.02rem; color: var(--f-soft); margin-bottom: 12px; opacity: 0.92; }
 .pf-bio {
   font-size: 0.9rem; line-height: 1.65; max-width: 58ch;
-  color: rgba(246, 244, 241, 0.66);
+  color: var(--f-soft); opacity: 0.78;
 }
 .pf .pf-meta {
   display: flex; gap: 8px 18px; flex-wrap: wrap; margin: 14px 0 18px;
-  font-size: 0.82rem; color: rgba(246, 244, 241, 0.72); justify-content: flex-start;
+  font-size: 0.82rem; color: var(--f-soft); justify-content: flex-start;
+  opacity: 0.86;
 }
-.pf-meta span { display: inline-flex; align-items: center; gap: 7px; }
+.pf-meta span { display: inline-flex; align-items: center; gap: 7px; color: inherit; }
 
 .pf-stats { display: flex; gap: 28px; flex-wrap: wrap; }
 .pf-stats b {
   display: block; font-family: var(--font-heading, Outfit), sans-serif;
   font-size: 1.45rem; font-weight: 700; letter-spacing: -0.02em; line-height: 1.1;
+  color: var(--f-ink);
 }
-.pf-stats span { font-size: 0.7rem; color: rgba(246, 244, 241, 0.55); }
+.pf-stats span { font-size: 0.7rem; color: var(--f-faint); opacity: 0.7; }
 
 .pf-hero__cta { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 18px; }
 .pf-hero__cta .pf-btn {
@@ -158,7 +168,7 @@
 }
 .pf-quote__sign {
   display: block; margin-top: 12px; font-family: Georgia, serif; font-style: italic;
-  font-size: 0.95rem; color: rgba(246, 244, 241, 0.6);
+  font-size: 0.95rem; color: var(--f-faint); opacity: 0.72;
 }
 
 /* ── sections ────────────────────────────────────────────────────────── */
@@ -261,7 +271,12 @@
   color: #F5F5F5;
   width: 100%;
   padding: 88px 0 96px;
+  --f-ink: #F5F5F5;
+  --f-soft: #A7A7A7;
+  --f-faint: #737373;
+  --f-on-dark: #F5F5F5;
 }
+.pf-about h1, .pf-about h2, .pf-about h3, .pf-about h4 { color: #F5F5F5; }
 .pf-about__inner {
   max-width: 1240px;
   margin: 0 auto;

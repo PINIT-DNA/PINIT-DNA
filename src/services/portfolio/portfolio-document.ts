@@ -408,8 +408,8 @@ export function assemblePresentation(
         order: proj.sortOrder,
         vault_ids: ownerView ? vaultIds : undefined,
         media_vault_ids: vaultIds,
-        gallery: [] as string[],
-        cover_url: '',
+        gallery: vaultIds.map((id) => `/api/v1/public/portfolio/${graph.slug}/media/${id}?thumb=1`),
+        cover_url: vaultIds[0] ? `/api/v1/public/portfolio/${graph.slug}/media/${vaultIds[0]}?thumb=1` : '',
       };
     });
 

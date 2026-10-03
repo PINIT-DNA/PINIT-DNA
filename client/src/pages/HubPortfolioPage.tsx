@@ -19,11 +19,39 @@ function asArray(v: unknown): Record<string, unknown>[] {
   return Array.isArray(v) ? v as Record<string, unknown>[] : [];
 }
 
+function vaultIdsOf(item: Record<string, unknown>): string[] {
+  const ids = asArray(item.media_vault_ids);
+  const fallback = asArray(item.vault_ids);
+  return (ids.length ? ids : fallback).map((id) => String(id || '')).filter(Boolean);
+}
+
+function withPublicCovers(item: Record<string, unknown>, slug: string, pt: string): Record<string, unknown> {
+  const ids = vaultIdsOf(item);
+  const q = new URLSearchParams({ thumb: '1' });
+  if (pt) q.set('pt', pt);
+  const gallery = ids.length && slug
+    ? ids.map(
+        (id) => `${API_BASE_URL}/public/portfolio/${encodeURIComponent(slug)}/media/${encodeURIComponent(id)}?${q.toString()}`,
+      )
+    : asArray(item.gallery).map((src) => {
+        const url = String(src || '');
+        if (!url) return '';
+        if (url.startsWith('http') || url.startsWith('blob:')) return url;
+        if (url.startsWith('/api/')) {
+          const origin = API_BASE_URL.replace(/\/api\/v1\/?$/, '');
+          return `${origin}${url}${pt && !url.includes('pt=') ? `${url.includes('?') ? '&' : '?'}pt=${encodeURIComponent(pt)}` : ''}`;
+        }
+        return url;
+      }).filter(Boolean);
+  return { ...item, gallery, cover_url: gallery[0] || String(item.cover_url || '') };
+}
+
 /** Hub stores collections and projects; the designed page reads `projects`. */
-function withDesignedWork(doc: Record<string, unknown>): Record<string, unknown> {
+function withDesignedWork(doc: Record<string, unknown>, pt = ''): Record<string, unknown> {
+  const slug = String(doc.slug || '');
   const projects = asArray(doc.projects);
   const collections = asArray(doc.collections);
-  const work = projects.length
+  const work = (projects.length
     ? projects
     : collections.map((c) => ({
         id: c.id,
@@ -34,7 +62,10 @@ function withDesignedWork(doc: Record<string, unknown>): Record<string, unknown>
         cover_url: c.cover_url,
         gallery: c.gallery,
         hub_protected: c.hub_protected,
-      }));
+        media_vault_ids: c.media_vault_ids,
+        vault_ids: c.vault_ids,
+      }))
+  ).map((c) => withPublicCovers(c, slug, pt));
   return { ...doc, projects: work, theme: doc.theme || 'editorial' };
 }
 
@@ -49,16 +80,8 @@ export function HubPortfolioPage() {
   const preview = params.get('preview') === '1' || Boolean(params.get('pt'));
   const shareUrl = useMemo(() => {
     if (typeof window === 'undefined' || !slug) return '';
-    const u = new URL(`${window.location.origin}/p/${encodeURIComponent(slug)}`);
-    if (preview) {
-      const pt = params.get('pt');
-      if (pt) {
-        u.searchParams.set('preview', '1');
-        u.searchParams.set('pt', pt);
-      }
-    }
-    return u.toString();
-  }, [slug, preview, params]);
+    return `${window.location.origin}/p/${encodeURIComponent(slug)}`;
+  }, [slug]);
 
   useEffect(() => {
     if (!slug) return;
@@ -75,7 +98,7 @@ export function HubPortfolioPage() {
           return;
         }
         const page = (body.portfolio && typeof body.portfolio === 'object' ? body.portfolio : body) as Record<string, unknown>;
-        setDoc(withDesignedWork(page));
+        setDoc(withDesignedWork(page, pt));
         setError('');
         const name = (page.identity as { name?: string } | undefined)?.name;
         if (name) document.title = `${name} · Pinit portfolio`;

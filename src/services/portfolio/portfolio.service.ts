@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
 import { AppError } from '../../api/middleware/error.middleware';
+import { VaultService } from '../vault/vault.service';
 import { publicAvatarUrl } from '../../lib/avatar-storage';
 import {
   extractPinitCode,
@@ -547,6 +548,39 @@ export const portfolioService = {
         pinit_user_id: identity.pinit_user_id,
       },
     });
+  },
+
+  async getPublicMedia(slug: string, vaultId: string, previewToken?: string) {
+    const clean = slugifyName(slug) || String(slug || '').toLowerCase();
+    const id = String(vaultId || '').trim();
+    if (!id) throw new AppError(404, 'Media not found');
+    const row = await prisma.portfolio.findFirst({
+      where: { slug: { equals: clean, mode: 'insensitive' } },
+    });
+    if (!row) throw new AppError(404, 'Portfolio not found');
+
+    let allowed = false;
+    if (previewToken) {
+      const ok = verifyPreviewToken(previewToken, row.slug);
+      if (ok?.sub === row.userId) allowed = true;
+    }
+    if (!allowed && isPubliclyReadable(row.publishState, row.visibility)) allowed = true;
+    if (!allowed) throw new AppError(404, 'This portfolio is not public');
+
+    const onProject = await prisma.portfolioProjectMedia.findFirst({
+      where: { vaultId: id, project: { portfolioId: row.id } },
+      select: { id: true },
+    });
+    const onCollection = onProject
+      ? null
+      : await prisma.portfolioCollectionItem.findFirst({
+          where: { vaultId: id, collection: { portfolioId: row.id } },
+          select: { id: true },
+        });
+    if (!onProject && !onCollection) throw new AppError(404, 'Media not found');
+
+    const vault = new VaultService();
+    return vault.retrieve(id, row.userId);
   },
 
   async importFromExchangeIfEmpty(userId: string): Promise<boolean> {
