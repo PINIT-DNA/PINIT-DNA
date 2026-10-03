@@ -5,6 +5,16 @@ import { API_BASE_URL } from '../config/api.config';
 import PortfolioPages from './portfolio/PortfolioPages.jsx';
 import '../styles/portfolio-public.css';
 
+type PortfolioTemplateProps = {
+  portfolio: unknown;
+  onSelectListing?: (listing?: unknown) => void;
+  onContact?: () => void;
+  onHire?: () => void;
+  onShare?: () => void;
+};
+
+const PortfolioTemplate = PortfolioPages as (props: PortfolioTemplateProps) => JSX.Element;
+
 function asArray(v: unknown): Record<string, unknown>[] {
   return Array.isArray(v) ? v as Record<string, unknown>[] : [];
 }
@@ -112,7 +122,7 @@ export function HubPortfolioPage() {
       )}
       {!error && !doc && <p className="px-6 py-16 text-sm text-slate-500">Loading portfolio…</p>}
       {doc && (
-        <PortfolioPages
+        <PortfolioTemplate
           portfolio={doc}
           onShare={() => setShareOpen(true)}
           onContact={contact}

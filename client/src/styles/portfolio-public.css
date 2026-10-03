@@ -1038,3 +1038,10 @@ a.pf-about__org:hover { color: #42D6B0; }
  * rest of the list. A reader has to be able to scan all the names at once,
  * so the row's response to the cursor lives entirely in the rule above it
  * and in View appearing; the title holds full ink the whole time.
+ */
+.pf-cred .pf-cred__title,
+.pf-cred:hover .pf-cred__title,
+.pf-cred:focus-visible .pf-cred__title {
+  color: var(--f-ink);
+  opacity: 1;
+}
