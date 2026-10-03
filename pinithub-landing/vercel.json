@@ -65,6 +65,10 @@
       "destination": "https://pinit-dna.vercel.app/s/:path*"
     },
     {
+      "source": "/p/:path*",
+      "destination": "https://pinit-dna.vercel.app/p/:path*"
+    },
+    {
       "source": "/open",
       "destination": "https://pinit-dna.vercel.app/open"
     },

@@ -268,7 +268,7 @@ export function ShareViewerPage() {
           window.location.replace(`/s/${encodeURIComponent(token)}/live`);
           return;
         }
-        setInfo(link);
+        setInfo(link ?? null);
       })
       .catch((err) => {
         const status = (err as { response?: { status?: number; data?: { error?: string; code?: string } } })?.response?.status;

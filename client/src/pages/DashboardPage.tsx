@@ -161,13 +161,14 @@ export function DashboardPage() {
           headline?: string;
           about?: string;
           location?: string;
+          slug?: string;
           project_groups?: unknown;
           projects?: unknown;
           identity?: { headline?: string; about?: string; location?: string };
         };
         const p = (payload.portfolio && typeof payload.portfolio === 'object')
           ? payload.portfolio as Record<string, unknown>
-          : payload;
+          : payload as Record<string, unknown>;
         const rawGroups = Array.isArray(p.project_groups)
           ? p.project_groups
           : Array.isArray(p.projects)
@@ -195,7 +196,7 @@ export function DashboardPage() {
           || (p.identity as { photo_url?: string } | undefined)?.photo_url
           || '',
         );
-        const slug = String(p.slug || (payload as { slug?: string }).slug || '');
+        const slug = String(p.slug || payload.slug || '');
         const viewUrl = published
           ? hubPortfolioHref(publicUrl, slug)
           : hubPortfolioHref(previewUrl || publicUrl, slug);

@@ -47,6 +47,7 @@ const HUB_PREFIXES = [
   '/face-auth/',
   '/extension/',
   '/s/',
+  '/p/',
   '/share/',
   '/team/',
   '/onboarding/',
