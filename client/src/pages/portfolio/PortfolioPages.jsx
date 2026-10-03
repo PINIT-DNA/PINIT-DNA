@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight, ArrowUpRight, BadgeCheck, Download, FileText, Globe, ImagePlus, Instagram, Languages, Link2, Linkedin, Mail, MapPin, Send, Share2, Twitter, X, Youtube,
+  ArrowRight, ArrowUpRight, BadgeCheck, Download, FileText, Globe, ImagePlus, Instagram, Languages, Linkedin, Mail, MapPin, Send, Share2, X, Youtube,
 } from 'lucide-react';
 import LicensesCertificates from './LicensesCertificates.jsx';
 
@@ -184,7 +184,7 @@ function Hero({ portfolio, onContact, onDownloadCv }) {
 const SOCIAL_ICONS = [
   [/instagram\./i, Instagram, 'Instagram'],
   [/(linkedin\.|lnkd\.in)/i, Linkedin, 'LinkedIn'],
-  [/(twitter\.|x\.com)/i, Twitter, 'X'],
+  [/(twitter\.|x\.com)/i, X, 'X'],
   [/(youtube\.|youtu\.be)/i, Youtube, 'YouTube'],
 ];
 
