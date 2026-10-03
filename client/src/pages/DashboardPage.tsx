@@ -19,6 +19,7 @@ import {
 } from '../lib/forensic-reports-storage';
 import { toUserPinitId } from '../lib/pinit-identity';
 import { API_BASE_URL } from '../config/api.config';
+import { hubPortfolioHref } from '../lib/hub-portfolio-url';
 import { useAuth } from '../context/AuthContext';
 import { isRealDisplayName, useUserProfile } from '../hooks/useUserProfile';
 import { UpgradeWelcomeModal } from '../components/subscription/UpgradeWelcomeModal';
@@ -194,10 +195,11 @@ export function DashboardPage() {
           || (p.identity as { photo_url?: string } | undefined)?.photo_url
           || '',
         );
-        const viewUrl = published ? (publicUrl || previewUrl) : (previewUrl || publicUrl);
-        const saved = Boolean(viewUrl) && (
-          published || publishedVersion > 0 || groups.length > 0 || Boolean(String(p.headline || payload.headline || '').trim())
-        );
+        const slug = String(p.slug || (payload as { slug?: string }).slug || '');
+        const viewUrl = published
+          ? hubPortfolioHref(publicUrl, slug)
+          : hubPortfolioHref(previewUrl || publicUrl, slug);
+        const saved = published || publishedVersion > 0 || groups.length > 0 || Boolean(String(p.headline || payload.headline || '').trim());
         setSavedPortfolio(saved && viewUrl ? {
           title,
           status: published ? 'Saved · Published' : 'Saved',

@@ -46,6 +46,17 @@ function optionalInt(key: string, fallback: number): number {
 }
 
 
+/** Public Hub origin used when PUBLIC_APP_URL is not set in production. */
+const PRODUCTION_HUB_URL = 'https://pinit-dna.vercel.app';
+
+function resolveHubAppUrl(): string {
+  const explicit = (process.env.PUBLIC_APP_URL || process.env.HUB_APP_URL || '').trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!isProd) return 'http://localhost:3002';
+  return PRODUCTION_HUB_URL;
+}
+
 /** Public marketplace origin used when EXCHANGE_APP_URL is not configured in production. */
 const PRODUCTION_EXCHANGE_URL = 'https://www.pinitexchange.com';
 
@@ -101,6 +112,10 @@ export const config = {
   env: optional('NODE_ENV', 'development') as 'development' | 'production' | 'test',
   port: optionalInt('PORT', 4000),
   apiPrefix: optional('API_PREFIX', '/api/v1'),
+
+  hub: {
+    appUrl: resolveHubAppUrl(),
+  },
 
   db: {
     url: required('DATABASE_URL'),

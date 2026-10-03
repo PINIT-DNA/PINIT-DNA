@@ -9,7 +9,7 @@ import { logger } from '../../lib/logger';
 import { VaultService } from '../vault/vault.service';
 import { aiService } from '../ai/ai-embeddings.service';
 import { describeFromDocumentText, describeFromImage } from './ask-pinit-llm';
-import { twoLines, looksLikeShreddedBrief, readableExcerpt, redactSensitiveTokens } from './living-asset-brief-text';
+import { twoLines, looksLikeShreddedBrief, readableExcerpt, redactSensitiveTokens, describeFromPixelStats } from './living-asset-brief-text';
 import { extractDocumentText } from '../text-extraction/document-text-extractor';
 
 const vaultService = new VaultService();
@@ -18,7 +18,7 @@ export type LivingBrief = {
   line1: string;
   line2: string;
   spoken: string;
-  source: 'vision' | 'clip' | 'document' | 'fallback';
+  source: 'vision' | 'clip' | 'document' | 'pixels' | 'fallback';
 };
 
 function asObject(raw: unknown): Record<string, unknown> {
@@ -91,7 +91,7 @@ export async function getOrCreateLivingBrief(ownerUserId: string, vaultId: strin
       : `I am a file named ${name}.`;
   const fallback2 = isDoc
     ? 'I hold the written topic of this file in a short summary.'
-    : 'A visual description could not be generated yet.';
+    : 'I show the main colours and layout of this picture.';
 
   let source: LivingBrief['source'] = 'fallback';
   let generated = '';
@@ -114,9 +114,25 @@ export async function getOrCreateLivingBrief(ownerUserId: string, vaultId: strin
       if (!generated) {
         const clip = await aiService.describeScene(jpeg, 'image/jpeg', name);
         if (clip?.line1) {
-          generated = `${clip.line1} ${clip.line2}`;
+          generated = `${clip.line1} ${clip.line2 || ''}`.trim();
           source = 'clip';
         }
+      }
+
+      if (!generated) {
+        const { data, info } = await sharp(jpeg)
+          .resize(64, 64, { fit: 'fill' })
+          .removeAlpha()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        const pixels = describeFromPixelStats({
+          width: info.width,
+          height: info.height,
+          channels: info.channels,
+          rgb: data,
+        });
+        generated = `${pixels.line1} ${pixels.line2}`;
+        source = 'pixels';
       }
     } catch (err) {
       logger.warn('[living-brief] image describe failed', {

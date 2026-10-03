@@ -332,11 +332,11 @@ export function AskPinitPanel() {
                       <Sparkles size={15} className="text-sky-300" />
                     </span>
                     <div>
-                      <p className="text-[15px] font-semibold tracking-tight">PINIT Intelligence</p>
-                      <p className="text-[11px] text-sky-200/70">Your assets know their story.</p>
+                      <p className="text-[15px] font-semibold tracking-tight text-white">PINIT Intelligence</p>
+                      <p className="text-[11px] text-sky-200">Your assets know their story.</p>
                     </div>
                   </div>
-                  <p className="text-[12px] text-slate-400 mt-3 leading-relaxed">
+                  <p className="text-[12px] text-slate-300 mt-3 leading-relaxed">
                     Ask about your assets, activity, protection, sharing, history, or anything you own.
                   </p>
                 </div>
@@ -390,10 +390,10 @@ export function AskPinitPanel() {
                                 key={`${turn.id}-${i}`}
                                 className={
                                   b.kind === 'heading'
-                                    ? 'text-[12px] font-medium text-slate-100'
+                                    ? 'text-[13px] font-semibold text-white leading-relaxed'
                                     : b.kind === 'note'
-                                      ? 'text-[11px] text-slate-500 italic'
-                                      : 'text-[12px] text-slate-300'
+                                      ? 'text-[12px] text-slate-300 italic leading-relaxed'
+                                      : 'text-[13px] text-slate-100 leading-relaxed'
                                 }
                               >
                                 {b.text}
@@ -440,8 +440,8 @@ export function AskPinitPanel() {
                 )}
 
                 {tab === 'help' && (
-                  <div className="space-y-3 text-[12px] text-slate-400 leading-relaxed px-1">
-                    <p className="flex items-start gap-2 text-slate-300">
+                  <div className="space-y-3 text-[13px] text-slate-300 leading-relaxed px-1">
+                    <p className="flex items-start gap-2 text-slate-100">
                       <HelpCircle size={14} className="mt-0.5 shrink-0 text-sky-300" />
                       Answers are built from your Hub records only.
                     </p>

@@ -2143,26 +2143,11 @@ export class ShareLinkService {
       root = parent;
     }
 
-    const familyRoots = root.ownerUserId
-      ? await prisma.shareLink.findMany({
-          where: {
-            vaultId: root.vaultId,
-            ownerUserId: root.ownerUserId,
-            parentLinkId: null,
-          },
-          select: { id: true },
-        })
-      : [{ id: root.id }];
-
-    const allIds: string[] = [];
-    for (const familyRoot of familyRoots) {
-      const descendantIds = await this.getShareLinkDescendantIds(familyRoot.id);
-      allIds.push(familyRoot.id, ...descendantIds);
-    }
-    const uniqueIds = [...new Set(allIds)];
+    const descendantIds = await this.getShareLinkDescendantIds(root.id);
+    const allIds = [root.id, ...descendantIds];
 
     const accessLogsRaw = await prisma.shareAccessLog.findMany({
-      where: { shareLinkId: { in: uniqueIds } },
+      where: { shareLinkId: { in: allIds } },
       orderBy: { createdAt: 'desc' },
       include: {
         shareLink: {
@@ -2224,7 +2209,7 @@ export class ShareLinkService {
 
     logger.debug('[SmartLink] Aggregated access logs', {
       rootToken: root.token,
-      hopLinks: uniqueIds.length,
+      hopLinks: allIds.length,
       logRows: accessLogs.length,
       uniqueViewersApprox: new Set(
         accessLogs
@@ -2238,7 +2223,7 @@ export class ShareLinkService {
       accessLogs,
       viewCount,
       downloadCount,
-      hopLinkCount: uniqueIds.length,
+      hopLinkCount: allIds.length,
     };
   }
 

@@ -103,21 +103,33 @@
     color: #ffffff !important;
   }
 
-  /* Ask PINIT overlay stays light-on-navy in light mode */
-  html:not(.dark) .pinit-intel .text-white { color: #f8fafc !important; }
-  html:not(.dark) .pinit-intel .hover\:text-white:hover { color: #ffffff !important; }
+  /* Ask PINIT overlay: light type on navy. Root also has .text-white, so a
+     descendant-only selector left the panel (and inherited copy) near-black. */
+  html:not(.dark) .pinit-intel-rail,
+  html:not(.dark) .pinit-intel,
+  html:not(.dark) .pinit-intel.text-white,
+  html:not(.dark) .pinit-intel .text-white,
+  html:not(.dark) .pinit-intel-rail .text-white { color: #f8fafc !important; }
+  html:not(.dark) .pinit-intel .hover\:text-white:hover,
+  html:not(.dark) .pinit-intel-rail .hover\:text-white:hover { color: #ffffff !important; }
+  html:not(.dark) .pinit-intel .text-gray-200,
   html:not(.dark) .pinit-intel .text-slate-100 { color: #f1f5f9 !important; }
-  html:not(.dark) .pinit-intel .text-slate-300 { color: #cbd5e1 !important; }
-  html:not(.dark) .pinit-intel .text-slate-400 { color: #94a3b8 !important; }
-  html:not(.dark) .pinit-intel .text-slate-500 { color: #94a3b8 !important; }
+  html:not(.dark) .pinit-intel .text-gray-300,
+  html:not(.dark) .pinit-intel .text-slate-300 { color: #e2e8f0 !important; }
+  html:not(.dark) .pinit-intel .text-slate-400,
+  html:not(.dark) .pinit-intel .text-gray-400 { color: #cbd5e1 !important; }
+  html:not(.dark) .pinit-intel .text-slate-500,
+  html:not(.dark) .pinit-intel .text-gray-500 { color: #94a3b8 !important; }
   html:not(.dark) .pinit-intel .text-sky-200 { color: #bae6fd !important; }
-  html:not(.dark) .pinit-intel .text-sky-200\/80 { color: rgb(186 230 253 / 0.8) !important; }
-  html:not(.dark) .pinit-intel .text-sky-200\/70 { color: rgb(186 230 253 / 0.7) !important; }
+  html:not(.dark) .pinit-intel .text-sky-200\/80 { color: rgb(186 230 253 / 0.88) !important; }
+  html:not(.dark) .pinit-intel .text-sky-200\/70 { color: rgb(186 230 253 / 0.82) !important; }
   html:not(.dark) .pinit-intel .text-sky-300 { color: #7dd3fc !important; }
   html:not(.dark) .pinit-intel .placeholder\:text-slate-500::placeholder { color: #94a3b8 !important; }
+  html:not(.dark) .pinit-intel input,
+  html:not(.dark) .pinit-intel textarea { color: #f8fafc !important; caret-color: #f8fafc; }
   html:not(.dark) .pinit-intel .bg-white\/5 { background-color: rgba(255, 255, 255, 0.06) !important; }
   html:not(.dark) .pinit-intel .bg-white\/10 { background-color: rgba(255, 255, 255, 0.1) !important; }
-  html:not(.dark) .pinit-intel .border-white\/10 { border-color: rgba(255, 255, 255, 0.14) !important; }
+  html:not(.dark) .pinit-intel .border-white\/10 { border-color: rgba(255, 255, 255, 0.16) !important; }
 
   /* Brand accents → single blue */
   html:not(.dark) .text-indigo-500,

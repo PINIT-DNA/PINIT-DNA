@@ -50,6 +50,7 @@ import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAcc
 import { BRAND } from './config/brand.config';
 import { ShareViewerPage } from './pages/ShareViewerPage';
 import { OpenPinitPage } from './pages/OpenPinitPage';
+import { HubPortfolioPage } from './pages/HubPortfolioPage';
 import { HelpPage } from './pages/HelpPage';
 import { HandoverPage } from './pages/HandoverPage';
 import { ClientReportPage } from './pages/ClientReportPage';
@@ -94,6 +95,7 @@ export const router = createBrowserRouter([
   { path: '/handover/:token', element: <HandoverPage /> },
   // Public too — the report token is the authority, and the page sends no auth.
   { path: '/client-report/:token', element: <ClientReportPage /> },
+  { path: '/p/:slug', element: <HubPortfolioPage /> },
   // Public by design: a certificate's whole purpose is that someone who did not
   // issue it can confirm it. The backend has always served
   // GET /certificates/verify/:id unauthenticated; only this route was left inside

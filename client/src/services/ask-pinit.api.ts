@@ -65,7 +65,7 @@ export type LivingAssetBrief = {
   line1: string;
   line2: string;
   spoken: string;
-  source: 'vision' | 'clip' | 'document' | 'fallback';
+  source: 'vision' | 'clip' | 'document' | 'pixels' | 'fallback';
 };
 
 export async function getLivingAssetBrief(vaultId: string): Promise<LivingAssetBrief> {

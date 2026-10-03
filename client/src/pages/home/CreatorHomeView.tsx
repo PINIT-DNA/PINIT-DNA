@@ -59,6 +59,21 @@ function initialsFrom(name: string): string {
   return parts.slice(0, 2).map((p) => p[0]).join('').toUpperCase();
 }
 
+function HubOrExternalLink({
+  to,
+  className,
+  children,
+}: {
+  to: string;
+  className?: string;
+  children: ReactNode;
+}) {
+  if (to.startsWith('/')) {
+    return <Link to={to} className={className}>{children}</Link>;
+  }
+  return <a href={to} target="_blank" rel="noreferrer" className={className}>{children}</a>;
+}
+
 function activityIcon(type: string) {
   if (type === 'SHARE_CREATED' || type.startsWith('ACCESS_')) return Share2;
   if (type === 'EVIDENCE_CREATED') return Shield;
@@ -376,9 +391,9 @@ export function CreatorHomeView({
             <div className="flex items-center justify-between gap-3 mb-4">
               <h2 className="hub-home-section">{portfolioSectionTitle}</h2>
               {savedPortfolio?.viewUrl ? (
-                <a href={savedPortfolio.viewUrl} target="_blank" rel="noreferrer" className="hub-home-link">
+                <HubOrExternalLink to={savedPortfolio.viewUrl} className="hub-home-link">
                   View {portfolioSectionTitle}
-                </a>
+                </HubOrExternalLink>
               ) : null}
             </div>
             {!savedPortfolio ? (
@@ -390,10 +405,8 @@ export function CreatorHomeView({
                 </Link>
               </div>
             ) : (
-              <a
-                href={savedPortfolio.viewUrl}
-                target="_blank"
-                rel="noreferrer"
+              <HubOrExternalLink
+                to={savedPortfolio.viewUrl}
                 className="hub-home-panel overflow-hidden group flex items-stretch max-w-md"
               >
                 <div className="w-24 sm:w-32 shrink-0 bg-bg-muted overflow-hidden">
@@ -409,7 +422,7 @@ export function CreatorHomeView({
                   <p className="hub-home-card-title truncate">{savedPortfolio.title}</p>
                   <p className="hub-home-meta mt-1">{savedPortfolio.status}</p>
                 </div>
-              </a>
+              </HubOrExternalLink>
             )}
           </section>
 

@@ -33,6 +33,7 @@ import {
   extractTextFromPlain,
 } from '../../services/privacy/privacy-masking.service';
 import { vaultContentAnalysisService } from '../../services/vault/vault-content-analysis.service';
+import { getOrCreateLivingBrief } from '../../services/intelligence/living-asset-brief.service';
 import {
   emitAssetViewed,
   emitAssetDownloaded,
@@ -301,6 +302,10 @@ export async function storeInVault(
     } catch (err) {
       logger.warn('[ContentAnalysis] vault store analysis failed', { error: String(err) });
     }
+
+    void getOrCreateLivingBrief(ownerUserId, result.vaultId).catch((err) => {
+      logger.warn('[living-brief] post-protect describe failed', { error: String(err) });
+    });
 
     // Business Account — optionally attach this asset to a Campaign the user is
     // uploading into. Reuses campaignService's own org-scoping/RBAC/audit-log —
