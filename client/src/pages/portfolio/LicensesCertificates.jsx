@@ -128,11 +128,10 @@ export default function LicensesCertificates({
       year: c.year || c.issuedOn || c.period || '',
       credential_id: c.credential_id || '',
       certificate_id: c.certificate_id || '',
-      verification_url: c.verification_url || c.verificationUrl || '',
+      verification_url: c.verification_url || c.verificationUrl || c.external_url || '',
       preview_url: c.preview_url || '',
       hub_protected: Boolean(c.hub_protected),
       human_percent: Number.isFinite(c.human_percent) ? c.human_percent : null,
-      verification_url: c.verification_url || c.external_url || '',
       fingerprinted: Boolean(c.hub_protected || c.dna_id || c.vault_id),
     }, c.vault_id || c.documentKey));
     const awards = asArray(portfolio?.awards).map((a, i) => attachHub({

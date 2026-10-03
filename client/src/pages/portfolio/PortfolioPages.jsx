@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRight, ArrowUpRight, BadgeCheck, Download, FileText, Globe, ImagePlus, Instagram, Languages, Linkedin, Mail, MapPin, Send, Share2, X, Youtube,
+  ArrowRight, ArrowUpRight, BadgeCheck, Download, FileText, Globe, ImagePlus, Languages, Mail, MapPin, Send, Share2, X,
 } from 'lucide-react';
 import LicensesCertificates from './LicensesCertificates.jsx';
 
@@ -182,10 +182,10 @@ function Hero({ portfolio, onContact, onDownloadCv }) {
  * a label the person typed, so a link is never shown under the wrong mark.
  */
 const SOCIAL_ICONS = [
-  [/instagram\./i, Instagram, 'Instagram'],
-  [/(linkedin\.|lnkd\.in)/i, Linkedin, 'LinkedIn'],
+  [/instagram\./i, Globe, 'Instagram'],
+  [/(linkedin\.|lnkd\.in)/i, Globe, 'LinkedIn'],
   [/(twitter\.|x\.com)/i, X, 'X'],
-  [/(youtube\.|youtu\.be)/i, Youtube, 'YouTube'],
+  [/(youtube\.|youtu\.be)/i, Globe, 'YouTube'],
 ];
 
 function socialLinks(list) {
