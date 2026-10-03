@@ -739,7 +739,11 @@ function CollectionView({ collection, onBack, sealed, ownerView }) {
 /* ── shell ──────────────────────────────────────────────────────────────── */
 
 export default function PortfolioPages({
-  portfolio, onSelectListing, onContact, onHire, onShare,
+  portfolio,
+  onSelectListing = undefined,
+  onContact = undefined,
+  onHire = undefined,
+  onShare = undefined,
 }) {
   const [openId, setOpenId] = useState(null);
   const [active, setActive] = useState('overview');

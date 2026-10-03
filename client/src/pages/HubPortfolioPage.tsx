@@ -116,6 +116,8 @@ export function HubPortfolioPage() {
           portfolio={doc}
           onShare={() => setShareOpen(true)}
           onContact={contact}
+          onHire={contact}
+          onSelectListing={() => undefined}
         />
       )}
 
