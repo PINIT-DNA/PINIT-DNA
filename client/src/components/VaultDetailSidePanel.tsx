@@ -373,11 +373,11 @@ export function VaultDetailSidePanel({
   const handleProtectedDownload = async () => {
     setProtectDownloading(true);
     try {
-      const { blob, tepCode } = await protectedDownloadFromVault(record.id);
+      const { blob, tepCode, filename } = await protectedDownloadFromVault(record.id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = displayName;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
       await refreshTracking();

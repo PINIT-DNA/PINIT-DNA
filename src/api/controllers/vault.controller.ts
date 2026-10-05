@@ -18,7 +18,8 @@ import { auditService } from '../../services/audit/audit.service';
 import { autoIndexer }  from '../../services/ai/auto-indexer.service';
 import { protectedDownloadService } from '../../services/vault/protected-download.service';
 import { vaultDownloadIdentityService } from '../../services/vault/vault-download-identity.service';
-import { geoFromIp } from '../../services/share/share-link.service';
+import { geoFromIp, shareLinkService } from '../../services/share/share-link.service';
+import { buildPinitDocument, pinitStoredFileName } from '../../lib/pinit-file';
 import {
   tepService,
   protectedDownloadTepChannelId,
@@ -69,6 +70,16 @@ export async function listVaultRecords(
         dnaRecord: { select: { id: true, status: true, imageFilename: true } },
       },
     });
+
+    await Promise.all(records.map(async (record) => {
+      const storedName = pinitStoredFileName(record.originalFileName);
+      if (storedName === record.originalFileName) return;
+      record.originalFileName = storedName;
+      await prisma.vaultRecord.update({
+        where: { id: record.id },
+        data: { originalFileName: storedName },
+      }).catch(() => undefined);
+    }));
 
     const { getLocationStatusForAssets } = await import('../../services/forensics/forensic-provenance.service');
     const locationByDna = await getLocationStatusForAssets(records.map((r) => r.dnaRecordId));
@@ -737,13 +748,30 @@ export async function protectedDownloadFromVault(
   try {
     const userId = getAuthUserId(req);
     const result = await protectedDownloadService.prepare(id, userId);
-
-    let fileBuffer = result.buffer;
-    let tepCode: string | undefined;
+    const share = await shareLinkService.createOrGetFileShare({
+      vaultId: result.vaultId,
+      ownerUserId: userId,
+      requestLocation: true,
+    });
+    const storedName = pinitStoredFileName(result.originalFileName);
+    const carrier = buildPinitDocument({ token: share.token, name: storedName });
+    if (!carrier.ok) {
+      return next(new AppError(500, 'Could not create the .pinit file'));
+    }
+    const fileBuffer = Buffer.from(carrier.body, 'utf8');
+    const downloadName = storedName.replace(/["\r\n]/g, '');
+    if (storedName !== result.originalFileName) {
+      const { prisma } = await import('../../lib/prisma');
+      void prisma.vaultRecord.update({
+        where: { id: result.vaultId },
+        data: { originalFileName: storedName },
+      }).catch(() => undefined);
+    }
 
     const realIp = resolveClientIp(req);
     const geo = realIp ? await geoFromIp(realIp) : null;
     const userAgent = (req.headers['user-agent'] as string | undefined) ?? undefined;
+    let tepCode: string | undefined;
     let tepTrackingFailed = false;
     let tepFailReason: string | undefined;
 
@@ -775,7 +803,7 @@ export async function protectedDownloadFromVault(
           deviceContext: userAgent,
           ownerUserId: userId,
         });
-        fileBuffer = tep.buffer;
+        // The download itself is the .pinit carrier. TEP still records the export.
         tepCode = tep.tepCode;
         logger.info('[ProtectedDownload] TEP package created', {
           tepCode,
@@ -787,7 +815,7 @@ export async function protectedDownloadFromVault(
             ownerUserId: userId,
             vaultId: result.vaultId,
             dnaRecordId: result.dnaRecordId,
-            filename: result.originalFileName,
+            filename: downloadName,
             tepCode: tep.tepCode,
           });
         }).catch(() => {});
@@ -841,9 +869,9 @@ export async function protectedDownloadFromVault(
     }
 
     res.set({
-      'Content-Type': result.originalMimeType,
+      'Content-Type': 'application/json; charset=utf-8',
       'Content-Length': String(fileBuffer.length),
-      'Content-Disposition': `attachment; filename="${result.originalFileName}"`,
+      'Content-Disposition': `attachment; filename="${downloadName}"`,
       'X-Vault-Id': result.vaultId,
       'X-DNA-Record-Id': result.dnaRecordId,
       'X-Certificate-Id': result.certificateId ?? '',
@@ -859,8 +887,8 @@ export async function protectedDownloadFromVault(
       eventType: 'PROTECTED_DOWNLOAD' as never,
       vaultId: id,
       dnaRecordId: result.dnaRecordId,
-      filename: result.originalFileName,
-      fileType: result.originalMimeType,
+      filename: downloadName,
+      fileType: 'application/json',
       detail: {
         certificateId: result.certificateId,
         forensicPreserved: result.forensicPreserved,
@@ -879,7 +907,7 @@ export async function protectedDownloadFromVault(
       ownerUserId: userId,
       vaultId: result.vaultId,
       dnaRecordId: result.dnaRecordId,
-      filename: result.originalFileName,
+      filename: downloadName,
       via: 'protected',
       tepCode,
     });

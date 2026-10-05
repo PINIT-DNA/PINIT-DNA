@@ -5,7 +5,7 @@ import {
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
   Sun, Moon, Monitor, ShieldCheck, Download, Briefcase,
 } from 'lucide-react';
-import { api, listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
+import { api, listVaultRecords, protectedDownloadFromVault } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { PortfolioEditor } from './profile/PortfolioEditor';
 import { ProfilePhotoPicker } from './profile/ProfilePhotoPicker';
@@ -646,14 +646,14 @@ function SettingsTab() {
   const downloadOwnerBackup = async (record: VaultRecord) => {
     setDownloadingId(record.id);
     try {
-      const blob = await retrieveFromVault(record.id);
+      const { blob, filename } = await protectedDownloadFromVault(record.id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = record.originalFileName;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Owner backup downloaded (not tracked)');
+      toast.success('Saved .pinit file');
     } catch {
       toast.error('Failed to download owner backup');
     } finally {

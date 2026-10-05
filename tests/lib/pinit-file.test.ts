@@ -6,6 +6,7 @@ import {
   buildPinitDocument,
   parsePinitText,
   pinitDownloadFilename,
+  pinitStoredFileName,
   readPinitFile,
   shareViewerPath,
 } from '../../src/lib/pinit-file';
@@ -33,6 +34,14 @@ describe('.pinit carrier', () => {
     expect(pinitDownloadFilename('confidential-video.mp4')).toBe('confidential-video.pinit');
     expect(pinitDownloadFilename('../etc/passwd')).toBe('passwd.pinit');
     expect(pinitDownloadFilename('')).toBe('share.pinit');
+  });
+
+  test('stores any vault extension as .pinit without changing the title', () => {
+    expect(pinitStoredFileName('Vaibhavi.jpg')).toBe('Vaibhavi.pinit');
+    expect(pinitStoredFileName('Project Report.pdf')).toBe('Project Report.pinit');
+    expect(pinitStoredFileName('clip.MP4')).toBe('clip.pinit');
+    expect(pinitStoredFileName('already.pinit')).toBe('already.pinit');
+    expect(pinitStoredFileName('folder\\photo.png')).toBe('photo.pinit');
   });
 
   test('round-trips to the existing share viewer path', () => {

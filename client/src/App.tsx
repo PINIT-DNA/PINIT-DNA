@@ -129,6 +129,7 @@ export default function App() {
     setSession((prev) => (prev ? {
       ...prev,
       vault,
+      filename: vault.originalFileName || prev.filename,
       fileAnalysis: vault.contentAnalysis ?? prev.fileAnalysis ?? null,
       // Download can be fetched on demand from Success — don't block protect UX.
       downloadReady: true,

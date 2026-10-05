@@ -306,6 +306,21 @@ function formatCoords(lat: number | null, lng: number | null): string | null {
   return `${lat!.toFixed(5)}, ${lng!.toFixed(5)}`;
 }
 
+function devicePlace(v: {
+  gpsVillage?: string | null;
+  gpsDistrict?: string | null;
+  gpsMandal?: string | null;
+  gpsState?: string | null;
+  gpsCity?: string | null;
+  gpsFullAddress?: string | null;
+}): string {
+  const named = [v.gpsVillage, v.gpsDistrict || v.gpsMandal, v.gpsState].filter(Boolean).join(', ');
+  if (named) return named;
+  if (v.gpsCity) return v.gpsCity;
+  if (v.gpsFullAddress) return v.gpsFullAddress;
+  return '';
+}
+
 /** One viewer per device — ignore server-only FILE_SERVED rows for grouping. */
 function viewerGroupKey(log: AccessLog): string {
   if (log.deviceFingerprint) return `fp:${log.deviceFingerprint}`;
@@ -805,7 +820,7 @@ export function LinkIntelligencePage() {
                     </p>
                     <p className="text-2xs text-gray-500">
                       {isDeviceGpsSource(v.locationSource)
-                        ? [v.gpsVillage, v.gpsDistrict, v.gpsState || v.country].filter(Boolean).join(', ') || v.country
+                        ? devicePlace(v) || 'GPS location'
                         : [v.city, v.region, v.country].filter(Boolean).join(', ') || v.country}
                       {' · '}{v.ip}
                     </p>
@@ -929,6 +944,21 @@ export function LinkIntelligencePage() {
                     activeViewer.locationTrust === 'HIGH' ? 'text-green-400'
                       : activeViewer.locationTrust === 'MEDIUM' ? 'text-yellow-400' : 'text-orange-400'
                   }>{activeViewer.locationTrust}</span></div>
+                  {formatCoords(activeViewer.lat, activeViewer.lng) && (
+                    <div className="col-span-full">
+                      <span className="text-gray-500">Location:</span>{' '}
+                      <span className="text-white">
+                        {isDeviceGpsSource(activeViewer.locationSource)
+                          ? devicePlace(activeViewer) || 'GPS location'
+                          : [activeViewer.city, activeViewer.region, activeViewer.country].filter(Boolean).join(', ')}
+                      </span>
+                      {' · '}
+                      <span className="text-dna-400 font-mono">{formatCoords(activeViewer.lat, activeViewer.lng)}</span>
+                      {isDeviceGpsSource(activeViewer.locationSource) && (
+                        <span className="text-green-400"> · {locationLabel(activeViewer.gpsAccuracy, activeViewer.locationSource)}</span>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <details className="border-t border-bg-border pt-2">
                   <summary className="cursor-pointer text-xs font-semibold text-dna-300 hover:text-white">View details</summary>
@@ -1078,16 +1108,29 @@ export function LinkIntelligencePage() {
                       ? { icon: <Eye size={11} />, label: `Scrolled ${log.action.split(':')[1] ?? ''}`.trim(), color: 'text-gray-400' }
                       : { icon: <Eye size={11} />, label: log.action.replace(/_/g, ' '), color: 'text-gray-400' }
                   );
-                  const gps = isDeviceGpsSource(log.locationSource) ? sanitizeCoordinatePair(log.gpsLat, log.gpsLng) : null;
+                  const ownGps = isDeviceGpsSource(log.locationSource) ? sanitizeCoordinatePair(log.gpsLat, log.gpsLng) : null;
+                  const viewerGps = isDeviceGpsSource(activeViewer.locationSource)
+                    ? sanitizeCoordinatePair(activeViewer.lat, activeViewer.lng)
+                    : null;
+                  const gps = ownGps ?? viewerGps;
                   const ip = sanitizeCoordinatePair(log.lat, log.lng);
                   const logLat = gps?.lat ?? ip?.lat ?? null;
                   const logLng = gps?.lng ?? ip?.lng ?? null;
-                  const logPlace = isDeviceGpsSource(log.locationSource)
-                    ? [log.gpsVillage, log.gpsMandal, log.gpsDistrict].filter(Boolean).join(', ')
-                      || log.gpsCity
-                      || log.city
+                  const logPlace = gps
+                    ? devicePlace({
+                        gpsVillage: log.gpsVillage || activeViewer.gpsVillage,
+                        gpsMandal: log.gpsMandal || activeViewer.gpsMandal,
+                        gpsDistrict: log.gpsDistrict || activeViewer.gpsDistrict,
+                        gpsState: log.gpsState || activeViewer.gpsState,
+                        gpsCity: log.gpsCity || activeViewer.gpsCity,
+                        gpsFullAddress: log.gpsFullAddress || activeViewer.gpsFullAddress,
+                      }) || 'GPS location'
                     : [log.city, log.region, log.country].filter(Boolean).join(', ');
                   const coords = formatCoords(logLat, logLng);
+                  const sourceLabel = locationLabel(
+                    log.gpsAccuracy ?? (gps ? activeViewer.gpsAccuracy : null),
+                    log.locationSource ?? (gps ? activeViewer.locationSource : null),
+                  );
                   const line = [logPlace, log.device, [log.browser, log.os].filter(Boolean).join(' ')].filter(Boolean).join(' · ');
                   return (
                     <details key={log.id} className="bg-bg-elevated rounded-lg px-3 py-2 border border-bg-border">
@@ -1109,7 +1152,7 @@ export function LinkIntelligencePage() {
                       </summary>
                       <div className="mt-2 pt-2 border-t border-bg-border grid grid-cols-2 gap-1.5 text-2xs text-gray-400">
                         <div>Result: <span className="text-white">{log.action.startsWith('BLOCKED') ? 'Blocked' : log.action === 'DOWNLOAD_FAILED' ? 'Failed' : 'Recorded'}</span></div>
-                        <div>Source: <span className="text-white">{locationLabel(log.gpsAccuracy, log.locationSource)}</span></div>
+                        <div>Source: <span className="text-white">{sourceLabel}</span></div>
                         {log.ipAddress && <div>IP: <span className="text-white font-mono">{log.ipAddress}</span></div>}
                         {log.sessionId && <div>Session: <span className="text-white font-mono">{log.sessionId.slice(0, 8)}…</span></div>}
                         {log.riskLevel && <div>Risk: <span className="text-white">{log.riskLevel}{log.riskScore != null ? ` (${log.riskScore})` : ''}</span></div>}

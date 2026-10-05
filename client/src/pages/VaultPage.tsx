@@ -53,7 +53,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
     }, 600);
 
     try {
-      const { blob, tepCode, tracking } = await protectedDownloadFromVault(record.id, {
+      const { blob, tepCode, tracking, filename } = await protectedDownloadFromVault(record.id, {
         recipientLabel: recipientLabel.trim() || undefined,
       });
       setForensicPreserved(true);
@@ -63,7 +63,7 @@ function ProtectedDownloadModal({ record, onClose }: { record: VaultRecord; onCl
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = record.originalFileName;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
 

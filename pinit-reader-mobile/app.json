@@ -1,0 +1,106 @@
+{
+  "expo": {
+    "name": "PINIT Reader",
+    "slug": "pinit-reader",
+    "scheme": "pinitreader",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "bundleIdentifier": "com.pinit.reader",
+      "supportsTablet": true,
+      "infoPlist": {
+        "CFBundleDocumentTypes": [
+          {
+            "CFBundleTypeName": "PINIT file",
+            "CFBundleTypeRole": "Viewer",
+            "LSHandlerRank": "Owner",
+            "LSItemContentTypes": ["com.pinit.carrier"]
+          }
+        ],
+        "UTExportedTypeDeclarations": [
+          {
+            "UTTypeIdentifier": "com.pinit.carrier",
+            "UTTypeDescription": "PINIT share file",
+            "UTTypeConformsTo": ["public.data", "public.json"],
+            "UTTypeTagSpecification": {
+              "public.filename-extension": ["pinit"],
+              "public.mime-type": "application/vnd.pinit.carrier+json"
+            }
+          }
+        ]
+      }
+    },
+    "android": {
+      "package": "com.pinit.reader",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "permissions": [
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ],
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "autoVerify": false,
+          "category": ["DEFAULT", "BROWSABLE"],
+          "data": [
+            {
+              "scheme": "content",
+              "mimeType": "application/vnd.pinit.carrier+json"
+            },
+            {
+              "scheme": "file",
+              "mimeType": "*/*",
+              "pathPattern": ".*\\\\.pinit"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "*/*",
+              "pathPattern": ".*\\\\.pinit"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/json",
+              "pathPattern": ".*\\\\.pinit"
+            },
+            {
+              "scheme": "content",
+              "mimeType": "application/octet-stream",
+              "pathPattern": ".*\\\\.pinit"
+            }
+          ]
+        },
+        {
+          "action": "SEND",
+          "category": ["DEFAULT"],
+          "data": [
+            { "mimeType": "application/vnd.pinit.carrier+json" },
+            { "mimeType": "application/json" },
+            { "mimeType": "application/octet-stream" }
+          ]
+        }
+      ]
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-video",
+      "expo-audio",
+      "expo-sharing",
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "PINIT Reader uses your location only when a share requires it, so the owner can see where the file was opened."
+        }
+      ]
+    ]
+  }
+}

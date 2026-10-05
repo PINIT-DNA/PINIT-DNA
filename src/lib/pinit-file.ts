@@ -66,6 +66,14 @@ export function hasPinitExtension(fileName: string): boolean {
   return base.trim().toLowerCase().endsWith('.pinit');
 }
 
+/** Vault name: keep the file title and replace whatever extension it had with .pinit. */
+export function pinitStoredFileName(original: string): string {
+  const base = (original.split(/[/\\]/).pop() ?? original).trim() || 'file';
+  if (base.toLowerCase().endsWith('.pinit')) return base;
+  const stem = base.replace(/\.[^.]+$/, '').trim();
+  return `${stem || 'file'}.pinit`;
+}
+
 function hasControlChar(value: string): boolean {
   for (let i = 0; i < value.length; i += 1) {
     const code = value.charCodeAt(i);

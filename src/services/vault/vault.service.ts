@@ -37,6 +37,7 @@ import { documentPageProtectionService } from '../documents/document-page-protec
 import { videoPageProtectionService } from '../videos/video-page-protection.service';
 import { config } from '../../config';
 import { getJobQueue } from '../../lib/job-queue';
+import { pinitStoredFileName } from '../../lib/pinit-file';
 
 // Local disk in development by default. Supabase is often quota-limited locally;
 // set VAULT_USE_SUPABASE=true to force cloud storage in non-production.
@@ -151,6 +152,14 @@ export class VaultService {
         where: { dnaId: dnaRecordId },
         select: { id: true },
       }).catch(() => null);
+      const storedExistingName = pinitStoredFileName(existing.originalFileName);
+      if (storedExistingName !== existing.originalFileName) {
+        await prisma.vaultRecord.update({
+          where: { id: existing.id },
+          data: { originalFileName: storedExistingName },
+        }).catch(() => undefined);
+        existing.originalFileName = storedExistingName;
+      }
       return {
         vaultId:             existing.id,
         dnaRecordId:         existing.dnaRecordId,
@@ -309,13 +318,15 @@ export class VaultService {
       }
     }
 
+    const storedFileName = pinitStoredFileName(originalFileName);
+
     // ── Persist vault record ───────────────────────────────────────────────
     const record = await prisma.vaultRecord.create({
       data: {
         id:                 vaultId,
         dnaRecordId,
         encryptedFilePath,
-        originalFileName,
+        originalFileName:   storedFileName,
         originalMimeType,
         encryptedSizeBytes: encResult.encryptedSizeBytes,
         originalSizeBytes:  encResult.originalSizeBytes,
@@ -338,7 +349,7 @@ export class VaultService {
         const createdAsset = await assetService.ensureAssetFromProtect({
           ownerUserId: dnaRecord.ownerUserId,
           assetType: inferAssetType(originalMimeType, originalFileName),
-          originalFilename: originalFileName,
+          originalFilename: storedFileName,
           mimeType: originalMimeType,
           sizeBytes: encResult.originalSizeBytes,
           contentHash: dnaRecord.sha256Hash || '',
@@ -865,10 +876,11 @@ export class VaultService {
     // previousFileName is additive — the lifecycle event says what the file was
     // called before, which is the only part of a rename worth reading later.
   ): Promise<{ vaultId: string; originalFileName: string; previousFileName: string }> {
-    const trimmed = newFileName.trim();
-    if (!trimmed || trimmed.length > 255) {
+    const rawName = newFileName.trim();
+    if (!rawName || rawName.length > 255) {
       throw new Error('Invalid file name');
     }
+    const trimmed = pinitStoredFileName(rawName);
     // eslint-disable-next-line no-control-regex -- intentional: matches/strips control characters
     if (/[<>:"/\\|?*\u0000-\u001f]/.test(trimmed)) {
       throw new Error('File name contains invalid characters');

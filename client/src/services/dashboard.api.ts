@@ -372,7 +372,7 @@ async function readBlobApiError(err: unknown): Promise<string> {
 export async function protectedDownloadFromVault(
   vaultId: string,
   options?: { recipientLabel?: string; purpose?: string; expiryDays?: number },
-): Promise<{ blob: Blob; tepCode?: string; downloadEventId?: string; tracking?: string }> {
+): Promise<{ blob: Blob; tepCode?: string; downloadEventId?: string; tracking?: string; filename: string }> {
   try {
     const response = await api.post<Blob>(
       `${API_BASE_URL}/vault/${vaultId}/protected-download`,
@@ -384,11 +384,14 @@ export async function protectedDownloadFromVault(
       { responseType: 'blob' },
     );
     const headers = response.headers as Record<string, string | undefined>;
+    const disposition = headers['content-disposition'] ?? '';
+    const named = /filename="([^"]+)"/i.exec(disposition)?.[1]?.trim();
     return {
       blob: response.data,
       tepCode: headers['x-tep-code'],
       downloadEventId: headers['x-pinit-download-event-id'],
       tracking: headers['x-pinit-tep-tracking'],
+      filename: named || 'file.pinit',
     };
   } catch (err) {
     throw new Error(await readBlobApiError(err));

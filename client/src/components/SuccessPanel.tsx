@@ -59,15 +59,20 @@ export function SuccessPanel({ session, onReset, campaignId }: Props) {
     setDownloading(true);
     setDownloadError(null);
     try {
-      let url = session.protectedBlobUrl;
-      if (!url && vaultId) {
-        const { blob } = await protectedDownloadFromVault(vaultId);
+      let url: string | undefined;
+      let savedName = 'file.pinit';
+      if (vaultId) {
+        const { blob, filename } = await protectedDownloadFromVault(vaultId);
         url = URL.createObjectURL(blob);
+        savedName = filename;
+      } else if (session.protectedBlobUrl) {
+        url = session.protectedBlobUrl;
+        savedName = session.filename || 'file.pinit';
       }
       if (!url) throw new Error('Download not ready');
       const a = document.createElement('a');
       a.href = url;
-      a.download = session.filename || session.vault?.originalFileName || 'protected-file';
+      a.download = savedName;
       a.click();
       if (url !== session.protectedBlobUrl) URL.revokeObjectURL(url);
       setDownloadDone(true);

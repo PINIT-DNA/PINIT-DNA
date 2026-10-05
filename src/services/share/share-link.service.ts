@@ -10,6 +10,7 @@ import crypto   from 'crypto';
 import axios    from 'axios';
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
+import { pinitStoredFileName } from '../../lib/pinit-file';
 import { logger }  from '../../lib/logger';
 import { assertRecordOwner } from '../../lib/tenant-scope';
 import { AppError } from '../../api/middleware/error.middleware';
@@ -59,6 +60,52 @@ function isPrivateOrLoopbackIp(ip: string): boolean {
     return octet >= 16 && octet <= 31;
   }
   return false;
+}
+
+/** Turn a device GPS point into a place name when the phone did not send one. */
+async function reverseGeocodeGps(lat: number, lng: number): Promise<{
+  gpsCity?: string;
+  gpsVillage?: string;
+  gpsMandal?: string;
+  gpsDistrict?: string;
+  gpsState?: string;
+  gpsPincode?: string;
+  gpsFullAddress?: string;
+}> {
+  try {
+    const { data } = await axios.get<{
+      display_name?: string;
+      address?: Record<string, string | undefined>;
+    }>(
+      `https://nominatim.openstreetmap.org/reverse?lat=${encodeURIComponent(String(lat))}` +
+        `&lon=${encodeURIComponent(String(lng))}&format=json&addressdetails=1&zoom=18`,
+      {
+        timeout: 3000,
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'PINIT-DNA/1.0 (share location)',
+        },
+      },
+    );
+    const a = data.address ?? {};
+    const village = a.village || a.hamlet || a.suburb || a.neighbourhood || a.locality;
+    const mandal = a.municipality || a.county || a.city_district;
+    const district = a.state_district || a.district;
+    const city = a.city || a.town || a.municipality || village;
+    const state = a.state;
+    const pincode = a.postcode;
+    return {
+      gpsVillage: village,
+      gpsMandal: mandal,
+      gpsDistrict: district,
+      gpsCity: city,
+      gpsState: state,
+      gpsPincode: pincode,
+      gpsFullAddress: data.display_name,
+    };
+  } catch {
+    return {};
+  }
 }
 
 export async function geoFromIp(ip: string): Promise<GeoInfo> {
@@ -1110,7 +1157,12 @@ export class ShareLinkService {
     let locationAlreadyShared = false;
     if (link.requestLocation && viewer?.ipAddress) {
       const prior = await prisma.shareAccessLog.findFirst({
-        where: { ipAddress: viewer.ipAddress, locationShared: true },
+        where: {
+          ipAddress: viewer.ipAddress,
+          locationShared: true,
+          gpsLat: { not: null },
+          gpsLng: { not: null },
+        },
         select: { id: true },
       });
       locationAlreadyShared = prior != null;
@@ -1118,7 +1170,7 @@ export class ShareLinkService {
 
     return {
       token:         link.token,
-      filename:      link.filename,
+      filename:      pinitStoredFileName(link.filename || 'file'),
       mimeType:      link.mimeType,
       note:          link.note,
       requireName:   link.requireName,
@@ -1363,10 +1415,62 @@ export class ShareLinkService {
       city,
     });
 
-    const gpsCoords = sanitizeCoordinatePair(input.gpsLat, input.gpsLng);
+    let gpsCoords = sanitizeCoordinatePair(input.gpsLat, input.gpsLng);
     const ipCoords  = sanitizeCoordinatePair(ipLat, ipLng);
-    const sourceIn = (input.locationSource ?? '').toLowerCase();
-    const hasRealGps = Boolean(gpsCoords) && sourceIn !== 'ip' && sourceIn !== 'denied';
+    let sourceIn = (input.locationSource ?? '').toLowerCase();
+    let hasRealGps = Boolean(gpsCoords) && sourceIn !== 'ip' && sourceIn !== 'denied';
+    let carriedAccuracy = input.gpsAccuracy ?? null;
+    let carriedTimestamp = input.gpsTimestamp ?? null;
+    let carriedShared = input.locationShared ?? false;
+    let carriedLocality = {
+      gpsCity: input.gpsCity ?? null as string | null,
+      gpsVillage: input.gpsVillage ?? null as string | null,
+      gpsMandal: input.gpsMandal ?? null as string | null,
+      gpsDistrict: input.gpsDistrict ?? null as string | null,
+      gpsState: input.gpsState ?? null as string | null,
+      gpsPincode: input.gpsPincode ?? null as string | null,
+      gpsFullAddress: input.gpsFullAddress ?? null as string | null,
+    };
+
+    // A later open of another file can skip a new GPS prompt. Keep the place
+    // that this phone already shared, so this file's viewer page can show it.
+    if (!hasRealGps && sourceIn !== 'denied' && link.requestLocation && input.ipAddress && link.ownerUserId) {
+      const prior = await prisma.shareAccessLog.findFirst({
+        where: {
+          ipAddress: input.ipAddress,
+          gpsLat: { not: null },
+          gpsLng: { not: null },
+          locationSource: { in: ['gps', 'network'] },
+          shareLink: { ownerUserId: link.ownerUserId },
+        },
+        orderBy: { createdAt: 'desc' },
+        select: {
+          gpsLat: true, gpsLng: true, gpsAccuracy: true, gpsTimestamp: true,
+          locationSource: true,
+          gpsCity: true, gpsVillage: true, gpsMandal: true, gpsDistrict: true,
+          gpsState: true, gpsPincode: true, gpsFullAddress: true,
+        },
+      });
+      const priorCoords = sanitizeCoordinatePair(prior?.gpsLat, prior?.gpsLng);
+      if (prior && priorCoords) {
+        gpsCoords = priorCoords;
+        hasRealGps = true;
+        sourceIn = prior.locationSource === 'network' ? 'network' : 'gps';
+        carriedAccuracy = prior.gpsAccuracy;
+        carriedTimestamp = prior.gpsTimestamp;
+        carriedShared = true;
+        carriedLocality = {
+          gpsCity: prior.gpsCity,
+          gpsVillage: prior.gpsVillage,
+          gpsMandal: prior.gpsMandal,
+          gpsDistrict: prior.gpsDistrict,
+          gpsState: prior.gpsState,
+          gpsPincode: prior.gpsPincode,
+          gpsFullAddress: prior.gpsFullAddress,
+        };
+      }
+    }
+
     const locationSource = hasRealGps
       ? (sourceIn === 'network' ? 'network' : (sourceIn || 'gps'))
       : ipCoords
@@ -1380,19 +1484,25 @@ export class ShareLinkService {
     }
 
     const gpsLocality = hasRealGps
-      ? {
-          gpsCity:       input.gpsCity       ?? null,
-          gpsVillage:    input.gpsVillage     ?? null,
-          gpsMandal:     input.gpsMandal      ?? null,
-          gpsDistrict:   input.gpsDistrict    ?? null,
-          gpsState:      input.gpsState       ?? null,
-          gpsPincode:    input.gpsPincode     ?? null,
-          gpsFullAddress: input.gpsFullAddress ?? null,
-        }
+      ? carriedLocality
       : {
           gpsCity: null, gpsVillage: null, gpsMandal: null, gpsDistrict: null,
           gpsState: null, gpsPincode: null, gpsFullAddress: null,
         };
+
+    if (
+      hasRealGps && gpsCoords &&
+      !gpsLocality.gpsFullAddress && !gpsLocality.gpsCity && !gpsLocality.gpsVillage
+    ) {
+      const lookedUp = await reverseGeocodeGps(gpsCoords.lat, gpsCoords.lng);
+      if (lookedUp.gpsCity) gpsLocality.gpsCity = lookedUp.gpsCity;
+      if (lookedUp.gpsVillage) gpsLocality.gpsVillage = lookedUp.gpsVillage;
+      if (lookedUp.gpsMandal) gpsLocality.gpsMandal = lookedUp.gpsMandal;
+      if (lookedUp.gpsDistrict) gpsLocality.gpsDistrict = lookedUp.gpsDistrict;
+      if (lookedUp.gpsState) gpsLocality.gpsState = lookedUp.gpsState;
+      if (lookedUp.gpsPincode) gpsLocality.gpsPincode = lookedUp.gpsPincode;
+      if (lookedUp.gpsFullAddress) gpsLocality.gpsFullAddress = lookedUp.gpsFullAddress;
+    }
 
     await prisma.shareAccessLog.create({
       data: {
@@ -1419,9 +1529,9 @@ export class ShareLinkService {
         sessionDurationSec,
         gpsLat:        hasRealGps ? gpsCoords?.lat ?? null : null,
         gpsLng:        hasRealGps ? gpsCoords?.lng ?? null : null,
-        gpsAccuracy:   hasRealGps ? (input.gpsAccuracy ?? null) : null,
-        gpsTimestamp:  input.gpsTimestamp  ?? null,
-        locationShared:  input.locationShared ?? false,
+        gpsAccuracy:   hasRealGps ? carriedAccuracy : null,
+        gpsTimestamp:  carriedTimestamp,
+        locationShared:  carriedShared,
         ...gpsLocality,
         locationSource,
         isVpn:         input.isVpn         ?? false,
