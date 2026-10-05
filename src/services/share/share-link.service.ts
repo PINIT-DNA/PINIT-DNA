@@ -238,6 +238,9 @@ export interface ShareLinkPublicInfo {
   viewerRevoked?:   boolean;
   sourceContext?:   string | null;
   licenseTier?:     string | null;
+  linkType?:        string | null;
+  /** Root channel is a living page (including hops minted from one). */
+  livingPage?:      boolean;
 }
 
 export interface AccessLogInput {
@@ -324,6 +327,22 @@ function parseUserAgent(ua: string): { browser: string; os: string; device: stri
     /Mobi|Android/.test(ua) ? 'mobile' : 'desktop';
 
   return { browser, os, device };
+}
+
+/** Walk hop parents to see if this share started as a living page. */
+async function isLivingShareLine(link: { linkType: string | null; parentLinkId: string | null }): Promise<boolean> {
+  if (link.linkType === 'LIVING') return true;
+  let parentId = link.parentLinkId;
+  for (let i = 0; i < 32 && parentId; i++) {
+    const parent = await prisma.shareLink.findUnique({
+      where: { id: parentId },
+      select: { parentLinkId: true, linkType: true },
+    });
+    if (!parent) break;
+    if (parent.linkType === 'LIVING') return true;
+    parentId = parent.parentLinkId;
+  }
+  return false;
 }
 
 /** Case-sensitive first, then unique case-insensitive fallback (screenshots / OCR typos). */
@@ -595,6 +614,120 @@ export class ShareLinkService {
     });
 
     return { ...created, reused: false as const };
+  }
+
+  async createOrGetLivingShare(input: { vaultId: string; ownerUserId: string }) {
+    if (!input.ownerUserId) throw new Error('Authentication required to share a living page');
+
+    const keeper = await this.keepOneLivingShare(input.vaultId, input.ownerUserId);
+    if (keeper) {
+      if (!keeper.requestLocation) {
+        const healed = await prisma.shareLink.update({
+          where: { id: keeper.id },
+          data: { requestLocation: true },
+        });
+        return { ...healed, reused: true as const };
+      }
+      return { ...keeper, reused: true as const };
+    }
+
+    const created = await this.create({
+      vaultId: input.vaultId,
+      ownerUserId: input.ownerUserId,
+      linkType: 'LIVING',
+      allowDownload: false,
+      requestLocation: true,
+      note: 'Living asset page — read only',
+    });
+
+    const afterRace = await this.keepOneLivingShare(input.vaultId, input.ownerUserId);
+    return { ...(afterRace ?? created), reused: Boolean(afterRace && afterRace.id !== created.id) };
+  }
+
+  /** One living page per asset. Extra copies from double-clicks are stopped. */
+  private async keepOneLivingShare(vaultId: string, ownerUserId: string) {
+    const rows = await prisma.shareLink.findMany({
+      where: { vaultId, ownerUserId, linkType: 'LIVING', isActive: true },
+      orderBy: [{ viewCount: 'desc' }, { createdAt: 'asc' }],
+    });
+    if (rows.length === 0) return null;
+    const [keeper, ...extras] = rows;
+    if (extras.length > 0) {
+      await prisma.shareLink.updateMany({
+        where: { id: { in: extras.map((row) => row.id) } },
+        data: { isActive: false },
+      });
+    }
+    return keeper ?? null;
+  }
+
+  async getLivingStory(token: string) {
+    const info = await this.getPublicInfo(token);
+    if (!info || !info.isActive) return null;
+
+    const link = await findShareLinkByToken(token);
+    if (!link) return null;
+
+    const vault = await new VaultService().getRecord(link.vaultId);
+    const { getVaultTrackingDashboard } = await import('../provenance/tracking-dashboard.service');
+    const { getLocationStatusForAssets } = await import('../forensics/forensic-provenance.service');
+
+    const tracking = link.ownerUserId
+      ? await getVaultTrackingDashboard({ vaultId: vault.id, ownerUserId: link.ownerUserId })
+      : null;
+    const locationMap = await getLocationStatusForAssets([vault.dnaRecordId]);
+    const location = tracking?.location ?? locationMap.get(vault.dnaRecordId) ?? { status: 'UNAVAILABLE' as const };
+    const shareLinkCount = await prisma.shareLink.count({ where: { vaultId: vault.id } });
+
+    return {
+      token: link.token,
+      record: {
+        id: vault.id,
+        dnaRecordId: vault.dnaRecordId,
+        originalFileName: vault.originalFileName,
+        originalMimeType: vault.originalMimeType,
+        originalSizeBytes: vault.originalSizeBytes,
+        encryptedSizeBytes: vault.encryptedSizeBytes,
+        encryptionAlgorithm: vault.encryptionAlgorithm,
+        keyDerivation: vault.keyDerivation,
+        contentLabel: vault.contentLabel ?? null,
+        contentAnalysis: (vault.contentAnalysis as Record<string, unknown> | null) ?? null,
+        createdAt: vault.createdAt.toISOString(),
+        dnaRecord: {
+          id: vault.dnaRecord.id,
+          status: vault.dnaRecord.status,
+        },
+        location,
+      },
+      tracking: tracking
+        ? {
+            vaultId: tracking.vaultId,
+            dnaRecordId: tracking.dnaRecordId,
+            filename: tracking.filename,
+            status: tracking.status,
+            owner: tracking.owner
+              ? { shortId: tracking.owner.shortId, fullName: tracking.owner.fullName }
+              : null,
+            summary: tracking.summary,
+            chainOfCustody: tracking.chainOfCustody,
+            location: tracking.location,
+            downloads: (tracking.downloads ?? []).map((d) => ({
+              id: d.id,
+              timestamp: d.timestamp,
+              summary: d.summary,
+              locationLabel: d.locationLabel,
+              device: d.device,
+            })),
+            tepPackages: [],
+          }
+        : null,
+      shareLinkCount,
+      intel: {
+        provenance: { capturedAt: vault.createdAt.toISOString() },
+        integrity: { dnaStatus: vault.dnaRecord.status },
+        distribution: { totalShareLinks: shareLinkCount },
+      },
+    };
   }
 
   // ── Create child links for each recipient ─────────────────────────────────
@@ -1089,6 +1222,14 @@ export class ShareLinkService {
     let link = await findShareLinkByToken(token);
     if (!link) return null;
 
+    const livingPage = await isLivingShareLine(link);
+    if (livingPage && !link.requestLocation) {
+      link = await prisma.shareLink.update({
+        where: { id: link.id },
+        data: { requestLocation: true },
+      });
+    }
+
     const isHop = link.linkType === 'CHILD' || link.linkType === 'GRANDCHILD';
 
     // Legacy hops may have inherited oneTimeUse=true and been auto-deactivated after
@@ -1196,6 +1337,8 @@ export class ShareLinkService {
       viewerRevoked,
       sourceContext: link.sourceContext ?? 'hub',
       licenseTier:   link.licenseTier ?? null,
+      linkType:      link.linkType,
+      livingPage,
       // Order/seal IDs stay on the share_links row. They are not returned on
       // this public endpoint so recipients cannot read them from the page or
       // the network response. Owner APIs still return them.
@@ -1856,14 +1999,13 @@ export class ShareLinkService {
   }
 
   // ── List all share links (admin view) ─────────────────────────────────────
-  // Only PARENT links belong here — hop CHILD/GRANDCHILD tokens are internal
-  // forward tracking rows; listing them made every forward look "Revoked".
-
+  // PARENT = Hub secure links. LIVING = living-asset pages. FILE stays on
+  // the Share Files list. CHILD/GRANDCHILD hops stay out of this list.
   async listAll(userId: string) {
     const links = await prisma.shareLink.findMany({
       where: {
         ownerUserId: userId,
-        linkType: 'PARENT',
+        linkType: { in: ['PARENT', 'LIVING'] },
       },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -1871,8 +2013,37 @@ export class ShareLinkService {
       },
     });
 
+    const livingKeep = new Set<string>();
+    const livingDrop: string[] = [];
+    const seenVault = new Map<string, string>();
+    const livingActive = links
+      .filter((link) => link.linkType === 'LIVING' && link.isActive)
+      .slice()
+      .sort((a, b) => (b.viewCount - a.viewCount) || (a.createdAt.getTime() - b.createdAt.getTime()));
+    for (const link of livingActive) {
+      if (link.linkType !== 'LIVING' || !link.isActive) continue;
+      const prev = seenVault.get(link.vaultId);
+      if (!prev) {
+        seenVault.set(link.vaultId, link.id);
+        livingKeep.add(link.id);
+        continue;
+      }
+      livingDrop.push(link.id);
+    }
+    if (livingDrop.length > 0) {
+      await prisma.shareLink.updateMany({
+        where: { id: { in: livingDrop } },
+        data: { isActive: false },
+      });
+    }
+
+    const uniqueListed = links.filter((link) => {
+      if (link.linkType !== 'LIVING') return true;
+      return livingKeep.has(link.id);
+    });
+
     const healed: typeof links = [];
-    for (const link of links) {
+    for (const link of uniqueListed) {
       const isExpired = !!link.expiresAt && new Date(link.expiresAt) < new Date();
       const isExhausted = !!link.maxViews && link.viewCount >= link.maxViews;
       const hopCount = link._count.childLinks;
@@ -2101,7 +2272,7 @@ export class ShareLinkService {
       const { shareLink: hopLink, ...rest } = log;
       const linkType = hopLink?.linkType ?? 'PARENT';
       const linkDepth = hopLink?.depth ?? 0;
-      const isReshareLink = linkType !== 'PARENT' || linkDepth > 0 || hopLink?.id !== root.id;
+      const isReshareLink = Boolean(hopLink?.parentLinkId) || hopLink?.id !== root.id || linkDepth > 0;
       return {
         ...rest,
         shareLinkId: hopLink?.id ?? rest.shareLinkId,
@@ -2148,7 +2319,7 @@ export class ShareLinkService {
 
     logger.debug('[SmartLink] Aggregated access logs', {
       rootToken: root.token,
-      hopLinks: descendantIds.length,
+      hopLinks: allIds.length,
       logRows: accessLogs.length,
       uniqueViewersApprox: new Set(
         accessLogs
@@ -2162,7 +2333,7 @@ export class ShareLinkService {
       accessLogs,
       viewCount,
       downloadCount,
-      hopLinkCount: descendantIds.length,
+      hopLinkCount: allIds.length,
     };
   }
 

@@ -95,6 +95,23 @@ export function isConfidentFaceMatch(
   return secondDistance - bestDistance >= margin;
 }
 
+/**
+ * Face-only sign-in. A gallery of one is valid: if the probe is under the
+ * identify threshold, that is the account. Duplicate uniqueness still uses
+ * isConfidentFaceMatch (which refuses a single template).
+ */
+export function isIdentifyAccept(
+  bestDistance: number,
+  secondDistance: number,
+  threshold = THRESHOLDS.faceIdentify,
+): boolean {
+  if (!Number.isFinite(bestDistance) || bestDistance >= threshold) return false;
+  if (!Number.isFinite(secondDistance) || secondDistance === Infinity) return true;
+  if (secondDistance < threshold) return false;
+  const margin = THRESHOLDS.faceLoginMargin ?? 0.08;
+  return secondDistance - bestDistance >= margin;
+}
+
 /** 1:N enroll uniqueness — any confident hit under the duplicate threshold. */
 export function isDuplicateFaceEnrollment(bestDistance: number, secondDistance: number): boolean {
   return isConfidentFaceMatch(bestDistance, secondDistance, THRESHOLDS.faceDuplicate);
@@ -198,7 +215,7 @@ export function isFaceVerified1to1(
 
 export type ClaimedFaceVerifyResult =
   | { ok: true; claimedUserId: string; distance: number }
-  | { ok: false; claimedUserId: string | null; reason: 'no_claim' | 'quality' | 'no_template' | 'mismatch' };
+  | { ok: false; claimedUserId: string | null; reason: 'no_claim' | 'quality' | 'no_template' | 'mismatch' | 'incompatible_model' };
 
 /**
  * Verify probe against ONE enrolled template. Never ranks a gallery.
@@ -217,8 +234,11 @@ export function verifyClaimedFace(params: {
   if (!isFaceProbeQualityOk(params.probe)) {
     return { ok: false, claimedUserId, reason: 'quality' };
   }
-  if (!params.enrolled || !isValidTemplate(params.enrolled)) {
+  if (!params.enrolled || !isValidTemplate(params.enrolled, params.enrolled.length)) {
     return { ok: false, claimedUserId, reason: 'no_template' };
+  }
+  if (params.probe.length !== params.enrolled.length) {
+    return { ok: false, claimedUserId, reason: 'incompatible_model' };
   }
   const distance = euclideanDistance(
     normalizeEmbedding(params.probe),

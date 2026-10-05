@@ -6391,9 +6391,14 @@ a.pf-about__org:hover { color: #42D6B0; }
 .pf-clight__x { background: none; border: 0; color: #9AA6B8; cursor: pointer; }
 .pf-clight__stage { position: relative; background: #080A0F; border-radius: 10px; min-height: 180px; display: grid; place-items: center; }
 .pf-clight__art { max-width: 100%; max-height: min(62vh, 640px); object-fit: contain; display: block; }
+/* The certificate sizes itself from its own 3:2 artwork, so the stage must not pin it
+   to the 180px box the artwork thumbnails use. */
+.pf-clight__doc { width: 100%; }
+.pf-clight__stage--doc { min-height: 0; background: transparent; place-items: stretch; }
 .pf-clight__fallback { padding: 36px 20px; text-align: center; color: #F5F7FA; }
 .pf-clight__fallback span { display: block; color: #9AA6B8; margin-top: 6px; }
 .pf-clight__fallback em { display: block; margin-top: 10px; font-style: normal; color: #9AA6B8; font-size: 0.8rem; }
+
 .pf-clight__nav {
   position: absolute; top: 50%; transform: translateY(-50%);
   width: 36px; height: 36px; border-radius: 50%; border: 1px solid #252C38;

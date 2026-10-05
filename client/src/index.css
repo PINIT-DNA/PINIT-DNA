@@ -20,7 +20,12 @@
     background-image: none;
     color: #0f172a;
     color-scheme: light;
-    font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 400;
+    font-feature-settings: "ss01" 1, "cv11" 1, "kern" 1;
+    font-size: 16px;
+    letter-spacing: -0.011em;
+    line-height: 1.6;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     -webkit-text-size-adjust: 100%;
@@ -34,19 +39,40 @@
   ::-webkit-scrollbar-thumb  { background: #94a3b8; border-radius: 3px; }
   ::-webkit-scrollbar-thumb:hover { background: #64748b; }
 
-  h1,h2,h3,h4,h5,h6 { font-weight: 600; letter-spacing: -0.025em; color: #0b1b33; }
+  h1 {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    line-height: 1.22;
+    color: #0b1b33;
+  }
+  h2, h3, h4, h5, h6 {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    line-height: 1.28;
+    color: #0b1b33;
+  }
 
-  /* Light remaps — darker fonts for readability */
+  p {
+    font-weight: 400;
+  }
+
+  button, input, textarea, select {
+    font-family: inherit;
+  }
+
+  /* Light remaps — keep muted labels quieter than titles */
   .text-white   { color: #020617 !important; }
   .text-gray-200{ color: #0f172a !important; }
   .text-gray-300{ color: #1e293b !important; }
-  .text-gray-400{ color: #334155 !important; }
-  .text-gray-500{ color: #475569 !important; }
-  .text-gray-600{ color: #64748b !important; }
+  .text-gray-400{ color: #64748b !important; }
+  .text-gray-500{ color: #64748b !important; }
+  .text-gray-600{ color: #475569 !important; }
   .text-gray-700{ color: #1e293b !important; }
-  .text-slate-400{ color: #475569 !important; }
-  .text-slate-500{ color: #334155 !important; }
-  .text-slate-600{ color: #1e293b !important; }
+  .text-slate-400{ color: #64748b !important; }
+  .text-slate-500{ color: #64748b !important; }
+  .text-slate-600{ color: #475569 !important; }
   .text-slate-700,
   .text-slate-800{ color: #0f172a !important; }
   .border-white\/10, .border-white\/5 { border-color: #cbd5e1 !important; }
@@ -54,6 +80,11 @@
   .bg-white\/10 { background-color: rgba(15, 23, 42, 0.07) !important; }
   .hover\:text-white:hover { color: #020617 !important; }
   .hover\:bg-white\/5:hover { background-color: rgba(15, 23, 42, 0.05) !important; }
+  html:not(.dark) .text-amber-200 { color: #b45309 !important; }
+
+  /* Stays light on photos/video — never follow the text-white theme remap */
+  .ink-photo { color: #f8fafc !important; }
+  .ink-photo-muted { color: rgba(248, 250, 252, 0.86) !important; }
 
   html:not(.dark) .btn-primary,
   html:not(.dark) .btn-primary *,
@@ -66,9 +97,39 @@
   html:not(.dark) .bg-red-600,
   html:not(.dark) .bg-red-600 *,
   html:not(.dark) .nav-cta,
-  html:not(.dark) .nav-cta * {
+  html:not(.dark) .nav-cta *,
+  html:not(.dark) .pinit-ask-fab,
+  html:not(.dark) .pinit-ask-fab * {
     color: #ffffff !important;
   }
+
+  /* Ask PINIT overlay: light type on navy. Root also has .text-white, so a
+     descendant-only selector left the panel (and inherited copy) near-black. */
+  html:not(.dark) .pinit-intel-rail,
+  html:not(.dark) .pinit-intel,
+  html:not(.dark) .pinit-intel.text-white,
+  html:not(.dark) .pinit-intel .text-white,
+  html:not(.dark) .pinit-intel-rail .text-white { color: #f8fafc !important; }
+  html:not(.dark) .pinit-intel .hover\:text-white:hover,
+  html:not(.dark) .pinit-intel-rail .hover\:text-white:hover { color: #ffffff !important; }
+  html:not(.dark) .pinit-intel .text-gray-200,
+  html:not(.dark) .pinit-intel .text-slate-100 { color: #f1f5f9 !important; }
+  html:not(.dark) .pinit-intel .text-gray-300,
+  html:not(.dark) .pinit-intel .text-slate-300 { color: #e2e8f0 !important; }
+  html:not(.dark) .pinit-intel .text-slate-400,
+  html:not(.dark) .pinit-intel .text-gray-400 { color: #cbd5e1 !important; }
+  html:not(.dark) .pinit-intel .text-slate-500,
+  html:not(.dark) .pinit-intel .text-gray-500 { color: #94a3b8 !important; }
+  html:not(.dark) .pinit-intel .text-sky-200 { color: #bae6fd !important; }
+  html:not(.dark) .pinit-intel .text-sky-200\/80 { color: rgb(186 230 253 / 0.88) !important; }
+  html:not(.dark) .pinit-intel .text-sky-200\/70 { color: rgb(186 230 253 / 0.82) !important; }
+  html:not(.dark) .pinit-intel .text-sky-300 { color: #7dd3fc !important; }
+  html:not(.dark) .pinit-intel .placeholder\:text-slate-500::placeholder { color: #94a3b8 !important; }
+  html:not(.dark) .pinit-intel input,
+  html:not(.dark) .pinit-intel textarea { color: #f8fafc !important; caret-color: #f8fafc; }
+  html:not(.dark) .pinit-intel .bg-white\/5 { background-color: rgba(255, 255, 255, 0.06) !important; }
+  html:not(.dark) .pinit-intel .bg-white\/10 { background-color: rgba(255, 255, 255, 0.1) !important; }
+  html:not(.dark) .pinit-intel .border-white\/10 { border-color: rgba(255, 255, 255, 0.16) !important; }
 
   /* Brand accents → single blue */
   html:not(.dark) .text-indigo-500,
@@ -107,6 +168,26 @@
   html.dark ::-webkit-scrollbar-thumb  { background: #2A3040; }
   html.dark ::-webkit-scrollbar-thumb:hover { background: #3a4254; }
   html.dark h1, html.dark h2, html.dark h3, html.dark h4, html.dark h5, html.dark h6 { color: #F5F7FA; }
+
+  /* Public portfolio themes own heading colour (editorial dark type, studio light type). */
+  html:not(.dark) .pf .text-white,
+  html:not(.dark) .pf .text-gray-200,
+  html:not(.dark) .pf .text-gray-300 { color: var(--f-ink) !important; }
+  html:not(.dark) .pf .pf-hero .text-white,
+  html:not(.dark) .pf .pf-about .text-white,
+  html:not(.dark) .pf .pf-certs-page .text-white { color: var(--f-on-dark) !important; }
+  html:not(.dark) .pf h1,
+  html:not(.dark) .pf h2,
+  html:not(.dark) .pf h3,
+  html:not(.dark) .pf h4,
+  html:not(.dark) .pf h5,
+  html:not(.dark) .pf h6,
+  html.dark .pf h1,
+  html.dark .pf h2,
+  html.dark .pf h3,
+  html.dark .pf h4,
+  html.dark .pf h5,
+  html.dark .pf h6 { color: var(--f-ink); }
 
   html.dark .text-white   { color: #F5F7FA !important; }
   html.dark .text-gray-200{ color: #F5F7FA !important; }
@@ -378,7 +459,7 @@
 
   /* ── Buttons ─────────────────────────────────────────────────────────────── */
   .btn {
-    @apply inline-flex items-center justify-center gap-2 font-medium rounded-lg
+    @apply inline-flex items-center justify-center gap-2 font-semibold rounded-lg
            transition-all duration-150 disabled:opacity-40 disabled:cursor-not-allowed
            focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-bg-base
            min-h-[44px] sm:min-h-0;
@@ -674,7 +755,12 @@
   .data-table tr:last-child td { @apply border-b-0; }
 
   /* ── Misc ────────────────────────────────────────────────────────────────── */
-  .mono { font-family: 'JetBrains Mono', monospace; }
+  .mono {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: 0.02em;
+  }
   .text-gradient {
     @apply bg-gradient-to-r from-blue-600 to-blue-500 bg-clip-text text-transparent;
   }
@@ -692,37 +778,66 @@
 
   /* Home workspace — presentation tokens only */
   .hub-home {
-    font-family: Inter, system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
   }
   .hub-home-kicker {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.12em;
+    font-weight: 600;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
-    color: #475569;
+    color: #64748b;
   }
   .hub-home-hero-title {
-    font-size: clamp(1.75rem, 2.4vw, 2.25rem);
-    line-height: 1.15;
-    font-weight: 700;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-size: clamp(1.85rem, 3vw, 2.55rem) !important;
+    line-height: 1.22;
+    font-weight: 800;
     letter-spacing: -0.03em;
     color: #0b1b33;
   }
+  .story-hero-title {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-size: clamp(1.55rem, 3.4vw, 2.5rem) !important;
+    line-height: 1.28;
+    font-weight: 400;
+    letter-spacing: -0.02em;
+    color: #ffffff !important;
+  }
   .hub-home-lede {
     font-size: 15px;
-    line-height: 1.55;
-    font-weight: 400;
+    line-height: 1.65;
+    font-weight: 500;
     color: #475569;
     max-width: 36rem;
+  }
+  .hub-page-title {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+  }
+  .hub-voice {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    font-weight: 600;
+    line-height: 1.55;
+    letter-spacing: -0.015em;
+  }
+  .hub-voice-editorial {
+    font-family: 'DM Serif Display', Georgia, serif;
+    font-weight: 400;
+    font-style: italic;
+    line-height: 1.55;
+    letter-spacing: -0.01em;
   }
   .hub-home-journey {
     margin-top: 0.85rem;
     max-width: 36rem;
   }
   .hub-home-journey-label {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
     font-size: 11px;
     font-weight: 600;
-    letter-spacing: 0.06em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: #64748b;
     margin-bottom: 0.2rem;
@@ -894,7 +1009,7 @@ html.dark .skeleton {
 
   .data-table th, .data-table td { padding: 10px 12px !important; font-size: 12px !important; }
 
-  h1 { font-size: 1.375rem !important; }
+  h1:not(.hub-home-hero-title) { font-size: 1.5rem !important; }
   h2 { font-size: 1.125rem !important; }
 }
 
@@ -924,7 +1039,8 @@ html.dark .skeleton {
   inset: 0;
   overflow-y: auto;
   color: var(--pa-text);
-  font-family: 'Inter', system-ui, sans-serif;
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-weight: 400;
   background: var(--pa-bg);
 }
 .pinit-auth * { box-sizing: border-box; }
@@ -1035,7 +1151,6 @@ html.dark .skeleton {
   border: 1px solid var(--pa-border);
   border-radius: 20px;
   padding: 28px 24px;
-  backdrop-filter: blur(18px);
   box-shadow:
     0 1px 0 rgba(255,255,255,0.04) inset,
     0 28px 60px -28px rgba(0,0,0,0.75);
@@ -1048,7 +1163,7 @@ html.dark .skeleton {
   align-items: center;
   justify-content: center;
   gap: 9px;
-  font-weight: 650;
+  font-weight: 600;
   font-size: 15px;
   padding: 15px 18px;
   border-radius: 14px;
@@ -1069,6 +1184,20 @@ html.dark .skeleton {
   color: #c5d2e8;
 }
 .pinit-auth .pa-btn-ghost:hover { background: rgba(255,255,255,0.04); filter: none; }
+
+.pinit-auth .pa-input {
+  width: 100%;
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--pa-border);
+  color: var(--pa-text);
+  font-size: 15px;
+}
+.pinit-auth .pa-input:focus {
+  outline: none;
+  border-color: rgba(61,139,255,0.55);
+}
 
 /* Brand mark */
 .pinit-auth .pa-brand {
@@ -1135,16 +1264,82 @@ html.dark .skeleton {
 .pinit-auth .pa-rail span.on   { background: linear-gradient(90deg,#3d8bff,#2f7cf6); }
 .pinit-auth .pa-rail span.done { background: #34d399; }
 
-/* Camera viewport */
+.pinit-auth .pa-flow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+.pinit-auth .pa-flow-item {
+  flex: 1 1 0;
+  min-width: 56px;
+  text-align: center;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: rgba(200, 215, 235, 0.32);
+  line-height: 1.25;
+}
+.pinit-auth .pa-flow-item.on { color: #7dd3fc; }
+.pinit-auth .pa-flow-item.done { color: #34d399; }
+.pinit-auth .pa-cam-focus {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  margin: 4px auto 0;
+  padding: 10px 0 2px;
+  max-width: 260px;
+}
+
+/* Camera viewport — no screen-fill or filters; those wash out the live feed */
 .pinit-auth .pa-cam {
   position: relative; width: 230px; height: 230px; margin: 6px auto 0;
   border-radius: 50%; overflow: hidden;
+  isolation: isolate;
+  transform: translateZ(0);
   border: 2px solid rgba(61,139,255,0.45);
   box-shadow: 0 0 0 6px rgba(47,124,246,0.1), 0 18px 50px -18px rgba(47,124,246,0.45);
-  background: #03060e;
+  background: #000;
 }
 .pinit-auth .pa-cam.ok    { border-color: #34d399; box-shadow: 0 0 0 6px rgba(52,211,153,0.14), 0 0 40px rgba(52,211,153,0.45); }
-.pinit-auth .pa-cam video { width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.pinit-auth .pa-cam video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+  filter: none;
+  opacity: 1;
+  mix-blend-mode: normal;
+}
+.pinit-auth .pa-cam.lock video {
+  opacity: 0;
+  pointer-events: none;
+}
+.pinit-auth .pa-cam-lock {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 42%, #1a2740 0%, #080c14 72%);
+  z-index: 1;
+}
+.pinit-auth .pa-cam.ok .pa-cam-lock { display: none; }
+.pinit-auth .pa-cam-lock-pulse {
+  position: absolute;
+  width: 92px;
+  height: 92px;
+  border-radius: 50%;
+  border: 1px solid rgba(158, 196, 255, 0.28);
+  animation: pa-lock-pulse 1.8s ease-out infinite;
+}
+@keyframes pa-lock-pulse {
+  0% { transform: scale(0.92); opacity: 0.7; }
+  100% { transform: scale(1.35); opacity: 0; }
+}
 .pinit-auth .pa-cam-scan {
   position: absolute; left: 0; right: 0; height: 2px;
   background: linear-gradient(90deg, transparent, #7dd3fc, transparent);
@@ -1152,7 +1347,7 @@ html.dark .skeleton {
   animation: scan 2s linear infinite;
 }
 .pinit-auth .pa-ring {
-  position: absolute; inset: 0; border-radius: 50%;
+  position: absolute; inset: 0; border-radius: 50%; z-index: 2;
   background: conic-gradient(from -90deg, #3d8bff var(--p,0%), rgba(255,255,255,0.12) 0);
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
           mask: radial-gradient(farthest-side, transparent calc(100% - 6px), #000 calc(100% - 5px));
@@ -1369,7 +1564,9 @@ html.dark .pe-loading { color: #A7B0C0; }
 html.dark .pe-pane h3 { color: var(--pe-ink); }
 .pe-lead { margin: 0; color: var(--pe-soft); font-size: 0.85rem; max-width: 62ch; }
 .pe-lead code {
-  font-family: 'JetBrains Mono', monospace; font-size: 0.8rem;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 0.8rem;
   background: var(--pe-sunk); padding: 2px 6px; border-radius: 4px; color: var(--pe-ink);
 }
 .pe-empty {
@@ -1574,7 +1771,8 @@ html.dark .pe-pane h3 { color: var(--pe-ink); }
 }
 .pe-slug span {
   padding: 9px 4px 9px 11px; color: var(--pe-faint); font-size: 0.88rem;
-  font-family: 'JetBrains Mono', monospace;
+  font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  font-weight: 500;
 }
 .pe-slug input { border: 0; border-radius: 0; background: none; }
 .pe-slug input:focus { box-shadow: none; }
@@ -1625,4 +1823,20 @@ html.dark .pe-pane h3 { color: var(--pe-ink); }
 .pe-preview__bar a:hover { text-decoration: underline; }
 .pe-preview__frame {
   flex: 1; width: 100%; min-height: 520px; border: 0; background: #fff;
+}
+
+.pinit-intel-rail {
+  background:
+    radial-gradient(120% 80% at 100% 0%, rgba(56, 189, 248, 0.12), transparent 55%),
+    linear-gradient(180deg, #1a2748 0%, #10182d 48%, #0c1324 100%);
+  box-shadow: 0 18px 40px -20px rgba(8, 15, 35, 0.65);
+  border: 1px solid rgba(148, 163, 184, 0.12);
+}
+.pinit-intel-float {
+  box-shadow: 0 22px 50px -18px rgba(8, 15, 35, 0.75);
+}
+@media (min-width: 640px) {
+  .pinit-intel-float {
+    min-height: min(560px, calc(100dvh - 6.5rem));
+  }
 }

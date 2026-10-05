@@ -11,11 +11,22 @@ export interface JwtPayload {
   shortId: string;
   name: string;
   role: string;
+  accountType?: string;
+  lastActiveShell?: 'PERSONAL' | 'BUSINESS';
   iat?: number;
   exp?: number;
 }
 
-type UserRow = { id: string; shortId: string; fullName: string; role: string; isActive: boolean; lastLoginAt: Date | null };
+type UserRow = {
+  id: string;
+  shortId: string;
+  fullName: string;
+  role: string;
+  isActive: boolean;
+  lastLoginAt: Date | null;
+  accountType?: string | null;
+  lastActiveShell?: 'PERSONAL' | 'BUSINESS' | null;
+};
 
 function generateShortId(): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -53,7 +64,14 @@ async function touchLogin(id: string) {
 }
 
 function tokenFor(user: UserRow) {
-  const access  = signAccess({ sub: user.id, shortId: user.shortId, name: user.fullName, role: user.role });
+  const access  = signAccess({
+    sub: user.id,
+    shortId: user.shortId,
+    name: user.fullName,
+    role: user.role,
+    accountType: user.accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL',
+    lastActiveShell: user.lastActiveShell === 'BUSINESS' ? 'BUSINESS' : 'PERSONAL',
+  });
   const refresh = signRefresh(user.id);
   return { access, refresh };
 }
@@ -95,10 +113,19 @@ export const authService = {
     const stored = await prisma.refreshToken.findUnique({ where: { token } });
     if (!stored || stored.expiresAt < new Date()) throw new Error('INVALID_REFRESH');
 
-    const rows = await (prisma as any).$queryRaw`
-      SELECT id, "shortId", "fullName", role, "isActive", "lastLoginAt" FROM users WHERE id = ${stored.userId} LIMIT 1
-    `;
-    const user: UserRow | undefined = rows[0];
+    const user = await prisma.user.findUnique({
+      where: { id: stored.userId },
+      select: {
+        id: true,
+        shortId: true,
+        fullName: true,
+        role: true,
+        isActive: true,
+        lastLoginAt: true,
+        accountType: true,
+        lastActiveShell: true,
+      },
+    });
     if (!user || !user.isActive) throw new Error('INVALID_REFRESH');
 
     await prisma.refreshToken.delete({ where: { token } });
@@ -125,6 +152,8 @@ export const authService = {
     shortId: string;
     fullName: string;
     role: string;
+    accountType?: string;
+    lastActiveShell?: 'PERSONAL' | 'BUSINESS';
   }): Promise<{ accessToken: string; refreshToken: string }> {
     const row: UserRow = {
       id: user.id,
@@ -133,6 +162,8 @@ export const authService = {
       role: user.role,
       isActive: true,
       lastLoginAt: null,
+      accountType: user.accountType,
+      lastActiveShell: user.lastActiveShell,
     };
     const { access, refresh } = tokenFor(row);
     await prisma.refreshToken.create({

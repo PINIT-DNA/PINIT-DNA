@@ -38,6 +38,7 @@ const HUB_EXACT = new Set([
   '/pinithub-logo.png',
   '/share',
   '/help',
+  '/open',
 ]);
 
 const HUB_PREFIXES = [
@@ -46,6 +47,7 @@ const HUB_PREFIXES = [
   '/face-auth/',
   '/extension/',
   '/s/',
+  '/p/',
   '/share/',
   '/team/',
   '/onboarding/',

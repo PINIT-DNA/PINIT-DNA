@@ -62,8 +62,21 @@ export function shareViewerPath(token: string): string {
 }
 
 export function hasPinitExtension(fileName: string): boolean {
-  const base = fileName.split(/[/\\]/).pop() ?? fileName;
-  return base.trim().toLowerCase().endsWith('.pinit');
+  const base = (fileName.split(/[/\\]/).pop() ?? fileName).trim().toLowerCase();
+  return base.endsWith('.pinit') || base.endsWith('.pinit.txt');
+}
+
+/**
+ * Name used only for the OS share sheet.
+ * Chrome and Edge refuse to open that sheet for a `.pinit` file.
+ * `name.pinit.txt` is still the same carrier, and the opener accepts it.
+ */
+export function pinitShareSheetFilename(filename: string): string {
+  const base = (filename.split(/[/\\]/).pop() ?? filename).trim() || 'share.pinit';
+  const lower = base.toLowerCase();
+  if (lower.endsWith('.pinit.txt')) return base;
+  if (lower.endsWith('.pinit')) return `${base}.txt`;
+  return `${base}.pinit.txt`;
 }
 
 /** Vault name: keep the file title and replace whatever extension it had with .pinit. */

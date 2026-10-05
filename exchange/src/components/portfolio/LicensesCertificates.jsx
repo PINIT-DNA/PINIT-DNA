@@ -1,7 +1,13 @@
 import React, { useMemo, useState } from 'react';
+// THE canonical certificate — the Hub's own component, not a copy. Exchange only
+// displays what the Hub issued; it never renders a certificate of its own design.
+import { PinitCertificateDocument } from '@pinit/certificate';
 import { BadgeCheck, ChevronLeft, ChevronRight, Download, ExternalLink, FileText, X } from 'lucide-react';
 
 const asArray = (v) => (Array.isArray(v) ? v : []);
+
+/** Where certificates are issued and verified. Exchange never mints one. */
+const HUB_APP_URL = import.meta.env.VITE_HUB_APP_URL || 'https://pinit-dna.vercel.app';
 
 function labelOf(item, ...keys) {
   if (typeof item === 'string') return item;
@@ -107,7 +113,10 @@ export default function LicensesCertificates({
         ...row,
         hub_protected: true,
         human_percent: Number.isFinite(row.human_percent) ? row.human_percent : (Number.isFinite(e.human_percent) ? e.human_percent : null),
-        credential_id: row.credential_id || e.certificate || '',
+        credential_id: row.credential_id || e.certificate_id || '',
+        // The canonical HUB certificate for this asset, and where it verifies.
+        certificate_id: row.certificate_id || e.certificate_id || '',
+        verification_url: row.verification_url || e.verification_url || '',
         fingerprinted: true,
       };
     };
@@ -118,6 +127,8 @@ export default function LicensesCertificates({
       issuer: labelOf(c, 'issuer', 'org') || '',
       year: c.year || c.issuedOn || c.period || '',
       credential_id: c.credential_id || '',
+      certificate_id: c.certificate_id || '',
+      verification_url: c.verification_url || c.verificationUrl || '',
       preview_url: c.preview_url || '',
       hub_protected: Boolean(c.hub_protected),
       human_percent: Number.isFinite(c.human_percent) ? c.human_percent : null,
@@ -312,7 +323,7 @@ export default function LicensesCertificates({
               <h3>Certificate Preview</h3>
               <button type="button" className="pf-clight__x" onClick={() => setPreviewId(null)} aria-label="Close"><X size={16} /></button>
             </div>
-            <div className="pf-clight__stage">
+            <div className={`pf-clight__stage${preview.preview_url ? '' : ' pf-clight__stage--doc'}`}>
               {previewIndex > 0 ? (
                 <button type="button" className="pf-clight__nav pf-clight__nav--l" onClick={() => setPreviewId(visible[previewIndex - 1].id)} aria-label="Previous">
                   <ChevronLeft size={18} />
@@ -321,10 +332,22 @@ export default function LicensesCertificates({
               {preview.preview_url ? (
                 <img src={preview.preview_url} alt="" className="pf-clight__art" />
               ) : (
-                <div className="pf-clight__fallback">
-                  <p>{preview.title}</p>
-                  {preview.issuer ? <span>{preview.issuer}</span> : null}
-                  <em>Artwork is shown here when a certificate document is available.</em>
+                /* No artwork image for this credential, so show the certificate
+                   itself — the same sheet the Hub issues and verifies, rather than a
+                   note about a missing picture. */
+                <div className="pf-clight__doc">
+                <PinitCertificateDocument
+                  title={preview.title}
+                  issuer={preview.issuer || 'Pinit'}
+                  issuedLabel={preview.year || null}
+                  recipientName={displayName || null}
+                  recipientPinitId={id.pinit_id || null}
+                  certificateId={preview.certificate_id || null}
+                  // Verification lives in the Hub, so the QR resolves to the same
+                  // certificate no matter which app drew the sheet.
+                  verifyBaseUrl={HUB_APP_URL}
+                  subtitle={preview.kind === 'award' ? 'RECOGNITION' : 'PROTECTED ASSET'}
+                />
                 </div>
               )}
               {previewIndex >= 0 && previewIndex < visible.length - 1 ? (
@@ -338,7 +361,11 @@ export default function LicensesCertificates({
               {displayName ? <div><dt>Recipient</dt><dd>{displayName}</dd></div> : null}
               {preview.issuer ? <div><dt>Issuer</dt><dd>{preview.issuer}</dd></div> : null}
               {preview.year ? <div><dt>Issue date</dt><dd>{preview.year}</dd></div> : null}
-              {preview.credential_id ? <div><dt>Credential ID</dt><dd>{preview.credential_id}</dd></div> : null}
+              {preview.certificate_id
+                ? <div><dt>Certificate ID</dt><dd>{preview.certificate_id}</dd></div>
+                : preview.credential_id
+                  ? <div><dt>Credential ID</dt><dd>{preview.credential_id}</dd></div>
+                  : null}
             </dl>
             <div className="pf-clight__act">
               <button type="button" className="pf-btn" onClick={() => setPreviewId(null)}>Close</button>

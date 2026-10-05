@@ -48,6 +48,7 @@ export const authController = {
       name?: string;
       role?: string;
       accountType?: string;
+      lastActiveShell?: 'PERSONAL' | 'BUSINESS';
     } }).user;
     if (!payload?.sub) {
       res.status(401).json({ success: false, error: 'Unauthorized' });
@@ -63,6 +64,7 @@ export const authController = {
           role: true,
           isActive: true,
           accountType: true,
+          lastActiveShell: true,
           ownedOrganization: { select: { id: true, setupCompletedAt: true } },
         },
       });
@@ -71,6 +73,7 @@ export const authController = {
         return;
       }
       const accountType = user.accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL';
+      const lastActiveShell = user.lastActiveShell === 'BUSINESS' ? 'BUSINESS' : 'PERSONAL';
       res.json({
         success: true,
         data: {
@@ -79,6 +82,7 @@ export const authController = {
           name: user.fullName,
           role: user.role,
           accountType,
+          lastActiveShell,
           capabilities: {
             buyer_enabled: true,
             can_purchase: true,
@@ -92,6 +96,7 @@ export const authController = {
         success: true,
         data: {
           ...payload,
+          lastActiveShell: payload.lastActiveShell === 'BUSINESS' ? 'BUSINESS' : 'PERSONAL',
           capabilities: {
             buyer_enabled: true,
             can_purchase: true,
@@ -99,6 +104,42 @@ export const authController = {
           },
         },
       });
+    }
+  },
+
+  async updateActiveShell(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = getAuthUserId(req);
+      const shell = (req.body as { shell?: string } | undefined)?.shell;
+      if (shell !== 'PERSONAL' && shell !== 'BUSINESS') {
+        res.status(400).json({ success: false, error: 'Invalid shell type' });
+        return;
+      }
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        select: { accountType: true, isActive: true },
+      });
+      if (!user?.isActive) {
+        res.status(401).json({ success: false, error: 'Session is no longer valid' });
+        return;
+      }
+      if (shell === 'BUSINESS' && user.accountType !== 'BUSINESS') {
+        const sub = await prisma.subscription.findUnique({
+          where: { userId },
+          include: { plan: true },
+        });
+        if (sub?.plan?.code !== 'ENTERPRISE') {
+          res.status(403).json({ success: false, error: 'Business workspace is not available on this account' });
+          return;
+        }
+      }
+      await prisma.user.update({
+        where: { id: userId },
+        data: { lastActiveShell: shell },
+      });
+      res.json({ success: true, lastActiveShell: shell });
+    } catch (err) {
+      next(err);
     }
   },
 

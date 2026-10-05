@@ -14,9 +14,11 @@ import {
   Ban,
   Send,
   Copy,
+  Briefcase,
   Check,
   MapPin,
   ArrowLeft,
+  Sparkles,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import {
@@ -32,6 +34,8 @@ import { API_BASE_URL } from '../config/api.config';
 import { formatDistanceToNow } from 'date-fns';
 import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/maps/DashboardFilesMap';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
+import { ShareSectionGuide } from '../components/nav/ShareSectionGuide';
+import { getOwnerActivity, type ActivityEvent } from '../services/tracking.api';
 
 interface ShareLink {
   id: string;
@@ -45,6 +49,7 @@ interface ShareLink {
   downloadCount: number;
   maxViews: number | null;
   expiresAt: string | null;
+  linkType?: string | null;
   sourceContext?: string | null;
   exchangeOrderId?: string | null;
   exchangeSealId?: string | null;
@@ -69,7 +74,7 @@ interface ShareLink {
   }>;
 }
 
-type TrackingTab = 'links' | 'files';
+type TrackingTab = 'links' | 'files' | 'living' | 'exchange' | 'portfolio';
 
 export function AccessIntelligencePage() {
   const [tab, setTab] = useState<TrackingTab>('links');
@@ -85,6 +90,8 @@ export function AccessIntelligencePage() {
   const [loadError, setLoadError] = useState('');
   const [assetMap, setAssetMap] = useState<DashboardFileMapPoint[]>([]);
   const [vaultTrack, setVaultTrack] = useState<VaultTrackingDashboard | null>(null);
+  const [portfolioEvents, setPortfolioEvents] = useState<ActivityEvent[]>([]);
+  const [loadingPortfolio, setLoadingPortfolio] = useState(false);
 
   const loadLinks = () => {
     setLoading(true);
@@ -116,7 +123,19 @@ export function AccessIntelligencePage() {
   useEffect(() => {
     loadLinks();
     loadFileShares();
-  }, []);
+    setLoadingPortfolio(true);
+    getOwnerActivity()
+      .then(({ files: rows }) => {
+        const events = rows.flatMap((f) =>
+          (vaultFilter && !f.vaultIds.includes(vaultFilter) ? [] : f.events).filter((e) =>
+            e.type === 'PORTFOLIO_VIEWED' || e.type === 'PORTFOLIO_ADDED' || e.type === 'PORTFOLIO_PUBLISHED',
+          ),
+        );
+        setPortfolioEvents(events);
+      })
+      .catch(() => setPortfolioEvents([]))
+      .finally(() => setLoadingPortfolio(false));
+  }, [vaultFilter]);
 
   useEffect(() => {
     if (!vaultFilter) {
@@ -153,17 +172,21 @@ export function AccessIntelligencePage() {
     [fileShares, vaultFilter],
   );
 
-  const activeLinks = filteredLinks.filter((l) => l.isActive);
-  const totalViews = filteredLinks.reduce((s, l) => s + (l.activityStats?.views ?? l.viewCount ?? 0), 0);
-  const uniqueCountries = new Set(filteredLinks.flatMap((l) => l.activityStats?.countries ?? []));
-  const securityEvents = filteredLinks.reduce(
+  const livingLinks = filteredLinks.filter((l) => l.linkType === 'LIVING');
+  const exchangeLinks = filteredLinks.filter((l) => l.sourceContext === 'exchange_license');
+  const hubLinks = filteredLinks.filter(
+    (l) => l.linkType !== 'LIVING' && l.sourceContext !== 'exchange_license',
+  );
+  const activeLinks = hubLinks.filter((l) => l.isActive);
+  const totalViews = hubLinks.reduce((s, l) => s + (l.activityStats?.views ?? l.viewCount ?? 0), 0);
+  const uniqueCountries = new Set(hubLinks.flatMap((l) => l.activityStats?.countries ?? []));
+  const securityEvents = hubLinks.reduce(
     (s, l) => s + (l.activityStats?.securityEvents ?? 0),
     0,
   );
-  const uniqueViewersCount = filteredLinks.reduce((s, l) => s + (l.activityStats?.uniqueViewers ?? 0), 0);
+  const uniqueViewersCount = hubLinks.reduce((s, l) => s + (l.activityStats?.uniqueViewers ?? 0), 0);
 
   const openFileShares = filteredFileShares.filter((s) => s.kind === 'file_open' && s.token);
-  const exchangeLinks = filteredLinks.filter((l) => l.sourceContext === 'exchange_license');
   const exchangeCtx = exchangeLinks[0] ?? null;
   const activeFiles = openFileShares.filter((s) => s.status === 'ACTIVE');
   const totalFileViews = openFileShares.reduce((s, f) => s + (f.viewCount ?? 0), 0);
@@ -231,9 +254,9 @@ export function AccessIntelligencePage() {
     toast.error('No activity view for this item — use a Pinit open Share File row');
   };
 
-  const busy = tab === 'links' ? loading : loadingFiles;
+  const busy = tab === 'files' ? loadingFiles : tab === 'portfolio' ? loadingPortfolio : loading;
 
-  if (busy && (tab === 'links' ? links.length === 0 : fileShares.length === 0) && !loadError) {
+  if (busy && ((tab === 'files' && fileShares.length === 0) || (tab !== 'files' && links.length === 0)) && !loadError) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <RefreshCw size={24} className="animate-spin text-dna-400" />
@@ -243,10 +266,11 @@ export function AccessIntelligencePage() {
 
   return (
     <div className="page-shell w-full max-w-5xl">
-      <div className="flex items-end justify-end mb-6 gap-3">
+      <ShareSectionGuide current="sharing" />
+      <div className="flex items-end justify-end mb-6 gap-3 mt-4">
         <button
           type="button"
-          onClick={() => (tab === 'links' ? loadLinks() : loadFileShares())}
+          onClick={() => (tab === 'files' ? loadFileShares() : loadLinks())}
           className="p-2 rounded-lg border border-bg-border text-gray-400 hover:text-white hover:border-dna-500/40 transition-colors shrink-0"
           title="Refresh"
         >
@@ -293,7 +317,12 @@ export function AccessIntelligencePage() {
                 <p className="text-2xs text-gray-400">
                   Protected
                   {vaultTrack?.status ? ` · ${vaultTrack.status}` : ''}
-                  {activeLinks.length > 0 ? ' · Sharing active' : ' · No live share'}
+                  {activeLinks.length > 0
+                    || openFileShares.some((s) => s.status === 'ACTIVE')
+                    || livingLinks.some((l) => l.isActive)
+                    || exchangeLinks.some((l) => l.isActive)
+                    ? ' · Sharing active'
+                    : ' · No live share'}
                 </p>
               </div>
             </div>
@@ -335,13 +364,13 @@ export function AccessIntelligencePage() {
         </div>
       )}
 
-      <div className="flex gap-2 mb-5">
+      <div className="flex flex-wrap gap-2 mb-5">
         <TabButton
           active={tab === 'links'}
           onClick={() => setTab('links')}
           icon={<Shield size={13} />}
-          label="Share Links"
-          count={filteredLinks.length}
+          label="Asset links"
+          count={hubLinks.length}
         />
         <TabButton
           active={tab === 'files'}
@@ -350,19 +379,40 @@ export function AccessIntelligencePage() {
           label="Share Files"
           count={openFileShares.length}
         />
+        <TabButton
+          active={tab === 'living'}
+          onClick={() => setTab('living')}
+          icon={<Sparkles size={13} />}
+          label="Living pages"
+          count={livingLinks.length}
+        />
+        <TabButton
+          active={tab === 'exchange'}
+          onClick={() => setTab('exchange')}
+          icon={<Globe size={13} />}
+          label="Exchange licensed"
+          count={exchangeLinks.length}
+        />
+        <TabButton
+          active={tab === 'portfolio'}
+          onClick={() => setTab('portfolio')}
+          icon={<Briefcase size={13} />}
+          label="Portfolio"
+          count={portfolioEvents.length}
+        />
       </div>
 
-      {tab === 'links' ? (
+      {tab === 'links' && (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
             <StatCard icon={<Users size={14} />} label="Viewers" value={uniqueViewersCount} color="text-cyan-400" />
             <StatCard icon={<Eye size={14} />} label="Views" value={totalViews} color="text-blue-400" />
-            <StatCard icon={<Clock size={14} />} label="Downloads" value={filteredLinks.reduce((s, l) => s + (l.activityStats?.downloads ?? l.downloadCount ?? 0), 0)} color="text-green-400" />
+            <StatCard icon={<Clock size={14} />} label="Downloads" value={hubLinks.reduce((s, l) => s + (l.activityStats?.downloads ?? l.downloadCount ?? 0), 0)} color="text-green-400" />
             <StatCard icon={<AlertTriangle size={14} />} label="Security events" value={securityEvents} color="text-orange-400" />
             <StatCard icon={<Globe size={14} />} label="Countries" value={uniqueCountries.size} color="text-orange-400" />
           </div>
 
-          {filteredLinks.length === 0 ? (
+          {hubLinks.length === 0 ? (
             <div className="card text-center py-16">
               <Shield size={40} className="text-gray-500 mx-auto mb-3" />
               <p className="text-sm text-gray-500">
@@ -371,12 +421,12 @@ export function AccessIntelligencePage() {
               <p className="text-2xs text-gray-500 mt-1">
                 {vaultFilter
                   ? 'Activity will appear here when someone accesses or interacts with your shared asset.'
-                  : 'Create a secure link to share an asset.'}
+                  : 'Create a secure link to share an asset. Exchange licenses, living pages, files, and portfolio stay in their own tabs.'}
               </p>
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredLinks
+              {hubLinks
                 .slice()
                 .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
                 .map((link) => {
@@ -398,11 +448,6 @@ export function AccessIntelligencePage() {
                           <div className="flex items-center gap-2 mb-1">
                             <span className={`w-2 h-2 rounded-full ${link.isActive ? 'bg-green-400' : 'bg-gray-500'}`} />
                             <p className="text-sm font-semibold text-white truncate">{link.filename}</p>
-                            {link.sourceContext === 'exchange_license' && (
-                              <span className="text-2xs text-dna-300 bg-dna-500/15 px-1.5 py-0.5 rounded">
-                                Exchange licensed delivery
-                              </span>
-                            )}
                             {hasRisk && (
                               <span className="flex items-center gap-1 text-2xs text-red-400 bg-red-500/20 px-1.5 py-0.5 rounded">
                                 <AlertTriangle size={9} /> Risk
@@ -469,7 +514,182 @@ export function AccessIntelligencePage() {
             </div>
           )}
         </>
-      ) : (
+      )}
+      {tab === 'exchange' && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <StatCard icon={<Globe size={14} />} label="Licensed deliveries" value={exchangeLinks.length} color="text-dna-400" />
+            <StatCard icon={<Eye size={14} />} label="Views" value={exchangeLinks.reduce((s, l) => s + (l.activityStats?.views ?? l.viewCount ?? 0), 0)} color="text-blue-400" />
+            <StatCard icon={<Users size={14} />} label="Viewers" value={exchangeLinks.reduce((s, l) => s + (l.activityStats?.uniqueViewers ?? 0), 0)} color="text-cyan-400" />
+            <StatCard icon={<Globe size={14} />} label="Countries" value={new Set(exchangeLinks.flatMap((l) => l.activityStats?.countries ?? [])).size} color="text-orange-400" />
+          </div>
+          {exchangeLinks.length === 0 ? (
+            <div className="card text-center py-16">
+              <Globe size={40} className="text-gray-500 mx-auto mb-3" />
+              <p className="text-sm text-gray-500">No Exchange licensed deliveries yet</p>
+              <p className="text-2xs text-gray-500 mt-1">When a buyer receives a licensed file from Pinit Exchange, that share is tracked here — not mixed with Hub asset links.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {exchangeLinks
+                .slice()
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .map((link) => {
+                  const stats = link.activityStats;
+                  const lastAccessAt = stats?.lastActivityAt ?? null;
+                  return (
+                    <button
+                      key={link.id}
+                      type="button"
+                      onClick={() => navigate(`/access-intelligence/${encodeURIComponent(link.token)}`)}
+                      className="w-full text-left card hover:border-dna-500/30 transition-all group"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`w-2 h-2 rounded-full ${link.isActive ? 'bg-green-400' : 'bg-gray-500'}`} />
+                            <p className="text-sm font-semibold text-white truncate">{link.filename}</p>
+                            <span className="text-2xs text-dna-300 bg-dna-500/15 px-1.5 py-0.5 rounded">
+                              {link.licenseTier || 'Licensed'}
+                            </span>
+                          </div>
+                          <p className="text-2xs text-gray-500 mb-2">
+                            Licensed {formatDistanceToNow(new Date(link.createdAt))} ago
+                            {link.isActive ? ' · Live' : ' · Stopped'}
+                            {link.exchangeOrderId ? ` · Order ${link.exchangeOrderId}` : ''}
+                          </p>
+                          <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
+                            <span className="flex items-center gap-1">
+                              <Eye size={10} className="text-blue-400" />
+                              {stats?.views ?? link.viewCount} view{(stats?.views ?? link.viewCount) !== 1 ? 's' : ''}
+                            </span>
+                            {lastAccessAt && (
+                              <span className="flex items-center gap-1">
+                                <Clock size={10} />
+                                Last: {formatDistanceToNow(new Date(lastAccessAt))} ago
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors" />
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
+          )}
+        </>
+      )}
+      {tab === 'portfolio' && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+            <StatCard icon={<Briefcase size={14} />} label="Portfolio events" value={portfolioEvents.length} color="text-cyan-400" />
+            <StatCard icon={<Eye size={14} />} label="Views" value={portfolioEvents.filter((e) => e.type === 'PORTFOLIO_VIEWED').length} color="text-blue-400" />
+            <StatCard icon={<Globe size={14} />} label="Published" value={portfolioEvents.filter((e) => e.type === 'PORTFOLIO_PUBLISHED').length} color="text-green-400" />
+          </div>
+          {portfolioEvents.length === 0 ? (
+            <div className="card text-center py-16">
+              <Briefcase size={40} className="text-gray-500 mx-auto mb-3" />
+              <p className="text-sm text-gray-500">No portfolio shares yet</p>
+              <p className="text-2xs text-gray-500 mt-1">Publishing or sharing your public portfolio is tracked here, separate from asset links and living pages.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {portfolioEvents
+                .slice()
+                .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
+                .map((ev) => (
+                  <button
+                    key={ev.id}
+                    type="button"
+                    onClick={() => navigate('/profile?tab=portfolio')}
+                    className="w-full text-left card hover:border-dna-500/30 transition-all group"
+                  >
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="w-2 h-2 rounded-full bg-cyan-400" />
+                          <p className="text-sm font-semibold text-white truncate">{ev.title}</p>
+                          <span className="text-2xs text-cyan-300 bg-cyan-500/15 px-1.5 py-0.5 rounded">Portfolio</span>
+                        </div>
+                        <p className="text-2xs text-gray-500">
+                          {ev.detail || ev.type.replace(/_/g, ' ').toLowerCase()}
+                          {' · '}
+                          {formatDistanceToNow(new Date(ev.at))} ago
+                        </p>
+                      </div>
+                      <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors" />
+                    </div>
+                  </button>
+                ))}
+            </div>
+          )}
+        </>
+      )}
+      {tab === 'living' && (
+        <>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+            <StatCard icon={<Sparkles size={14} />} label="Living pages" value={livingLinks.length} color="text-violet-400" />
+            <StatCard icon={<Eye size={14} />} label="Views" value={livingLinks.reduce((s, l) => s + (l.activityStats?.views ?? l.viewCount ?? 0), 0)} color="text-blue-400" />
+            <StatCard icon={<Users size={14} />} label="Viewers" value={livingLinks.reduce((s, l) => s + (l.activityStats?.uniqueViewers ?? 0), 0)} color="text-cyan-400" />
+            <StatCard icon={<Globe size={14} />} label="Countries" value={new Set(livingLinks.flatMap((l) => l.activityStats?.countries ?? [])).size} color="text-orange-400" />
+          </div>
+          {livingLinks.length === 0 ? (
+            <div className="card text-center py-16">
+              <Sparkles size={40} className="text-gray-500 mx-auto mb-3" />
+              <p className="text-sm text-gray-500">No living pages shared yet</p>
+              <p className="text-2xs text-gray-500 mt-1">Use Share on a Living Asset to send a read-only story page. Opens are tracked here, separate from file and link shares.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {livingLinks
+                .slice()
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .map((link) => {
+                  const stats = link.activityStats;
+                  const lastAccessAt = stats?.lastActivityAt ?? null;
+                  return (
+                    <button
+                      key={link.id}
+                      type="button"
+                      onClick={() => navigate(`/access-intelligence/${encodeURIComponent(link.token)}`)}
+                      className="w-full text-left card hover:border-dna-500/30 transition-all group"
+                    >
+                      <div className="flex items-start justify-between gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className={`w-2 h-2 rounded-full ${link.isActive ? 'bg-green-400' : 'bg-gray-500'}`} />
+                            <p className="text-sm font-semibold text-white truncate">{link.filename}</p>
+                            <span className="text-2xs text-violet-300 bg-violet-500/15 px-1.5 py-0.5 rounded">Living page</span>
+                          </div>
+                          <p className="text-2xs text-gray-500 mb-2">
+                            Shared {formatDistanceToNow(new Date(link.createdAt))} ago
+                            {link.isActive ? ' · Live' : ' · Stopped'}
+                            {' · '}read-only story
+                          </p>
+                          <div className="flex items-center gap-4 text-2xs text-gray-500 flex-wrap">
+                            <span className="flex items-center gap-1">
+                              <Eye size={10} className="text-blue-400" />
+                              {stats?.views ?? link.viewCount} view{(stats?.views ?? link.viewCount) !== 1 ? 's' : ''}
+                            </span>
+                            {lastAccessAt && (
+                              <span className="flex items-center gap-1">
+                                <Clock size={10} />
+                                Last: {formatDistanceToNow(new Date(lastAccessAt))} ago
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight size={14} className="text-gray-600 group-hover:text-dna-400 transition-colors" />
+                      </div>
+                    </button>
+                  );
+                })}
+            </div>
+          )}
+        </>
+      )}
+      {tab === 'files' && (
         <>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
             <StatCard icon={<Send size={14} />} label="File shares" value={openFileShares.length} color="text-dna-400" />
@@ -483,7 +703,7 @@ export function AccessIntelligencePage() {
               <Send size={40} className="text-gray-500 mx-auto mb-3" />
               <p className="text-sm text-gray-500">No shares yet</p>
               <p className="text-2xs text-gray-500 mt-1">
-                Create a secure link to share an asset.
+                Create a Share File package to send the protected file itself. That trail stays here, not on Asset links.
               </p>
             </div>
           ) : (

@@ -26,15 +26,25 @@ interface CachedPreview {
 const thumbCache = new Map<string, CachedPreview>();
 const inflight = new Map<string, Promise<CachedPreview>>();
 
-async function loadVaultPreview(vaultId: string, declaredMime: string, fileName: string): Promise<CachedPreview> {
-  const cached = thumbCache.get(vaultId);
+function previewCacheKey(vaultId: string, original: boolean) {
+  return original ? `${vaultId}:original` : `${vaultId}:thumb`;
+}
+
+async function loadVaultPreview(
+  vaultId: string,
+  declaredMime: string,
+  fileName: string,
+  original: boolean,
+): Promise<CachedPreview> {
+  const key = previewCacheKey(vaultId, original);
+  const cached = thumbCache.get(key);
   if (cached) return cached;
 
-  const pending = inflight.get(vaultId);
+  const pending = inflight.get(key);
   if (pending) return pending;
 
   const promise = runVaultPreviewQueued(() =>
-    withVaultPreviewRetry(() => previewVaultFile(vaultId, { thumb: true })),
+    withVaultPreviewRetry(() => previewVaultFile(vaultId, { thumb: !original })),
   )
     .then(async blob => {
       const effectiveMime = resolveVaultFileMime(blob.type, declaredMime, fileName);
@@ -52,14 +62,14 @@ async function loadVaultPreview(vaultId: string, declaredMime: string, fileName:
       }
 
       const entry: CachedPreview = { url, effectiveMime, textSnippet, blob: typedBlob };
-      thumbCache.set(vaultId, entry);
+      thumbCache.set(key, entry);
       return entry;
     })
     .finally(() => {
-      inflight.delete(vaultId);
+      inflight.delete(key);
     });
 
-  inflight.set(vaultId, promise);
+  inflight.set(key, promise);
   return promise;
 }
 
@@ -68,7 +78,18 @@ interface VaultFileThumbnailProps {
   fileName: string;
   mimeType: string;
   variant?: 'compact' | 'gallery';
+  /** Gallery grid uses a small JPEG. Living-asset hero should request the original bytes. */
+  quality?: 'thumb' | 'original';
+  /** Cover fills a cinematic frame; contain shows the full original. */
+  fit?: 'cover' | 'contain';
+  /**
+   * Living-asset hero: wrap the real image height (capped by max-height) instead of
+   * filling a tall fixed box. Gallery tiles should omit this and keep cover-fill.
+   */
+  sizeToImage?: boolean;
   className?: string;
+  /** Public share file URL — used for read-only living page (no owner vault preview). */
+  publicFileUrl?: string;
 }
 
 export function VaultFileThumbnail({
@@ -76,11 +97,18 @@ export function VaultFileThumbnail({
   fileName,
   mimeType,
   variant = 'compact',
+  quality = 'thumb',
+  fit,
+  sizeToImage = false,
   className,
+  publicFileUrl,
 }: VaultFileThumbnailProps) {
+  const original = quality === 'original';
+  const objectFit = fit ?? (original ? 'contain' : 'cover');
+  const cacheKey = previewCacheKey(vaultId, original);
   const rootRef = useRef<HTMLDivElement>(null);
   const [visible, setVisible] = useState(true);
-  const [preview, setPreview] = useState<CachedPreview | null>(() => thumbCache.get(vaultId) ?? null);
+  const [preview, setPreview] = useState<CachedPreview | null>(() => thumbCache.get(cacheKey) ?? null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const [imgError, setImgError] = useState(false);
@@ -93,9 +121,16 @@ export function VaultFileThumbnail({
 
   const frameClass = className ?? (
     variant === 'gallery'
-      ? 'absolute inset-0 w-full h-full'
+      ? (sizeToImage ? 'relative w-full' : 'absolute inset-0 w-full h-full')
       : 'w-10 h-10 rounded-lg shrink-0'
   );
+  const fillMedia = `w-full h-full object-center ${objectFit === 'cover' ? 'object-cover' : 'object-contain bg-neutral-950'}`;
+  const naturalMedia = 'mx-auto block max-h-[min(60vh,36rem)] max-w-full w-auto h-auto object-contain object-center';
+  const mediaClass = sizeToImage ? naturalMedia : fillMedia;
+  /** Images supply their own height; PDF/HTML/DOCX iframes are absolute and collapse without this. */
+  const documentHeroClass = sizeToImage
+    ? `${frameClass} h-[min(70vh,42rem)] min-h-[24rem]`
+    : frameClass;
 
   useEffect(() => {
     const el = rootRef.current;
@@ -130,7 +165,7 @@ export function VaultFileThumbnail({
     setFailed(false);
     setImgError(false);
     setVideoError(false);
-  }, [fileName, vaultId]);
+  }, [fileName, vaultId, cacheKey]);
 
   useEffect(() => {
     if (!visible || !shouldLoad || preview || failed) return;
@@ -138,7 +173,22 @@ export function VaultFileThumbnail({
     let cancelled = false;
     setLoading(true);
 
-    loadVaultPreview(vaultId, mimeType, fileName)
+    const loader = publicFileUrl
+      ? fetch(publicFileUrl)
+          .then(async (res) => {
+            if (!res.ok) throw new Error('preview unavailable');
+            const blob = await res.blob();
+            const effectiveMime = resolveVaultFileMime(blob.type, mimeType, fileName);
+            const typedBlob = new Blob([blob], { type: effectiveMime });
+            return {
+              url: URL.createObjectURL(typedBlob),
+              effectiveMime,
+              blob: typedBlob,
+            } satisfies CachedPreview;
+          })
+      : loadVaultPreview(vaultId, mimeType, fileName, original);
+
+    loader
       .then(entry => {
         if (!cancelled) setPreview(entry);
       })
@@ -152,7 +202,7 @@ export function VaultFileThumbnail({
     return () => {
       cancelled = true;
     };
-  }, [visible, shouldLoad, vaultId, mimeType, fileName, preview, failed]);
+  }, [visible, shouldLoad, vaultId, mimeType, fileName, preview, failed, original, publicFileUrl]);
 
   useEffect(() => {
     if (!preview || !isDocxMime(preview.effectiveMime, fileName) || variant !== 'gallery' || !docxRef.current) return;
@@ -171,8 +221,8 @@ export function VaultFileThumbnail({
   }, [preview, fileName, variant]);
 
   const retry = () => {
-    thumbCache.delete(vaultId);
-    inflight.delete(vaultId);
+    thumbCache.delete(cacheKey);
+    inflight.delete(cacheKey);
     setFailed(false);
     setImgError(false);
     setVideoError(false);
@@ -187,7 +237,7 @@ export function VaultFileThumbnail({
 
   const fallback = (
     <div
-      className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1.5 ${variant === 'gallery' ? 'p-4' : ''}`}
+      className={`relative ${isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1.5 ${variant === 'gallery' ? 'p-4' : ''}`}
       title={fileName}
     >
       <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
@@ -211,7 +261,7 @@ export function VaultFileThumbnail({
 
   if (!shouldLoad) {
     return (
-      <div ref={rootRef} className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1`}>
+      <div ref={rootRef} className={`relative ${isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1`}>
         <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
         {lockBadge}
       </div>
@@ -226,7 +276,7 @@ export function VaultFileThumbnail({
     return (
       <div
         ref={rootRef}
-        className={`relative ${frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
+        className={`relative ${shouldLoad && (isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName)) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
         title={fileName}
       >
         {loading ? (
@@ -247,8 +297,8 @@ export function VaultFileThumbnail({
         <img
           src={url}
           alt=""
-          className="w-full h-full object-cover pinit-protected-media"
-          loading="lazy"
+          className={`pinit-protected-media ${mediaClass}`}
+          loading={original ? 'eager' : 'lazy'}
           decoding="async"
           draggable={false}
           onDragStart={(e) => e.preventDefault()}
@@ -265,7 +315,7 @@ export function VaultFileThumbnail({
       <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-black`} title={fileName}>
         <video
           src={url}
-          className="w-full h-full object-cover"
+          className={mediaClass}
           muted
           playsInline
           preload="metadata"
@@ -286,11 +336,11 @@ export function VaultFileThumbnail({
 
   if (isPdfMime(effectiveMime, fileName)) {
     return (
-      <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
+      <div ref={rootRef} className={`relative ${documentHeroClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
         <iframe
-          src={`${url}#page=1&toolbar=0&navpanes=0&view=FitH`}
+          src={`${url}#page=1&view=FitH`}
           title={fileName}
-          className="absolute inset-0 w-full h-full border-0 pointer-events-none bg-white"
+          className={`absolute inset-0 w-full h-full border-0 bg-white ${sizeToImage ? '' : 'pointer-events-none'}`}
         />
         <div className="absolute top-0 left-0 right-0 bg-red-500/90 text-white text-2xs font-bold px-2 py-0.5 z-[1]">
           PDF
@@ -302,7 +352,7 @@ export function VaultFileThumbnail({
 
   if (isHtmlMime(effectiveMime, fileName)) {
     return (
-      <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
+      <div ref={rootRef} className={`relative ${documentHeroClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
         <iframe
           src={url}
           title={fileName}
@@ -342,7 +392,7 @@ export function VaultFileThumbnail({
   if (isDocxMime(effectiveMime, fileName)) {
     if (variant === 'gallery') {
       return (
-        <div ref={rootRef} className={`relative ${frameClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
+        <div ref={rootRef} className={`relative ${documentHeroClass} overflow-hidden border border-bg-border bg-white`} title={fileName}>
           <div
             ref={docxRef}
             className="absolute inset-0 overflow-hidden pointer-events-none scale-[0.35] origin-top-left w-[285%] h-[285%] text-black"

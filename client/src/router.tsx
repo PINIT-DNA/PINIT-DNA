@@ -4,6 +4,7 @@ import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { OnboardingLayout } from './layouts/OnboardingLayout';
 import { GeneratePage } from './pages/GeneratePage';
 import { VaultPage } from './pages/VaultPage';
+import { VaultAssetStoryPage } from './pages/VaultAssetStoryPage';
 import { VaultSharePage } from './pages/VaultSharePage';
 import { VaultShareManagePage } from './pages/VaultShareManagePage';
 import { DnaRecordsPage } from './pages/DNARecordsPage';
@@ -49,6 +50,7 @@ import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAcc
 import { BRAND } from './config/brand.config';
 import { ShareViewerPage } from './pages/ShareViewerPage';
 import { OpenPinitPage } from './pages/OpenPinitPage';
+import { HubPortfolioPage } from './pages/HubPortfolioPage';
 import { HelpPage } from './pages/HelpPage';
 import { HandoverPage } from './pages/HandoverPage';
 import { ClientReportPage } from './pages/ClientReportPage';
@@ -83,6 +85,7 @@ export const router = createBrowserRouter([
   },
 
   // ── Public share viewer ───────────────────────────────────────────────────
+  { path: '/s/:token/live', element: <VaultAssetStoryPage /> },
   // .pinit opener. Public, like the viewer. It only reads a carrier and
   // navigates to /s/:token — it does not authorize or track on its own.
   { path: '/open', element: <OpenPinitPage /> },
@@ -92,6 +95,7 @@ export const router = createBrowserRouter([
   { path: '/handover/:token', element: <HandoverPage /> },
   // Public too — the report token is the authority, and the page sends no auth.
   { path: '/client-report/:token', element: <ClientReportPage /> },
+  { path: '/p/:slug', element: <HubPortfolioPage /> },
   // Public by design: a certificate's whole purpose is that someone who did not
   // issue it can confirm it. The backend has always served
   // GET /certificates/verify/:id unauthenticated; only this route was left inside
@@ -146,6 +150,7 @@ export const router = createBrowserRouter([
       { path: 'my-assets', element: <Navigate to="/vault" replace /> },
       { path: 'vault/assets/:assetId/share', element: <VaultSharePage /> },
       { path: 'vault/assets/:assetId/shares/:shareId', element: <VaultShareManagePage /> },
+      { path: 'vault/:vaultId', element: <VaultAssetStoryPage /> },
       { path: 'vault-integrity', element: <VaultIntegrityPage /> },
       { path: 'dna-records', element: <DnaRecordsPage /> },
       { path: 'reports', element: <ReportsPage /> },

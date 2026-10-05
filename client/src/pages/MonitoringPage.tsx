@@ -786,7 +786,7 @@ export function MonitoringPage() {
               description={
                 monitoringLive
                   ? 'Protect an asset, then enroll it here to watch for copies online.'
-                  : 'Online crawlers (YouTube · Reddit · web) stay off until the monitoring build is ready. Your protected files and DNA are unaffected.'
+                  : 'Online crawlers (YouTube · Reddit · web) stay off until the monitoring build is ready. Your protected assets and DNA are unaffected.'
               }
               action={
                 monitoringLive

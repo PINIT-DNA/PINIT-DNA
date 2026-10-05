@@ -63,6 +63,8 @@ async function onServerReady(): Promise<void> {
   if (isCrawlerEngineEnabled()) {
     crawlerEngineService.start();
     logger.info('Crawler Engine Phase 1 started');
+  } else {
+    logger.info('Crawler engine idle — set CRAWLER_ENGINE_ENABLED=true when Watch crawler is ready');
   }
 
   const { isMonitoringCrawlerEnabled, monitoringService } = await import('./services/crawler/monitoring.service');
@@ -73,6 +75,8 @@ async function onServerReady(): Promise<void> {
       );
     }, 12_000);
     logger.info('Auto-crawler enabled — CONTINUOUS scans every 2 min when due');
+  } else {
+    logger.info('Auto-crawler off — Hub API will not scan in the background');
   }
 
   const aiPort = parseInt(process.env['AI_SERVICE_PORT'] ?? '8001', 10);

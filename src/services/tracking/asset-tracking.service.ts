@@ -36,6 +36,9 @@ export interface TrackedAssetRow {
     shares: number;
     reshares: number;
     shareViews: number;
+    livingPages: number;
+    livingViews: number;
+    fileShares: number;
     screenshotAttempts: number;
     certificateChecks: Count;
     portfolioViews: Count;
@@ -57,6 +60,8 @@ export interface TrackedShare {
   forwardedByLabel: string | null;
   /** Created by an Exchange purchase rather than by the owner sharing. */
   fromExchange: boolean;
+  /** PARENT = Hub link, FILE = raw file open, LIVING = living page. */
+  linkType: string;
   views: number;
   downloads: number;
   screenshotAttempts: number;
@@ -99,6 +104,17 @@ export interface AssetTrackingReport {
   portfolio: { shown: boolean; views: Count };
   monitoring: { status: string; foundOnline: number; lastDiscoveryAt: Date | null };
   evidence: { records: number; investigations: number };
+  /** Opened cases and evidence packs for this file — more useful here than the single certificate. */
+  reports: Array<{
+    id: string;
+    kind: 'investigation' | 'evidence';
+    title: string;
+    detail: string;
+    status: string | null;
+    severity: string | null;
+    code: string;
+    at: Date;
+  }>;
   /** Channels whose data could not be read, so the UI can say so instead of showing 0. */
   unavailable: string[];
 }
@@ -150,12 +166,21 @@ export async function listTrackedAssets(
             a."lastDiscoveryAt",
             a."discoveriesCount",
             (SELECT COUNT(*) FROM share_links s
-              WHERE ${LINK_MATCHES_ASSET} AND s."parentLinkId" IS NULL)     AS shares,
+              WHERE ${LINK_MATCHES_ASSET} AND s."parentLinkId" IS NULL
+                AND COALESCE(s."linkType", 'PARENT') = 'PARENT')                 AS shares,
             (SELECT COUNT(*) FROM share_links s
-              WHERE ${LINK_MATCHES_ASSET} AND s."parentLinkId" IS NOT NULL) AS reshares,
+              WHERE ${LINK_MATCHES_ASSET} AND s."parentLinkId" IS NOT NULL)     AS reshares,
+            (SELECT COUNT(*) FROM share_links s
+              WHERE ${LINK_MATCHES_ASSET} AND s."linkType" = 'LIVING')          AS living_pages,
+            (SELECT COUNT(*) FROM share_links s
+              WHERE ${LINK_MATCHES_ASSET} AND s."linkType" = 'FILE')            AS file_shares,
             (SELECT COUNT(*) FROM share_access_logs l
                JOIN share_links s ON s.id = l."shareLinkId"
               WHERE ${LINK_MATCHES_ASSET} AND l.action = 'VIEWED')             AS share_views,
+            (SELECT COUNT(*) FROM share_access_logs l
+               JOIN share_links s ON s.id = l."shareLinkId"
+              WHERE ${LINK_MATCHES_ASSET} AND l.action = 'VIEWED'
+                AND s."linkType" = 'LIVING')                                   AS living_views,
             (SELECT COUNT(*) FROM share_access_logs l
                JOIN share_links s ON s.id = l."shareLinkId"
               WHERE ${LINK_MATCHES_ASSET} AND l.action = 'SCREENSHOT_ATTEMPT') AS screenshot_attempts,
@@ -216,6 +241,9 @@ export async function listTrackedAssets(
         shares: num(r['shares']),
         reshares: num(r['reshares']),
         shareViews: num(r['share_views']),
+        livingPages: num(r['living_pages']),
+        livingViews: num(r['living_views']),
+        fileShares: num(r['file_shares']),
         screenshotAttempts: num(r['screenshot_attempts']),
         certificateChecks: lifecycle === null ? null : (checksByAsset.get(id) ?? 0),
         portfolioViews: null, // portfolio views are per portfolio, not per asset — see getAssetTracking
@@ -256,7 +284,7 @@ export async function getAssetTracking(
   const [shareRows, certificate, purchases, portfolio, evidence, lifecycleChecks] = await Promise.all([
     prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
       `SELECT s.id, s.token, s."recipientLabel", s."recipientEmail", s."createdAt", s."isActive",
-              s."expiresAt", s."parentLinkId", s."forwardedByLabel", s."sourceContext",
+              s."expiresAt", s."parentLinkId", s."forwardedByLabel", s."sourceContext", s."linkType",
               (SELECT COUNT(*) FROM share_access_logs l WHERE l."shareLinkId" = s.id AND l.action = 'VIEWED')             AS views,
               (SELECT COUNT(*) FROM share_access_logs l WHERE l."shareLinkId" = s.id AND l.action = 'DOWNLOADED')         AS downloads,
               (SELECT COUNT(*) FROM share_access_logs l WHERE l."shareLinkId" = s.id AND l.action = 'SCREENSHOT_ATTEMPT') AS screenshot_attempts,
@@ -303,8 +331,44 @@ export async function getAssetTracking(
     }).catch(() => null),
 
     Promise.all([
-      prisma.evidenceRecord.count({ where: { ownerUserId: owner, dnaRecordId: asset.dnaId } }).catch(() => 0),
-      prisma.incident.count({ where: { assetId: id } }).catch(() => 0),
+      prisma.incident.findMany({
+        where: {
+          OR: [
+            { assetId: id },
+            ...(asset.dnaId ? [{ dnaRecordId: asset.dnaId }] : []),
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+        select: {
+          id: true,
+          incidentCode: true,
+          title: true,
+          description: true,
+          status: true,
+          severity: true,
+          triggerType: true,
+          createdAt: true,
+        },
+      }).catch(() => []),
+      prisma.evidenceRecord.findMany({
+        where: {
+          ownerUserId: owner,
+          OR: [
+            ...(asset.dnaId ? [{ dnaRecordId: asset.dnaId }] : []),
+            { incident: { is: { assetId: id } } },
+          ],
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 40,
+        select: {
+          id: true,
+          evidenceCode: true,
+          evidenceType: true,
+          description: true,
+          createdAt: true,
+        },
+      }).catch(() => []),
     ]),
 
     safeRows<{ n: bigint; last_at: Date | null }>(
@@ -340,6 +404,7 @@ export async function getAssetTracking(
     parentLinkId: (r['parentLinkId'] as string | null) ?? null,
     forwardedByLabel: (r['forwardedByLabel'] as string | null) ?? null,
     fromExchange: String(r['sourceContext'] ?? 'hub') !== 'hub',
+    linkType: String(r['linkType'] ?? 'PARENT'),
     views: num(r['views']),
     downloads: num(r['downloads']),
     screenshotAttempts: num(r['screenshot_attempts']),
@@ -392,7 +457,29 @@ export async function getAssetTracking(
       foundOnline: asset.discoveriesCount,
       lastDiscoveryAt: asset.lastDiscoveryAt,
     },
-    evidence: { records: evidence[0], investigations: evidence[1] },
+    evidence: { records: evidence[1].length, investigations: evidence[0].length },
+    reports: [
+      ...evidence[0].map((row) => ({
+        id: row.id,
+        kind: 'investigation' as const,
+        title: row.title || 'Investigation',
+        detail: row.description || row.triggerType,
+        status: row.status,
+        severity: row.severity,
+        code: row.incidentCode,
+        at: row.createdAt,
+      })),
+      ...evidence[1].map((row) => ({
+        id: row.id,
+        kind: 'evidence' as const,
+        title: row.evidenceType.replace(/_/g, ' '),
+        detail: row.description,
+        status: null,
+        severity: null,
+        code: row.evidenceCode,
+        at: row.createdAt,
+      })),
+    ].sort((a, b) => b.at.getTime() - a.at.getTime()),
     unavailable,
   };
 }

@@ -15,6 +15,7 @@ import { listMyHubCredentials, revokeCertificate, type HubCredential } from '../
 import { useAuth } from '../context/AuthContext';
 import { toRootPinitId } from '../lib/pinit-identity';
 import { EmptyState } from '../components/ui/EmptyState';
+import { ShareSectionGuide } from '../components/nav/ShareSectionGuide';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
@@ -308,6 +309,7 @@ export function CertificatesPage() {
 
   return (
     <div className="page-shell max-w-[1600px] space-y-4 animate-fade-in pb-10">
+      <ShareSectionGuide current="credentials" />
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           <div className="rounded-lg border border-slate-200 dark:border-[#252C38] bg-white dark:bg-[#11151D] px-3 py-2.5 h-16 animate-pulse" />

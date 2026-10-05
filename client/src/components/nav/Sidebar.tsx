@@ -95,6 +95,7 @@ type NavItem = {
   to: string;
   icon: typeof LayoutDashboard;
   label: string;
+  hint?: string;
   end?: boolean;
   feature?: string;
 };
@@ -141,10 +142,10 @@ const PERSONAL_NAV: NavGroup[] = [
     {
       label: 'Share',
       items: [
-        { to: '/tracking', icon: Radar, label: 'Tracking' },
-        { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
-        { to: '/timeline', icon: Activity, label: 'Asset Activity' },
-        { to: '/certificates', icon: Award, label: 'Credentials' },
+        { to: '/tracking', icon: Radar, label: 'Tracking', hint: 'Counts per file' },
+        { to: '/access-intelligence', icon: Share2, label: 'Sharing', hint: 'Links you sent' },
+        { to: '/timeline', icon: Activity, label: 'Asset Activity', hint: 'Life of the file' },
+        { to: '/certificates', icon: Award, label: 'Credentials', hint: 'Certificates to show' },
       ],
     },
 ];
@@ -187,10 +188,10 @@ const BUSINESS_NAV: NavGroup[] = [
     {
       label: 'Share',
       items: [
-        { to: '/tracking', icon: Radar, label: 'Tracking' },
-        { to: '/access-intelligence', icon: Share2, label: 'Sharing' },
-        { to: '/timeline', icon: Activity, label: 'Asset Activity' },
-        { to: '/certificates', icon: Award, label: 'Credentials' },
+        { to: '/tracking', icon: Radar, label: 'Tracking', hint: 'Counts per file' },
+        { to: '/access-intelligence', icon: Share2, label: 'Sharing', hint: 'Links you sent' },
+        { to: '/timeline', icon: Activity, label: 'Asset Activity', hint: 'Life of the file' },
+        { to: '/certificates', icon: Award, label: 'Credentials', hint: 'Certificates to show' },
       ],
     },
 ];
@@ -284,7 +285,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             className="w-8 h-8 rounded-xl object-contain shrink-0"
           />
           <div className="leading-tight min-w-0 flex-1">
-            <p className="font-bold text-slate-900 text-sm tracking-tight truncate">{BRAND.name}</p>
+            <p className="hub-page-title text-[15px] text-slate-900 truncate">{BRAND.name}</p>
           </div>
           <button
             type="button"
@@ -299,7 +300,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
       </div>
 
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
-        <p className="px-3 pt-1 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase text-slate-400">Core</p>
+        <p className="font-label px-3 pt-1 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase text-slate-400">Core</p>
         <NavLink
           to={homeTo}
           end
@@ -342,7 +343,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 )}
               >
                 <GroupIcon size={15} className={cn('shrink-0', isOpen || childActive ? 'text-dna-600' : 'text-slate-400')} />
-                <span className="flex-1 text-left text-[11px] font-semibold tracking-[0.12em] uppercase">{group.label}</span>
+                <span className="font-label flex-1 text-left text-[11px] font-semibold tracking-[0.12em] uppercase">{group.label}</span>
                 <ChevronDown
                   size={14}
                   className={cn(
@@ -354,11 +355,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               </button>
               {isOpen && (
                 <ul id={panelId} className="mt-0.5 ml-3 pl-3 border-l border-slate-200/70 dark:border-white/10 space-y-0.5">
-                  {group.items.map(({ to, icon: Icon, label, end }, idx) => (
+                  {group.items.map(({ to, icon: Icon, label, end, hint }, idx) => (
                     <li key={`${group.label}-${label}-${idx}`}>
                       <NavLink
                         to={to}
                         end={end}
+                        title={hint}
                         onClick={onClose}
                         className={() => {
                           const isActive = navActive(to, location.pathname, location.search, end);

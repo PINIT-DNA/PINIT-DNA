@@ -1,4 +1,13 @@
-/** Canonical names for all 15 DNA layers (UI + reports). */
+/**
+ * Canonical names for all 15 DNA layers (UI + reports).
+ * Camera-sensor PRNU is a forensic sidecar — not L9 (Origin) and not a user identity.
+ */
+export const CAMERA_SENSOR_FORENSICS = {
+  name: 'Camera Sensor Fingerprint (PRNU)',
+  implementation: 'compact_noise_residual_correlation',
+  role: 'supporting_evidence' as const,
+};
+
 export const DNA_LAYER_REGISTRY: Record<number, { name: string; implementation: string }> = {
   1:  { name: 'Cryptographic', implementation: 'sha256_serialized' },
   2:  { name: 'Structural', implementation: 'sobel_edge_detection' },

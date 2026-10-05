@@ -147,13 +147,14 @@ function classifyAccessKind(
   log: AccessLog,
   seenDirectOnParent: boolean,
 ): AccessKind {
-  const isReshare =
+  const isHop =
     log.isReshareLink === true
-    || (log.linkType != null && log.linkType !== 'PARENT')
+    || log.linkType === 'CHILD'
+    || log.linkType === 'GRANDCHILD'
     || (typeof log.linkDepth === 'number' && log.linkDepth > 0)
     || log.action === 'FORWARDING_DETECTED';
 
-  if (isReshare) return 'reshared';
+  if (isHop) return 'reshared';
   if (!seenDirectOnParent) return 'direct_recipient';
   return 'direct_share';
 }
@@ -370,8 +371,8 @@ const ACTION_CONFIG: Record<string, { icon: React.ReactNode; label: string; colo
   DOWNLOAD_FAILED:    { icon: <Ban size={11} />,       label: 'Download failed', color: 'text-red-400' },
   COPY_ATTEMPT:       { icon: <Copy size={11} />,      label: 'Copy attempt detected',  color: 'text-orange-400' },
   COPIED:             { icon: <Copy size={11} />,      label: 'Copy attempt detected',  color: 'text-orange-400' },
-  SCREENSHOT_ATTEMPT: { icon: <Ban size={11} />,       label: 'Screenshot attempt (best-effort)', color: 'text-red-400' },
-  SCREEN_RECORDING_ATTEMPT: { icon: <Video size={11} />, label: 'Screen recording attempt (best-effort)', color: 'text-pink-400' },
+  SCREENSHOT_ATTEMPT: { icon: <Ban size={11} />,       label: 'Screenshot attempt', color: 'text-red-400' },
+  SCREEN_RECORDING_ATTEMPT: { icon: <Video size={11} />, label: 'Screen recording started', color: 'text-pink-400' },
   TAB_SWITCH:         { icon: <ExternalLink size={11}/>, label: 'Tab switch / hidden',  color: 'text-purple-400' },
   PRINT_ATTEMPT:      { icon: <Ban size={11} />,       label: 'Print attempt', color: 'text-red-400' },
   SHARE_FURTHER:      { icon: <ExternalLink size={11} />, label: 'Pinit secure link copied',   color: 'text-orange-400' },
@@ -647,12 +648,12 @@ export function LinkIntelligencePage() {
           <ArrowLeft size={20} />
         </Link>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-gray-500 mb-0.5">Asset Activity</p>
+          <p className="text-xs font-medium text-gray-500 mb-0.5">Sharing</p>
           <h1 className="text-lg sm:text-xl font-bold text-white truncate" title={link.filename}>
             {link.filename}
           </h1>
           <p className="text-xs text-gray-500 mt-0.5">
-            See who accessed this asset and what happened.
+            Who opened this shared link.
             {' '}Shared {formatDistanceToNow(new Date(link.createdAt))} ago
             {(link.hopLinkCount ?? 0) > 0 && (
               <span className="text-dna-400"> · {link.hopLinkCount} forward{link.hopLinkCount === 1 ? '' : 's'} tracked</span>

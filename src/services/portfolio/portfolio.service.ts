@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { config } from '../../config';
 import { AppError } from '../../api/middleware/error.middleware';
+import { VaultService } from '../vault/vault.service';
 import { publicAvatarUrl } from '../../lib/avatar-storage';
 import {
   extractPinitCode,
@@ -63,6 +64,10 @@ async function identityForUser(userId: string): Promise<IdentityOverlay & { shor
     shortId: user.shortId,
     fullName: user.fullName,
   };
+}
+
+function hubAppUrl(): string {
+  return config.hub.appUrl.replace(/\/$/, '');
 }
 
 function exchangeAppUrl(): string {
@@ -294,15 +299,63 @@ async function replaceDraft(portfolioId: string, ownerUserId: string, body: Edit
   }
 }
 
+function graphHasEditorContent(graph: {
+  profile: { headline: string; about: string; location: string; contactEmail: string; contactNote: string } | null;
+  projects: unknown[];
+  skills: unknown[];
+  services: unknown[];
+  experience: unknown[];
+  awards: unknown[];
+  certificates?: unknown[];
+  collaborations: unknown[];
+}): boolean {
+  const p = graph.profile;
+  return Boolean(
+    p?.headline
+    || p?.about
+    || p?.location
+    || p?.contactEmail
+    || p?.contactNote
+    || graph.projects.length
+    || graph.skills.length
+    || graph.services.length
+    || graph.experience.length
+    || graph.awards.length
+    || (graph.certificates?.length ?? 0)
+    || graph.collaborations.length
+  );
+}
+
+function parsedEditorIsBlank(body: EditorBody): boolean {
+  const parsed = parseEditorBody(body);
+  const p = parsed.profile;
+  return !(
+    p.headline
+    || p.about
+    || p.location
+    || p.contactEmail
+    || p.contactNote
+    || parsed.projects.length
+    || parsed.skills.length
+    || parsed.services.length
+    || parsed.experience.length
+    || parsed.awards.length
+    || parsed.certificates.length
+    || parsed.collaborations.length
+    || parsed.socialLinks.length
+    || (Array.isArray(p.availableFor) && p.availableFor.length)
+  );
+}
+
 function toOwnerPayload(graph: Graph, identity: IdentityOverlay, extra: Record<string, unknown> = {}) {
   const form = editorFormFromGraph(graph as Parameters<typeof editorFormFromGraph>[0]);
   const presentation = assemblePresentation(graph as Parameters<typeof assemblePresentation>[0], identity, { ownerView: true });
   const previewToken = issuePreviewToken(graph.userId, graph.slug);
-  const publicUrl = `${exchangeAppUrl()}/p/${graph.slug}`;
+  const publicUrl = `${hubAppUrl()}/p/${graph.slug}`;
   return {
     success: true,
-    ...form,
     ...presentation,
+    ...form,
     portfolio: { ...presentation, ...form },
     hub_identity: {
       name: identity.name,
@@ -399,6 +452,11 @@ export const portfolioService = {
 
   async saveDraft(userId: string, body: EditorBody) {
     const row = await this.getOrCreate(userId);
+    const existing = await loadGraph(row.id);
+    if (parsedEditorIsBlank(body) && graphHasEditorContent(existing)) {
+      const identity = await identityForUser(userId);
+      return toOwnerPayload(existing, identity, { saved: true });
+    }
     await replaceDraft(row.id, userId, body);
     const graph = await loadGraph(row.id);
     const identity = await identityForUser(userId);
@@ -490,6 +548,39 @@ export const portfolioService = {
         pinit_user_id: identity.pinit_user_id,
       },
     });
+  },
+
+  async getPublicMedia(slug: string, vaultId: string, previewToken?: string) {
+    const clean = slugifyName(slug) || String(slug || '').toLowerCase();
+    const id = String(vaultId || '').trim();
+    if (!id) throw new AppError(404, 'Media not found');
+    const row = await prisma.portfolio.findFirst({
+      where: { slug: { equals: clean, mode: 'insensitive' } },
+    });
+    if (!row) throw new AppError(404, 'Portfolio not found');
+
+    let allowed = false;
+    if (previewToken) {
+      const ok = verifyPreviewToken(previewToken, row.slug);
+      if (ok?.sub === row.userId) allowed = true;
+    }
+    if (!allowed && isPubliclyReadable(row.publishState, row.visibility)) allowed = true;
+    if (!allowed) throw new AppError(404, 'This portfolio is not public');
+
+    const onProject = await prisma.portfolioProjectMedia.findFirst({
+      where: { vaultId: id, project: { portfolioId: row.id } },
+      select: { id: true },
+    });
+    const onCollection = onProject
+      ? null
+      : await prisma.portfolioCollectionItem.findFirst({
+          where: { vaultId: id, collection: { portfolioId: row.id } },
+          select: { id: true },
+        });
+    if (!onProject && !onCollection) throw new AppError(404, 'Media not found');
+
+    const vault = new VaultService();
+    return vault.retrieve(id, row.userId);
   },
 
   async importFromExchangeIfEmpty(userId: string): Promise<boolean> {

@@ -5,6 +5,7 @@ import { Sidebar } from '../components/nav/Sidebar';
 import { Topbar } from '../components/nav/Topbar';
 import { MobileBottomNav } from '../components/nav/MobileBottomNav';
 import { AccountViewModeProvider } from '../context/AccountViewModeContext';
+import { AskPinitPanel } from '../components/intelligence/AskPinitPanel';
 
 export function DashboardLayout() {
   const [navOpen, setNavOpen] = useState(false);
@@ -28,6 +29,8 @@ export function DashboardLayout() {
             <DashboardGate />
           </main>
         </div>
+
+        <AskPinitPanel />
 
         <MobileBottomNav onOpenMenu={() => setNavOpen(true)} />
 

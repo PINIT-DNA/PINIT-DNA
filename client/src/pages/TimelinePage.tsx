@@ -34,6 +34,7 @@ import { listForensicReports } from '../lib/forensic-reports-storage';
 import { FileTypeBadge, Badge } from '../components/ui/Badge';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
+import { ShareSectionGuide } from '../components/nav/ShareSectionGuide';
 import { cn } from '../components/ui/utils';
 import { API_BASE_URL } from '../config/api.config';
 import type { ComparisonResult } from '../types/dashboard.types';
@@ -378,6 +379,7 @@ export function TimelinePage() {
 
   return (
     <div className="page-shell space-y-5 animate-fade-in">
+      <ShareSectionGuide current="activity" />
 
       <div className="flex items-center justify-end flex-wrap gap-3">
         <div className="flex items-center gap-2">

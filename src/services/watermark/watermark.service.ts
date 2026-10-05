@@ -247,7 +247,7 @@ async function watermarkImage(
     if (mimeType === 'image/jpeg' || mimeType === 'image/jpg') {
       result = await imageSharp
         .withMetadata({ exif: { IFD0: { ImageDescription: wmComment, Software: `PINIT-DNA|${watermarkCode}` } } })
-        .jpeg({ quality: 95 })
+        .jpeg({ quality: 100, chromaSubsampling: '4:4:4', mozjpeg: true })
         .toBuffer();
     } else if (mimeType === 'image/png') {
       result = await imageSharp
@@ -257,7 +257,7 @@ async function watermarkImage(
     } else if (mimeType === 'image/webp') {
       result = await imageSharp
         .withMetadata({ exif: { IFD0: { ImageDescription: wmComment } } })
-        .webp({ quality: 95 })
+        .webp({ quality: 100 })
         .toBuffer();
     } else {
       result = await imageSharp.withMetadata().toBuffer();

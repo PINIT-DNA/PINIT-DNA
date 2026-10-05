@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { API_BASE_URL } from '../config/api.config';
+import { logFaceTiming } from './face-capture';
 
 const BASE = `${API_BASE_URL}/auth/face`;
 
@@ -18,22 +19,51 @@ export interface FaceAuthResponse {
 }
 
 async function postFace(path: string, body: unknown): Promise<{ status: number; data: FaceAuthResponse }> {
+  const isLogin = path === '/login';
+  const attempts = isLogin ? 2 : 4;
+  const timeout = isLogin ? 15_000 : 70_000;
   let lastErr: unknown;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < attempts; i++) {
+    const attemptStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
     try {
-      const res = await axios.post(`${BASE}${path}`, body, { timeout: 70000, withCredentials: true });
+      if (isLogin) {
+        console.info(`[Client:Perf] Sending /auth/face/login (attempt ${i + 1}/${attempts}, timeout ${timeout}ms)`);
+      }
+      const res = await axios.post(`${BASE}${path}`, body, {
+        timeout,
+        withCredentials: true,
+      });
+      if (isLogin) {
+        const ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - attemptStart;
+        logFaceTiming('login_http_ok', ms, { attempt: i + 1 });
+      }
       return { status: res.status, data: res.data as FaceAuthResponse };
     } catch (e: unknown) {
       lastErr = e;
+      const ms = (typeof performance !== 'undefined' ? performance.now() : Date.now()) - attemptStart;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const status = (e as any)?.response?.status as number | undefined;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const data = (e as any)?.response?.data as FaceAuthResponse | undefined;
+      const ax = e as any;
+      const status = ax?.response?.status as number | undefined;
+      const data = ax?.response?.data as FaceAuthResponse | undefined;
       if (data) return { status: status ?? 500, data };
+      const timedOut =
+        ax?.code === 'ECONNABORTED'
+        || ax?.name === 'CanceledError'
+        || ax?.code === 'ERR_CANCELED'
+        || /timeout|aborted/i.test(String(ax?.message ?? ''));
+      if (isLogin) {
+        logFaceTiming('login_http_fail', ms, { attempt: i + 1, timedOut: Boolean(timedOut), status: status ?? 0 });
+      }
       const retryable = status === undefined || status >= 500;
-      if (!retryable || i === 3) break;
-      await new Promise((r) => setTimeout(r, 1500 * (i + 1)));
+      if (!retryable || i === attempts - 1) break;
+      await new Promise((r) => setTimeout(r, 1500));
     }
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const ax = lastErr as any;
+  const timedOut = ax?.code === 'ECONNABORTED' || /timeout/i.test(String(ax?.message ?? ''));
+  if (isLogin && timedOut) {
+    throw new Error('Authentication timed out. The server is taking too long to respond. Please try again.');
   }
   throw lastErr;
 }
@@ -89,13 +119,23 @@ export async function loginWithFace(payload: {
   voiceFingerprint?: number[];
   webauthnCredentialId?: string;
   deviceFingerprint?: string;
+  lightingTelemetry?: { ambientBrightness?: number; lightingStatus?: string };
 }): Promise<FaceAuthResponse> {
-  const { data } = await postFace('/login', payload);
-  if (data.success !== true || data.matched === false) {
-    throw new Error(data.message ?? 'Could not verify this face for the claimed account.');
+  const started = typeof performance !== 'undefined' ? performance.now() : Date.now();
+  try {
+    const { data } = await postFace('/login', payload);
+    logFaceTiming('login_http', (typeof performance !== 'undefined' ? performance.now() : Date.now()) - started, {
+      patchCount: payload.padEvidence?.patches?.length ?? 0,
+    });
+    if (data.success !== true || data.matched === false) {
+      throw new Error(data.message ?? 'Could not verify this face for the claimed account.');
+    }
+    if (!data.accessToken) throw new Error('Login failed. Please try again.');
+    return data;
+  } catch (e) {
+    logFaceTiming('login_http_error', (typeof performance !== 'undefined' ? performance.now() : Date.now()) - started);
+    throw e;
   }
-  if (!data.accessToken) throw new Error('Login failed. Please try again.');
-  return data;
 }
 
 /** Thrown when 1:N identify finds no confident match — the caller shows the
@@ -149,8 +189,8 @@ export interface FaceChallenge {
   instructions: Record<string, string>;
 }
 
-export async function requestFaceChallenge(): Promise<FaceChallenge> {
-  const { status, data } = await postFace('/challenge', {});
+export async function requestFaceChallenge(opts?: { mode?: 'active' | 'passive' }): Promise<FaceChallenge> {
+  const { status, data } = await postFace('/challenge', opts?.mode ? { mode: opts.mode } : {});
   const body = data as FaceAuthResponse & Partial<FaceChallenge>;
   if (status >= 400 || !body.token || !Array.isArray(body.actions)) {
     throw new Error(body.message ?? 'Could not start liveness check. Try again.');

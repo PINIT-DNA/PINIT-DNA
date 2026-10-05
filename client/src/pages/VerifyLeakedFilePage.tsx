@@ -67,7 +67,7 @@ interface VerifyResult {
 
 const METHOD_LABELS: Record<string, string> = {
   EMBEDDED_IDENTITY: 'Embedded Identity Signature',
-  EXACT_HASH: 'Exact File Hash (SHA-256)',
+  EXACT_HASH: 'Exact asset hash (SHA-256)',
   NORMALIZED_HASH: 'Same Pixel Content (Tampered Re-save)',
   TEP_EXPORT: 'Tracked Export Package (Download)',
   PINIT_VAULT_SIGNATURE: 'Share-Viewer Screenshot / OCR',
@@ -76,7 +76,7 @@ const METHOD_LABELS: Record<string, string> = {
 };
 
 const VECTOR_LABELS: Record<string, string> = {
-  ORIGINAL_FILE: 'Original protected file',
+  ORIGINAL_FILE: 'Original protected asset',
   DOWNLOAD_REUPLOAD: 'Share-link download re-upload',
   SCREENSHOT: 'Screenshot / screen capture',
   RECORDING: 'Screen recording / re-encoded copy',
@@ -149,7 +149,7 @@ export function VerifyLeakedFilePage() {
         const msg = (err as { response?: { data?: { error?: string; message?: string } } })
           ?.response?.data?.error
           ?? (err as { response?: { data?: { message?: string } } })?.response?.data?.message
-          ?? (err instanceof Error ? err.message : 'Failed to verify file. Please try again.');
+          ?? (err instanceof Error ? err.message : 'Failed to verify asset. Please try again.');
         setResult({ found: false, message: msg });
       }
     }
@@ -186,8 +186,8 @@ export function VerifyLeakedFilePage() {
           <FileSearch size={20} className="text-dna-400" />
         </div>
         <div>
-          <h1 className="text-lg font-bold text-white">Verify Leaked File</h1>
-          <p className="text-xs text-gray-500">Upload or scan any file to check if it contains a PINIT-DNA identity signature</p>
+          <h1 className="text-lg font-bold text-white">Verify Leaked Asset</h1>
+          <p className="text-xs text-gray-500">Upload or scan any asset to check if it contains a PINIT-DNA identity signature</p>
         </div>
       </div>
 
@@ -203,7 +203,7 @@ export function VerifyLeakedFilePage() {
             }`}
           >
             <Upload size={14} />
-            Upload File
+            Upload Asset
           </button>
           <button
             onClick={() => { setMode('scan'); setFile(null); }}
@@ -214,7 +214,7 @@ export function VerifyLeakedFilePage() {
             }`}
           >
             <ScanLine size={14} />
-            Scan Document
+            Asset Scan
           </button>
         </div>
       )}
@@ -238,13 +238,13 @@ export function VerifyLeakedFilePage() {
               <CheckCircle size={32} className="text-green-400 mx-auto mb-3" />
               <p className="text-sm font-semibold text-white">{file.name}</p>
               <p className="text-2xs text-gray-500 mt-1">{(file.size / 1024).toFixed(1)} KB · {file.type || 'Unknown type'}</p>
-              <p className="text-2xs text-dna-400 mt-2">Click to change file</p>
+              <p className="text-2xs text-dna-400 mt-2">Click to change asset</p>
             </div>
           ) : (
             <div>
               <Upload size={32} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-400">Drop a file here or click to upload</p>
-              <p className="text-2xs text-gray-600 mt-1">Supports all 10 file types: PDF, DOCX, XLSX, PPTX, Images, TXT, CSV, Audio, Video, ZIP</p>
+              <p className="text-sm text-gray-400">Drop an asset here or click to upload</p>
+              <p className="text-2xs text-gray-600 mt-1">Supports PDF, DOCX, XLSX, PPTX, images, TXT, CSV, audio, video, ZIP</p>
             </div>
           )}
         </div>
@@ -256,7 +256,7 @@ export function VerifyLeakedFilePage() {
           {loading ? (
             <div className="card text-center py-12">
               <RefreshCw size={32} className="text-dna-400 mx-auto mb-3 animate-spin" />
-              <p className="text-sm font-semibold text-white">Verifying scanned document…</p>
+              <p className="text-sm font-semibold text-white">Verifying scanned asset…</p>
               <p className="text-2xs text-gray-500 mt-1">{ocrProgress ?? 'Running OCR and vault search'}</p>
             </div>
           ) : (
@@ -278,7 +278,7 @@ export function VerifyLeakedFilePage() {
           className="btn btn-primary w-full mt-4"
         >
           {loading ? (
-            <><RefreshCw size={14} className="animate-spin" /> Analyzing file…</>
+            <><RefreshCw size={14} className="animate-spin" /> Analyzing asset…</>
           ) : (
             <><Shield size={14} /> Verify Identity</>
           )}
@@ -289,7 +289,7 @@ export function VerifyLeakedFilePage() {
       {result && (
         <div className="mt-2">
           <button onClick={handleReset} className="btn btn-secondary btn-sm mb-4">
-            <RefreshCw size={13} /> Scan Another File
+            <RefreshCw size={13} /> Scan Another Asset
           </button>
 
           {/* Scan match info */}
@@ -297,7 +297,7 @@ export function VerifyLeakedFilePage() {
             <div className="flex items-center gap-3 p-4 rounded-xl bg-dna-500/10 border border-dna-500/30 mb-4">
               <Eye size={20} className="text-dna-400" />
               <div className="flex-1">
-                <p className="text-sm font-bold text-dna-400">Matched via Document Scan (OCR)</p>
+                <p className="text-sm font-bold text-dna-400">Matched via Asset Scan (OCR)</p>
                 <p className="text-2xs text-gray-500 mt-0.5">
                   {scanResult.matchScore}% text similarity · {scanResult.matchMethod} · Original: {scanResult.originalFile?.fileName}
                 </p>
@@ -392,7 +392,7 @@ export function VerifyLeakedFilePage() {
                   </div>
 
                   <h3 className="text-sm font-semibold text-white flex items-center gap-2">
-                    <Dna size={14} className="text-dna-400" /> File Identity
+                    <Dna size={14} className="text-dna-400" /> Asset Identity
                   </h3>
                   <div className="bg-bg-elevated rounded-xl p-4 border border-bg-border space-y-2">
                     {result.identity.dnaId && (
@@ -569,8 +569,8 @@ export function VerifyLeakedFilePage() {
               }`}>
                 <p className={`text-xs font-semibold ${result.tampered ? 'text-red-400' : 'text-green-400'}`}>
                   {result.tampered
-                    ? 'This file is a leaked derivative — not the original vault file. Content was captured or exported outside the vault after sharing.'
-                    : 'File identity is intact — this appears to be the original protected file from the owner.'}
+                    ? 'This asset is a leaked derivative — not the original vault asset. Content was captured or exported outside the vault after sharing.'
+                    : 'Asset identity is intact — this appears to be the original protected asset from the owner.'}
                 </p>
               </div>
             </div>
@@ -580,8 +580,8 @@ export function VerifyLeakedFilePage() {
               <p className="text-sm font-semibold text-gray-400">No PINIT-DNA Signature Found</p>
               <p className="text-2xs text-gray-600 mt-2 max-w-md mx-auto">
                 No embedded identity, watermark, share-link token, or visual fingerprint was found.
-                For screenshots: include the filename bar and <strong className="text-gray-500">Token:</strong> line
-                (Link Intelligence or Secure Viewer page). For downloads: upload the actual shared file
+                For screenshots: include the name bar and <strong className="text-gray-500">Token:</strong> line
+                (Link Intelligence or Secure Viewer page). For downloads: upload the actual shared asset
                 (e.g. the PDF from the Download button), not a screenshot named Screenshot.png.
               </p>
             </div>
@@ -597,7 +597,7 @@ export function VerifyLeakedFilePage() {
             <p>1. <strong>Downloaded asset</strong> — TEP markers, watermarks, exact SHA-256 hash, or embedded identity</p>
             <p>2. <strong>Tampered asset</strong> — damaged HMAC, changed bytes (normalized hash), partial identity, or visual fingerprint</p>
             <p>3. <strong>Screenshot</strong> — OCR reads Link Intelligence (<code className="text-gray-400">/link/token</code>) or Secure Viewer token + filename → owner, recipient, access logs</p>
-            <p>4. <strong>Original vault asset</strong> — embedded identity inside the decrypted file (not encrypted .enc storage)</p>
+            <p>4. <strong>Original vault asset</strong> — embedded identity inside the decrypted asset (not encrypted .enc storage)</p>
             <p>5. Tampered results show <span className="text-orange-400">Leak Detected</span> with owner details even when content was modified</p>
           </div>
         </div>

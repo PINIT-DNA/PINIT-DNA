@@ -583,6 +583,34 @@ export async function createFileShare(vaultId: string, opts?: { requestLocation?
   return data;
 }
 
+export async function createLivingShare(vaultId: string) {
+  const { data } = await api.post<{
+    success: boolean;
+    shareUrl: string;
+    token: string;
+    linkType: string;
+    reused: boolean;
+    filename: string;
+  }>(`${API_BASE_URL}/share/living`, { vaultId });
+  return data;
+}
+
+export async function getPublicLivingStory(token: string) {
+  const { data } = await axios.get<{
+    success: boolean;
+    token: string;
+    record: VaultRecord;
+    tracking: VaultTrackingDashboard | null;
+    shareLinkCount: number;
+    intel: {
+      provenance?: { capturedAt?: string | null };
+      integrity?: { dnaStatus?: string };
+      distribution?: { totalShareLinks?: number };
+    };
+  }>(`${API_BASE_URL}/share/${encodeURIComponent(token)}/living`);
+  return data;
+}
+
 export async function revokeVaultTep(vaultId: string, tepCode: string, reason?: string) {
   const { data } = await api.post<{ success: boolean; status: string; message: string }>(
     `${API_BASE_URL}/vault/${vaultId}/tep/${encodeURIComponent(tepCode)}/revoke`,

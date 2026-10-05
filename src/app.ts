@@ -33,7 +33,7 @@ import { evidenceRouter }         from './api/routes/evidence.routes';
 import { authRouter }             from './api/routes/auth.routes';
 import { profileRouter }          from './api/routes/profile.routes';
 import { portfolioRouter }        from './api/routes/portfolio.routes';
-import { getPublicPortfolio }     from './api/controllers/portfolio.controller';
+import { getPublicPortfolio, streamPublicPortfolioMedia }     from './api/controllers/portfolio.controller';
 import { notificationRouter }     from './api/routes/notification.routes';
 import { superAdminRouter }       from './api/routes/super-admin.routes';
 import { tepRouter }              from './api/routes/tep.routes';
@@ -175,6 +175,7 @@ app.use(`${config.apiPrefix}/evidence`,   evidenceRouter);
 app.use(`${config.apiPrefix}/auth`,      authRouter);
 app.use(`${config.apiPrefix}/profile`,       profileRouter);
 app.use(`${config.apiPrefix}/portfolio`,     portfolioRouter);
+app.get(`${config.apiPrefix}/public/portfolio/:slug/media/:vaultId`, streamPublicPortfolioMedia);
 app.get(`${config.apiPrefix}/public/portfolio/:slug`, getPublicPortfolio);
 app.use(`${config.apiPrefix}/notifications`, notificationRouter);
 // /api/v1/admin (legacy adminRouter) retired — it gated role-change/toggle

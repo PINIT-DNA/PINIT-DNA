@@ -125,15 +125,6 @@ const uploadImage = (r = req()) =>
 
 describe('DNA-B corroboration on an ORB match', () => {
   test('a verified DNA-B hit raises isHighRisk on an otherwise-not-high-risk match', async () => {
-    // Anonymous uploader + no IP-heat signal => isHighRisk would be FALSE
-    // without DNA-B. This is the case that actually proves the new code
-    // does something — a logged-in cross-account uploader already always
-    // forces isHighRisk via the existing heuristic regardless of DNA-B.
-    recoverDnaB.mockResolvedValue({ recovered: false });
-    const baseline = await uploadImage(anonReq());
-    expect(baseline.isDuplicate).toBe(true);
-    expect(baseline.isHighRisk).toBe(false);
-
     recoverDnaB.mockResolvedValue({ recovered: true, dnaRecordId: 'dna-orb-1' });
     const withDnaB = await uploadImage(anonReq());
 
@@ -144,24 +135,20 @@ describe('DNA-B corroboration on an ORB match', () => {
     );
   });
 
-  test('no DNA-B recovery does not prevent the ORB match itself from blocking', async () => {
+  test('no DNA-B recovery does not block — a new photo of the same person is not the same file', async () => {
     recoverDnaB.mockResolvedValue({ recovered: false });
 
     const result = await uploadImage();
 
-    expect(result.isDuplicate).toBe(true);
-    expect(result.matchType).toBe('NEAR_DUPLICATE_ORB_FEATURES');
+    expect(result.isDuplicate).toBe(false);
   });
 
   test('DNA-B recovering a DIFFERENT dnaRecordId than the match does not corroborate', async () => {
-    // Guards against ever trusting a stray/mismatched lookup as proof of
-    // THIS match specifically — must not raise isHighRisk on a mismatch.
     recoverDnaB.mockResolvedValue({ recovered: true, dnaRecordId: 'some-other-record' });
 
     const result = await uploadImage(anonReq());
 
-    expect(result.isDuplicate).toBe(true);
-    expect(result.isHighRisk).toBe(false);
+    expect(result.isDuplicate).toBe(false);
   });
 
   test('DNA-B is never consulted when there is no candidate at all', async () => {
@@ -178,9 +165,7 @@ describe('DNA-B corroboration on an ORB match', () => {
 
     const result = await uploadImage();
 
-    // The underlying ORB match still stands — DNA-B corroboration is
-    // additive and non-fatal, exactly like every other soft-fail detector.
-    expect(result.isDuplicate).toBe(true);
+    expect(result.isDuplicate).toBe(false);
   });
 
   test('same-account re-upload is allowed without ever consulting DNA-B', async () => {
@@ -215,6 +200,7 @@ describe('DNA-B is scoped to pHash/ORB only — other detectors are unaffected',
 
 describe('a block appends a real provenance event (mirrored into Layer 13 custody chain)', () => {
   test('a blocked ORB match records UNAUTHORIZED_REPRODUCTION_DETECTED', async () => {
+    recoverDnaB.mockResolvedValue({ recovered: true, dnaRecordId: 'dna-orb-1' });
     const result = await uploadImage();
     expect(result.isDuplicate).toBe(true);
 

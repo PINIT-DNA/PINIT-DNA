@@ -52,6 +52,19 @@ function asStringArray(v: unknown): string[] {
   }).filter(Boolean);
 }
 
+function jsonStringList(v: unknown): string[] {
+  if (Array.isArray(v)) return asStringArray(v);
+  if (typeof v === 'string' && v.trim()) {
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) return asStringArray(parsed);
+    } catch {
+      return [v.trim()];
+    }
+  }
+  return [];
+}
+
 export type EditorBody = Record<string, unknown>;
 
 export type IdentityOverlay = {
@@ -265,9 +278,9 @@ export function editorFormFromGraph(graph: {
     services: graph.services.map((s) => s.name),
     clients: clients.map((c) => c.name),
     collaborations: collabs.map((c) => c.name),
-    languages: Array.isArray(p?.languages) ? p?.languages : [],
+    languages: jsonStringList(p?.languages),
     client_count: p?.clientCount ? String(p.clientCount) : '',
-    available_for: Array.isArray(p?.availableFor) ? p?.availableFor : [],
+    available_for: jsonStringList(p?.availableFor),
     experience: graph.experience.map((e, i) => ({
       id: `exp-${i}`,
       title: e.role,
@@ -395,8 +408,8 @@ export function assemblePresentation(
         order: proj.sortOrder,
         vault_ids: ownerView ? vaultIds : undefined,
         media_vault_ids: vaultIds,
-        gallery: [] as string[],
-        cover_url: '',
+        gallery: vaultIds.map((id) => `/api/v1/public/portfolio/${graph.slug}/media/${id}?thumb=1`),
+        cover_url: vaultIds[0] ? `/api/v1/public/portfolio/${graph.slug}/media/${vaultIds[0]}?thumb=1` : '',
       };
     });
 

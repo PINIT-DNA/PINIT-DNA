@@ -368,7 +368,7 @@ export async function finishPasskeyLogin(opts: {
   loginId: string;
   credential: AuthenticationResponseJSON;
 }): Promise<
-  | { ok: true; webauthnSession: string; userId: string; credentialId: string }
+  | { ok: true; webauthnSession: string; userId: string; credentialId: string; shortId?: string }
   | { ok: false; message: string; reason: string }
 > {
   const stored = liveChallenges.get(opts.loginId);
@@ -443,11 +443,17 @@ export async function finishPasskeyLogin(opts: {
 
   await updateWebAuthnSignCount(credentialId, incomingCount);
 
+  const ownerUser = await prisma.user.findUnique({
+    where: { id: row.userId },
+    select: { shortId: true },
+  });
+
   return {
     ok: true,
     webauthnSession: issueWebAuthnSession({ userId: row.userId, credentialId }),
     userId: row.userId,
     credentialId,
+    shortId: ownerUser?.shortId,
   };
 }
 
@@ -468,6 +474,18 @@ export function issueWebAuthnSession(params: {
     exp: now + (params.ttlMs ?? SESSION_TTL_MS),
   };
   return signBlob(b64urlJson(session));
+}
+
+export function peekWebAuthnSession(token: string | undefined): {
+  ok: true;
+  userId: string;
+  credentialId: string;
+} | { ok: false } {
+  const session = openSigned<WebAuthnSession>(token);
+  if (!session || session.v !== 1 || !session.userId) return { ok: false };
+  const fresh = checkChallengeFreshness({ expiresAt: session.exp, used: alreadyUsed(session.jti) });
+  if (!fresh.ok) return { ok: false };
+  return { ok: true, userId: session.userId, credentialId: session.credentialId };
 }
 
 export function consumeWebAuthnSession(token: string | undefined, claimedUserId: string): {

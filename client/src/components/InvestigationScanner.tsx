@@ -12,7 +12,7 @@ import { preferContinuousFocus, releaseMediaStream, openCameraStream, cameraErro
 function friendlyHint(phase: AutoScanPhase): string {
   switch (phase) {
     case 'warming':
-      return 'Position the document in view';
+      return 'Position the asset in view';
     case 'searching':
       return 'Align the evidence inside the frame';
     case 'locking':
@@ -100,7 +100,7 @@ export function InvestigationScanner({
     } catch (err) {
       if (mountedRef.current) {
         setCaptureError(
-          cameraErrorMessage(err, 'Use Upload to investigate a file from your device.'),
+          cameraErrorMessage(err, 'Use Upload to investigate an asset from your device.'),
         );
       }
     }

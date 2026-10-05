@@ -157,4 +157,61 @@ describe('face PAD / liveness', () => {
     expect(padDenyMessage('SPOOF')).toMatch(/photos|screens/i);
     expect(padDenyMessage('UNKNOWN')).toMatch(/inconclusive|retry/i);
   });
+
+  it('passive glance challenge (~1s) with live motion → LIVE', () => {
+    const { challenge } = issuePadChallenge('passive');
+    expect(challenge.actions).toHaveLength(0);
+    const samples = [];
+    const patches = [];
+    for (let i = 0; i < 8; i++) {
+      samples.push({
+        t: i * 100,
+        yaw: 0.02,
+        pitch: 0.01,
+        faceCount: 1,
+        boxRatio: 0.22,
+        brightness: 120,
+      });
+      patches.push(makePatch(i));
+    }
+    const result = evaluatePad(challenge, { samples, patches });
+    expect(result.verdict).toBe('LIVE');
+  });
+
+  it('passive glance in dim light (iris still visible) → LIVE', () => {
+    const { challenge } = issuePadChallenge('passive');
+    const samples = [];
+    const patches = [];
+    for (let i = 0; i < 8; i++) {
+      samples.push({
+        t: i * 100,
+        yaw: 0.02,
+        pitch: 0.01,
+        faceCount: 1,
+        boxRatio: 0.12,
+        brightness: 12,
+      });
+      patches.push(makePatch(i));
+    }
+    expect(evaluatePad(challenge, { samples, patches }).verdict).toBe('LIVE');
+  });
+
+  it('passive glance with a still photo → SPOOF', () => {
+    const { challenge } = issuePadChallenge('passive');
+    const samples = [];
+    const patches = [];
+    for (let i = 0; i < 8; i++) {
+      samples.push({
+        t: i * 100,
+        yaw: 0.02,
+        pitch: 0.01,
+        faceCount: 1,
+        boxRatio: 0.22,
+        brightness: 120,
+      });
+      patches.push(makePatch(0));
+    }
+    const result = evaluatePad(challenge, { samples, patches });
+    expect(result.verdict).toBe('SPOOF');
+  });
 });

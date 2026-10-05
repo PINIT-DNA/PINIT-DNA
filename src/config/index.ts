@@ -46,6 +46,17 @@ function optionalInt(key: string, fallback: number): number {
 }
 
 
+/** Public Hub origin used when PUBLIC_APP_URL is not set in production. */
+const PRODUCTION_HUB_URL = 'https://pinit-dna.vercel.app';
+
+function resolveHubAppUrl(): string {
+  const explicit = (process.env.PUBLIC_APP_URL || process.env.HUB_APP_URL || '').trim();
+  if (explicit) return explicit.replace(/\/$/, '');
+  const isProd = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+  if (!isProd) return 'http://localhost:3002';
+  return PRODUCTION_HUB_URL;
+}
+
 /** Public marketplace origin used when EXCHANGE_APP_URL is not configured in production. */
 const PRODUCTION_EXCHANGE_URL = 'https://www.pinitexchange.com';
 
@@ -101,6 +112,10 @@ export const config = {
   env: optional('NODE_ENV', 'development') as 'development' | 'production' | 'test',
   port: optionalInt('PORT', 4000),
   apiPrefix: optional('API_PREFIX', '/api/v1'),
+
+  hub: {
+    appUrl: resolveHubAppUrl(),
+  },
 
   db: {
     url: required('DATABASE_URL'),
@@ -197,6 +212,14 @@ export const config = {
 
   biometric: {
     encryptionKey: optional('BIOMETRIC_ENCRYPTION_KEY', optional('VAULT_MASTER_SECRET', 'dev_biometric_key_change_in_prod')),
+    /**
+     * Live matcher. Keep face-api-v1 until a commercially licensed ArcFace-family
+     * engine is approved and weights are installed. Setting arcface-family-licensed
+     * without weights fails closed (MODEL_UNAVAILABLE) — never bypasses biometrics.
+     */
+    recognitionEngine: (optional('BIOMETRIC_RECOGNITION_ENGINE', 'face-api-v1') === 'arcface-family-licensed'
+      ? 'arcface-family-licensed'
+      : 'face-api-v1') as 'face-api-v1' | 'arcface-family-licensed',
     thresholds: {
       // face-api.js L2 on normalized 128-d.
       //

@@ -9,6 +9,7 @@
 import { Request, Response, NextFunction } from 'express';
 import crypto from 'crypto';
 import fs from 'fs/promises';
+import { prisma } from '../../lib/prisma';
 import { VaultService } from '../../services/vault/vault.service';
 import { AppError } from '../middleware/error.middleware';
 import { getAuthUserId } from '../../lib/tenant-scope';
@@ -33,6 +34,7 @@ import {
   extractTextFromPlain,
 } from '../../services/privacy/privacy-masking.service';
 import { vaultContentAnalysisService } from '../../services/vault/vault-content-analysis.service';
+import { getOrCreateLivingBrief } from '../../services/intelligence/living-asset-brief.service';
 import {
   emitAssetViewed,
   emitAssetDownloaded,
@@ -312,6 +314,10 @@ export async function storeInVault(
       logger.warn('[ContentAnalysis] vault store analysis failed', { error: String(err) });
     }
 
+    void getOrCreateLivingBrief(ownerUserId, result.vaultId).catch((err) => {
+      logger.warn('[living-brief] post-protect describe failed', { error: String(err) });
+    });
+
     // Business Account — optionally attach this asset to a Campaign the user is
     // uploading into. Reuses campaignService's own org-scoping/RBAC/audit-log —
     // never fatal to the protect flow if the campaign link fails.
@@ -379,11 +385,17 @@ export async function getVaultRecord(
     const record = await vaultService.getRecord(id);
     const { getLocationStatusForAssets } = await import('../../services/forensics/forensic-provenance.service');
     const locationByDna = await getLocationStatusForAssets([record.dnaRecordId]);
+    const linkedAsset = await prisma.asset.findFirst({
+      where: { OR: [{ vaultId: record.id }, { dnaId: record.dnaRecordId }] },
+      select: { id: true },
+      orderBy: { createdAt: 'asc' },
+    });
 
     res.status(200).json({
       success: true,
       vault: {
         id:                  record.id,
+        assetId:             linkedAsset?.id ?? null,
         dnaRecordId:         record.dnaRecordId,
         originalFileName:    record.originalFileName,
         originalMimeType:    record.originalMimeType,
