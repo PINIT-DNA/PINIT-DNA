@@ -151,6 +151,7 @@ export function clearUserSessionCaches() {
       if (
         k?.startsWith('pinit_')
         && k !== 'pinit_theme'
+        && k !== 'pinit_last_account'
         && !k.startsWith('pinit_plan_choice_')
       ) keysToRemove.push(k);
     }

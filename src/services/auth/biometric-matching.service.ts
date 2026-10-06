@@ -107,8 +107,7 @@ export function isIdentifyAccept(
 ): boolean {
   if (!Number.isFinite(bestDistance) || bestDistance >= threshold) return false;
   if (!Number.isFinite(secondDistance) || secondDistance === Infinity) return true;
-  if (secondDistance < threshold) return false;
-  const margin = THRESHOLDS.faceLoginMargin ?? 0.08;
+  const margin = THRESHOLDS.faceIdentifyMargin ?? 0.03;
   return secondDistance - bestDistance >= margin;
 }
 

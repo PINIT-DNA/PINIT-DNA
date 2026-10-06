@@ -14,6 +14,7 @@ const K_LAST_LOGIN   = 'pinit_last_login';
 const K_REGISTERED   = 'pinit_registered_at';
 const K_DEVICE_FP    = 'pinit_device_fp';
 const K_WEBAUTHN     = 'pinit_webauthn_credential';
+const K_LAST_ACCOUNT = 'pinit_last_account';
 
 export interface HoidRecord {
   hoid: string;
@@ -96,7 +97,17 @@ export function getHoidRecord(): HoidRecord | null {
 
 /** Wipe device-side identity (used by "use a different identity" / reset). */
 export function clearRegistration(): void {
-  [K_HOID, K_SHORT_ID, K_TRUST, K_LAST_LOGIN, K_REGISTERED, K_DEVICE_FP, K_WEBAUTHN].forEach((k) =>
+  [K_HOID, K_SHORT_ID, K_TRUST, K_LAST_LOGIN, K_REGISTERED, K_DEVICE_FP, K_WEBAUTHN, K_LAST_ACCOUNT].forEach((k) =>
     localStorage.removeItem(k)
   );
+}
+
+/** Survives sign-out so the next look on this browser is checked against this account only. */
+export function rememberLastAccount(shortId: string): void {
+  const id = shortId.trim();
+  if (id) localStorage.setItem(K_LAST_ACCOUNT, id);
+}
+
+export function getLastAccount(): string | null {
+  return localStorage.getItem(K_LAST_ACCOUNT);
 }

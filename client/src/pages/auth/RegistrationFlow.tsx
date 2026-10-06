@@ -2,21 +2,22 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  ShieldCheck, Camera, Mic, Sparkles,
+  ShieldCheck, Camera, Mic, Fingerprint, Sparkles,
   ArrowRight, CheckCircle2, Building2, User, Copy, Check,
 } from 'lucide-react';
 
 import { AuthShell } from '../../components/auth/AuthShell';
 import { FaceRoundScan } from '../../components/auth/FaceRoundScan';
-import { BiometricStep, isDuplicateIdentityError } from '../../components/auth/BiometricStep';
+import { BiometricStep } from '../../components/auth/BiometricStep';
+import { isDuplicateIdentityError } from '../../components/auth/BiometricStep';
 import { VoiceCaptureStep } from '../../components/auth/VoiceCaptureStep';
 import { StepHead, Checklist, SystemTrace, TrustBadge, type CheckItem } from '../../components/auth/parts';
 import { useAuth } from '../../context/AuthContext';
 import { collectFingerprint } from '../../lib/device-fingerprint';
 import { generateHoid, saveRegistration, clearRegistration } from '../../lib/hoid';
-import { type BiometricResult } from '../../lib/webauthn';
 import { warmBackend, parseJwt } from '../../lib/auth';
-import { registerFaceIdentity, type FacePadEvidence } from '../../lib/face-api-client';
+import { beginFaceEnrollment, registerFaceIdentity, type FacePadEvidence } from '../../lib/face-api-client';
+import { type BiometricResult } from '../../lib/webauthn';
 import { preloadFaceModels } from '../../lib/face-capture';
 import {
   clearBusinessSetup,
@@ -29,9 +30,9 @@ import {
   getPreRegisterAccountType,
 } from '../../lib/pre-register';
 
-type Step = 'welcome' | 'permissions' | 'face' | 'fingerprint' | 'voice' | 'creating' | 'success';
-/** Face (PAD) → device passkey (WebAuthn) → voice (optional). */
-const ORDER: Step[] = ['welcome', 'permissions', 'face', 'fingerprint', 'voice', 'creating', 'success'];
+type Step = 'welcome' | 'permissions' | 'face' | 'device' | 'voice' | 'creating' | 'success';
+/** Reserve a Pinit ID, then three live face samples, then an optional device factor. */
+const ORDER: Step[] = ['welcome', 'permissions', 'face', 'device', 'voice', 'creating', 'success'];
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -48,12 +49,16 @@ export function RegistrationFlow() {
   const [error, setError] = useState('');
   /** The minted Pinit ID, surfaced on the success screen so it can be saved. */
   const [newShortId, setNewShortId] = useState('');
+  const [reservedId, setReservedId] = useState('');
+  const [faceCaptured, setFaceCaptured] = useState(false);
   const deviceFpRef = useRef<string>('');
   const hoidRef = useRef<string>('');
   const faceEmbeddingRef = useRef<number[] | null>(null);
   const padEvidenceRef = useRef<FacePadEvidence | null>(null);
-  const voiceFingerprintRef = useRef<number[] | null>(null);
+  const samplesRef = useRef<Array<{ embedding: number[]; padEvidence: FacePadEvidence }>>([]);
+  const enrollmentTokenRef = useRef('');
   const bioRef = useRef<BiometricResult | null>(null);
+  const voiceFingerprintRef = useRef<number[] | null>(null);
   const accountTypeRef = useRef<'INDIVIDUAL' | 'BUSINESS'>(
     getPreRegisterAccountType() ?? 'INDIVIDUAL',
   );
@@ -75,9 +80,38 @@ export function RegistrationFlow() {
     accountTypeRef.current = chosen;
   }, [navigate]);
 
+  useEffect(() => {
+    if (step !== 'face' || enrollmentTokenRef.current) return;
+    let cancelled = false;
+    void beginFaceEnrollment()
+      .then((claim) => {
+        if (cancelled) return;
+        enrollmentTokenRef.current = claim.enrollmentToken;
+        setReservedId(claim.shortId);
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Could not reserve a Pinit ID.');
+      });
+    return () => { cancelled = true; };
+  }, [step]);
+
   function afterFace() {
-    go('fingerprint');
+    if (samplesRef.current.length < 3) {
+      setError('Three clear face samples are required.');
+      return;
+    }
+    setFaceCaptured(true);
+    if (!enrollmentTokenRef.current) {
+      setError('Reserving your Pinit ID…');
+      return;
+    }
+    go('device');
   }
+
+  useEffect(() => {
+    if (step !== 'face' || !faceCaptured || !enrollmentTokenRef.current) return;
+    go('device');
+  }, [step, faceCaptured, reservedId]);
 
   function afterVoice(fp: number[] | null) {
     voiceFingerprintRef.current = fp;
@@ -98,27 +132,59 @@ export function RegistrationFlow() {
           {step === 'permissions' && <Permissions deviceFpRef={deviceFpRef} onNext={() => go('face')} />}
           {step === 'face'        && (
             <>
+              {reservedId && (
+                <p className="pa-muted" style={{ textAlign: 'center', fontSize: 13, marginBottom: 8 }}>
+                  Pinit ID {reservedId} is reserved. It stays empty until these face samples pass.
+                </p>
+              )}
               <FaceRoundScan
                 mode="register"
+                samplesRequired={3}
                 identityError={error}
                 onEmbedding={(emb) => { faceEmbeddingRef.current = emb; }}
                 onPadEvidence={(ev) => { padEvidenceRef.current = ev; }}
+                onSample={(sample) => { samplesRef.current = [...samplesRef.current, sample]; }}
                 onNext={afterFace}
                 onError={(m) => setError(m)}
               />
+              {!reservedId && error && (
+                <button
+                  type="button"
+                  className="pa-btn pa-btn-ghost"
+                  style={{ marginTop: 8 }}
+                  onClick={() => {
+                    enrollmentTokenRef.current = '';
+                    setError('');
+                    void beginFaceEnrollment()
+                      .then((claim) => {
+                        enrollmentTokenRef.current = claim.enrollmentToken;
+                        setReservedId(claim.shortId);
+                      })
+                      .catch((err) => setError(err instanceof Error ? err.message : 'Could not reserve a Pinit ID.'));
+                  }}
+                >
+                  Reserve Pinit ID again
+                </button>
+              )}
             </>
           )}
-          {step === 'fingerprint' && (
-            <BiometricStep
-              mode="register"
-              enrollmentLabel={deviceFpRef.current || hoidRef.current || 'register'}
-              deviceFingerprint={deviceFpRef.current || undefined}
-              onDone={(r) => {
-                bioRef.current = r;
-                go('voice');
-              }}
-              onError={(m) => setError(m)}
-            />
+          {step === 'device' && (
+            <div>
+              <BiometricStep
+                mode="register"
+                hold
+                enrollmentLabel={reservedId || 'register'}
+                onDone={(result) => {
+                  bioRef.current = result;
+                  go('voice');
+                }}
+                onError={(m) => setError(m)}
+              />
+              <button type="button" className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={() => { bioRef.current = null; go('voice'); }}>
+                Skip fingerprint — continue with face
+              </button>
+              {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 8 }}>{error}</p>}
+            </div>
           )}
           {step === 'voice'       && (
             <VoiceCaptureStep
@@ -135,14 +201,18 @@ export function RegistrationFlow() {
               run={async () => {
                 const embedding = faceEmbeddingRef.current;
                 const voiceFp = voiceFingerprintRef.current;
-                if (!embedding) throw new Error('Face data missing. Go back and scan again.');
+                if (!embedding || samplesRef.current.length < 3 || !enrollmentTokenRef.current) {
+                  throw new Error('Three live face samples and a reserved Pinit ID are required.');
+                }
 
                 const result = await registerFaceIdentity({
                   embedding,
+                  samples: samplesRef.current,
+                  enrollmentToken: enrollmentTokenRef.current || undefined,
                   padEvidence: padEvidenceRef.current ?? undefined,
                   passkeyPendingToken: bioRef.current?.passkeyPendingToken,
+                  webauthnCredentialId: bioRef.current?.credentialId || undefined,
                   voiceFingerprint: voiceFp ?? undefined,
-                  webauthnCredentialId: bioRef.current?.simulated ? undefined : bioRef.current?.credentialId,
                   deviceFingerprint: deviceFpRef.current || undefined,
                   accountType: accountTypeRef.current,
                 });
@@ -166,7 +236,6 @@ export function RegistrationFlow() {
                   shortId,
                   trustScore: 99.8,
                   deviceFp: deviceFpRef.current,
-                  webauthnCredentialId: bioRef.current?.credentialId,
                 });
               }}
               onDone={() => go('success')}
@@ -212,20 +281,20 @@ function Welcome({
         title="Create your Pinit HUB identity"
         subtitle={
           isBusiness
-            ? 'Business mode · Free plan. Your face identifies you. Device authentication is bound to this account only.'
-            : 'Individual mode · Free plan. Your face identifies you. Device authentication is bound to this account only.'
+            ? 'Business mode · Free plan. Your face identifies you.'
+            : 'Individual mode · Free plan. Your face identifies you.'
         }
       />
       <div className="pa-bio-steps">
         <div className="pa-bio-step">
           <Camera size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
           <span>Face</span>
-          <em>Enroll</em>
+          <em>3 samples</em>
         </div>
         <div className="pa-bio-step">
-          <ShieldCheck size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
-          <span>Device</span>
-          <em>Bind</em>
+          <Fingerprint size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
+          <span>Fingerprint</span>
+          <em>Optional</em>
         </div>
         <div className="pa-bio-step">
           <Mic size={18} color="#3b9eff" style={{ margin: '0 auto' }} />
@@ -342,7 +411,7 @@ function Creating({
     <div className="pa-card">
       <StepHead icon={<Sparkles size={26} color="#3b9eff" />} title="Saving to Database" subtitle="Checking you are not already registered…" />
       <Checklist items={items} />
-      <SystemTrace lines={['Check face duplicates', 'Create account', 'Bind device authenticator']} />
+      <SystemTrace lines={['Reserve the Pinit ID', 'Check three live samples', 'Create the account']} />
       {error && (
         <div style={{ marginTop: 14, textAlign: 'center' }}>
           <p style={{ color: duplicate ? '#b45309' : '#fca5a5', fontSize: 13 }}>{error}</p>

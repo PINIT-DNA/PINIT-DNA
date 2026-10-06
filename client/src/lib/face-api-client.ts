@@ -68,8 +68,19 @@ async function postFace(path: string, body: unknown): Promise<{ status: number; 
   throw lastErr;
 }
 
+export async function beginFaceEnrollment(): Promise<{ shortId: string; enrollmentToken: string }> {
+  const { status, data } = await postFace('/enroll/begin', {});
+  const claim = data as FaceAuthResponse & { shortId?: string; enrollmentToken?: string };
+  if (status >= 400 || claim.success === false || !claim.shortId || !claim.enrollmentToken) {
+    throw new Error(claim.message ?? 'Could not reserve a Pinit ID.');
+  }
+  return { shortId: claim.shortId, enrollmentToken: claim.enrollmentToken };
+}
+
 export async function registerFaceIdentity(payload: {
   embedding: number[];
+  samples?: Array<{ embedding: number[]; padEvidence?: FacePadEvidence }>;
+  enrollmentToken?: string;
   voiceFingerprint?: number[];
   webauthnCredentialId?: string;
   deviceFingerprint?: string;
@@ -107,6 +118,28 @@ export async function registerFaceIdentity(payload: {
   }
   if (!data.accessToken) throw new Error('Registration failed. Please try again.');
   return data;
+}
+
+/** Replace the enrolled face only after this signed-in face still matches. */
+export async function reenrollFace(payload: {
+  embedding: number[];
+  padEvidence?: FacePadEvidence;
+}): Promise<void> {
+  const token = localStorage.getItem('pinit_access_token');
+  try {
+    const res = await axios.post(`${BASE}/reenroll`, payload, {
+      timeout: 70_000,
+      withCredentials: true,
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const data = res.data as FaceAuthResponse;
+    if (data.success === false) throw new Error(data.message ?? 'Face update failed.');
+  } catch (e: unknown) {
+    const data = (e as { response?: { data?: FaceAuthResponse } }).response?.data;
+    if (data?.message) throw new Error(data.message);
+    if (e instanceof Error) throw e;
+    throw new Error('Face update failed.');
+  }
 }
 
 export async function loginWithFace(payload: {

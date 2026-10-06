@@ -8,6 +8,8 @@ import { ensureFaceModels, waitForVideoFrames, logFaceTiming } from './face-capt
 import { analyzeAndCorrectLighting, enhanceFaceImageContrast, type LightingStatus } from './face-image-processing';
 import { requestFaceChallenge, type FacePadEvidence } from './face-api-client';
 import { enrollFaceHint } from './enroll-face-quality';
+import { qualityUserMessage, evaluateFaceQuality } from './biometric/face-quality-engine';
+import { decidePassiveHeuristic, padUserMessage } from './biometric/passive-pad-engine';
 import { evaluatePadFacePresence, FACE_LOSS_RECOVERY_MS } from './pad-face-presence';
 
 const PATCH = 24;
@@ -23,9 +25,7 @@ export const PAD_HINTS: Record<string, string> = {
 };
 
 function captureStopped(signal?: AbortSignal): boolean {
-  if (signal?.aborted) return true;
-  if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return true;
-  return false;
+  return Boolean(signal?.aborted);
 }
 
 function throwIfCaptureStopped(signal?: AbortSignal): void {
@@ -189,7 +189,6 @@ export async function runPadCapture(
   const minSamples = verify ? 6 : MIN_SAMPLES;
   const minDurationMs = verify ? 700 : 1800;
   const sampleEvery = verify ? 55 : SAMPLE_EVERY_MS;
-  const minMotion = 0.028;
   const timeoutMs = opts.timeoutMs ?? (verify ? 12000 : 28000);
   const inputSize = 416;
   const scoreThreshold = verify ? 0.14 : 0.22;
@@ -218,6 +217,7 @@ export async function runPadCapture(
 
   let lightingStatus: LightingStatus = 'OPTIMAL';
   let lightingAverage = 128;
+  let lastQualityMessage = 'Look at the camera.';
   const reportLighting = (status: LightingStatus, average: number) => {
     lightingStatus = status;
     lightingAverage = average;
@@ -226,6 +226,9 @@ export async function runPadCapture(
 
   while (Date.now() - started < timeoutMs) {
     throwIfCaptureStopped(opts.signal);
+    if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+      throw new Error('Come back to this page and look at the camera.');
+    }
     const all = await detectFacesForPad(video, detector, reportLighting);
     const presence = evaluatePadFacePresence({
       faceCount: all.length,
@@ -272,12 +275,36 @@ export async function runPadCapture(
     }
     const parsed = JSON.parse(packed) as { b64: string; brightness: number };
     const frameArea = Math.max(1, video.videoWidth * video.videoHeight);
+    const boxRatio = (box.width * box.height) / frameArea;
+    const centerOffsetX = Math.abs((box.x + box.width / 2) / Math.max(1, video.videoWidth) - 0.5);
+    const centerOffsetY = Math.abs((box.y + box.height / 2) / Math.max(1, video.videoHeight) - 0.5);
+    const leftEye = det.landmarks.getLeftEye();
+    const rightEye = det.landmarks.getRightEye();
+    const quality = evaluateFaceQuality({
+      faceCount: all.length,
+      boxRatio,
+      centerOffsetX,
+      centerOffsetY,
+      brightness: parsed.brightness,
+      sharpness: null,
+      yaw: pose.yaw,
+      pitch: pose.pitch,
+      eyesVisible: leftEye.length >= 6 && rightEye.length >= 6,
+    });
+    if (!quality.passed) {
+      lastQualityMessage = qualityUserMessage(quality.reasons);
+      opts.onHint?.(lastQualityMessage);
+      console.info(`[Biometric] quality=${quality.reasons[0] ?? 'FAIL'}`);
+      await new Promise((r) => setTimeout(r, sampleEvery));
+      continue;
+    }
+    if (samples.length === 0) console.info('[Biometric] state=FACE_DETECTED');
     samples.push({
       t: Date.now() - started,
       yaw: pose.yaw,
       pitch: pose.pitch,
       faceCount: 1,
-      boxRatio: (box.width * box.height) / frameArea,
+      boxRatio,
       brightness: parsed.brightness,
     });
     patches.push(parsed.b64);
@@ -307,21 +334,28 @@ export async function runPadCapture(
   }
 
   if (samples.length === 0) {
-    throw new Error('Look at the camera in good light and try again.');
+    throw new Error(lastQualityMessage);
   }
-  if ((!verify && actionIdx < actions.length) || samples.length < minSamples) {
-    throw new Error('Look at the camera and follow the on-screen prompts, then try again.');
+  if (samples.length < minSamples) {
+    throw new Error(lastQualityMessage || 'Hold still and look at the camera.');
   }
 
   const motion = patchMotion(patches);
-  if (motion <= 0.012) {
-    throw new Error('Use a live camera. Photos and screens cannot be used.');
+  const observedMs = samples[samples.length - 1]!.t - samples[0]!.t;
+  const pad = decidePassiveHeuristic({
+    motion,
+    sampleCount: samples.length,
+    durationMs: observedMs,
+    qualityPassed: true,
+  });
+  console.info(`[Biometric] pad=${pad.verdict}`);
+  if (pad.verdict !== 'LIVE') {
+    throw new Error(padUserMessage(pad.verdict));
   }
-  if (!verify && motion < minMotion) {
-    throw new Error('Move naturally with the prompts in good light, then try again.');
-  }
+  console.info('[Biometric] alignment=PASS');
+  console.info('[Biometric] embedding=PASS');
 
-  const last = descriptors.slice(verify ? -3 : -6);
+  const last = descriptors.slice(-6);
   if (!last.length) throw new Error('Could not capture your face. Try again.');
   const avg = new Float32Array(128);
   for (const d of last) {

@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
-import { ScanFace, UserCheck } from 'lucide-react';
+import { ScanFace } from 'lucide-react';
 
 import { AuthShell } from '../../components/auth/AuthShell';
 import { FaceRoundScan } from '../../components/auth/FaceRoundScan';
 import { useAuth } from '../../context/AuthContext';
 import {
   getTrustScore, recordLogin, clearRegistration,
-  saveRegistration, generateHoid, getStoredShortId,
+  saveRegistration, generateHoid, getStoredShortId, getLastAccount, rememberLastAccount,
 } from '../../lib/hoid';
 import { warmBackend, parseJwt, getAccessToken, hasValidAccessToken } from '../../lib/auth';
 import { maySkipBiometricsForExchangeReturn } from '../../lib/exchange-return-session';
@@ -25,10 +25,8 @@ import {
   stashExchangeReturn,
   takeStashedExchangeReturn,
 } from '../../lib/exchange-return';
-import { getSignInStartMethod, resolveSignInEntryStep, loginNeedsPasskeyFactor } from '../../lib/signin-preference';
-import { assertDeviceCredential } from '../../lib/webauthn';
 
-type Step = 'welcome' | 'claim' | 'face' | 'device' | 'entering';
+type Step = 'welcome' | 'face' | 'entering';
 
 const fade = {
   initial: { opacity: 0, y: 16 },
@@ -47,16 +45,20 @@ function userFacingLoginError(msg: string): string {
   if (/not recognized/.test(m)) {
     return 'Face not recognized. Look at the camera again, or sign up if this is a new account.';
   }
-  if (/pinit id|unknown_claim|no_claim/.test(m)) {
-    return 'Look at the camera to sign in, or enter your Pinit ID if you have it.';
+  if (/capture_aborted|aborterror/.test(m)) {
+    return 'Look at the camera and hold still for a second.';
   }
-  if (/enter your pinit id/.test(m)) {
-    return 'Look at the camera to sign in, or enter your Pinit ID if you have it.';
+  if (/pinit id|unknown_claim|no_claim|enter your pinit id/.test(m)) {
+    return 'Look at the camera to sign in.';
+  }
+  if (/follow the on-screen prompts|follow the motion|follow the live motion/.test(m)) {
+    return 'Look at the camera.';
   }
   if (/timed out|taking too long/.test(m)) {
     return 'Authentication timed out. The server is taking too long to respond. Please try again.';
   }
-  return "Couldn't verify you. Please try again.";
+  const clean = msg.trim();
+  return clean || "Couldn't verify you. Please try again.";
 }
 
 export function LoginFlow() {
@@ -78,13 +80,9 @@ export function LoginFlow() {
   const faceEmbeddingRef = useRef<number[] | null>(null);
   const padEvidenceRef = useRef<FacePadEvidence | null>(null);
   const lightingRef = useRef<{ status: string; average: number } | null>(null);
-  const bioCredentialRef = useRef<string | undefined>(undefined);
-  const webauthnSessionRef = useRef<string | undefined>(undefined);
-  const passkeyPendingRef = useRef<string | undefined>(undefined);
   const deviceFpRef = useRef<string>('');
   const claimedShortIdRef = useRef('');
   claimedShortIdRef.current = claimedShortId;
-  const passkeyAfterFaceRef = useRef(false);
 
   const go = (s: Step) => { setError(''); setStep(s); };
 
@@ -189,30 +187,12 @@ export function LoginFlow() {
     navigate(resolveLoginHomePath(), { replace: true });
   }
 
-  function rememberedIdentity(): string {
-    let stashed = '';
-    try { stashed = sessionStorage.getItem(CLAIM_PREFILL_KEY) || ''; } catch { /* ignore */ }
-    const stored = getStoredShortId() || '';
-    const jwtShort = parseJwt(getAccessToken() || '')?.shortId || '';
-    const fromState = (toRootPinitId(claimedShortId) || claimedShortId).trim();
-    return (
-      fromState
-      || (toRootPinitId(stashed) || stashed).trim()
-      || (toRootPinitId(stored) || stored).trim()
-      || (toRootPinitId(jwtShort) || jwtShort).trim()
-    );
-  }
-
   function startSignIn() {
-    passkeyAfterFaceRef.current = false;
-    webauthnSessionRef.current = undefined;
-    passkeyPendingRef.current = undefined;
-    bioCredentialRef.current = undefined;
     claimedShortIdRef.current = '';
     setClaimedShortId('');
     setScanAttempts(0);
     setError('');
-    go(resolveSignInEntryStep(getSignInStartMethod(), rememberedIdentity()));
+    go('face');
   }
 
   function clearClaimedIdentity() {
@@ -223,7 +203,7 @@ export function LoginFlow() {
     claimedShortIdRef.current = '';
     setScanAttempts(0);
     setError('');
-    go('claim');
+    go('face');
   }
 
   async function applyLoginResult(result: Awaited<ReturnType<typeof loginWithFace>>) {
@@ -242,6 +222,7 @@ export function LoginFlow() {
     loginWithFaceResponse(result);
     const shortId = result.user?.shortId ?? '';
     if (shortId) {
+      rememberLastAccount(shortId);
       let deviceFp = '';
       try { deviceFp = (await collectFingerprint()).hash; } catch { /* noop */ }
       saveRegistration({
@@ -249,7 +230,6 @@ export function LoginFlow() {
         shortId,
         trustScore: getTrustScore(),
         deviceFp,
-        webauthnCredentialId: bioCredentialRef.current,
       });
       recordLogin();
     }
@@ -268,65 +248,23 @@ export function LoginFlow() {
         }
       : undefined;
 
-    if (typedClaim) {
+    const stored = (toRootPinitId(getStoredShortId()) || getStoredShortId() || '').trim();
+    const lastAccount = (toRootPinitId(getLastAccount()) || getLastAccount() || '').trim();
+    const claim = typedClaim || stored || lastAccount;
+    if (claim) {
       return loginWithFace({
         embedding,
-        claimedShortId: typedClaim,
+        claimedShortId: claim,
         padEvidence,
         lightingTelemetry,
-        webauthnSession: webauthnSessionRef.current,
-        passkeyPendingToken: passkeyPendingRef.current,
-        webauthnCredentialId: bioCredentialRef.current,
         deviceFingerprint,
       });
     }
-
-    try {
-      return await identifyWithFace({ embedding, padEvidence, deviceFingerprint });
-    } catch (identifyErr) {
-      const stored = (toRootPinitId(getStoredShortId()) || getStoredShortId() || '').trim();
-      if (!stored) throw identifyErr;
-      return loginWithFace({
-        embedding,
-        claimedShortId: stored,
-        padEvidence,
-        lightingTelemetry,
-        webauthnSession: webauthnSessionRef.current,
-        passkeyPendingToken: passkeyPendingRef.current,
-        webauthnCredentialId: bioCredentialRef.current,
-        deviceFingerprint,
-      });
-    }
-  }
-
-  async function confirmDevicePasskey() {
-    const r = await assertDeviceCredential(claimedShortIdRef.current.trim() || undefined);
-    if (r.simulated) return;
-    bioCredentialRef.current = r.credentialId;
-    passkeyPendingRef.current = r.passkeyPendingToken;
-    webauthnSessionRef.current = r.webauthnSession;
-    if (r.shortId) {
-      const bound = (toRootPinitId(r.shortId) || r.shortId).trim();
-      const claimed = (toRootPinitId(claimedShortIdRef.current) || claimedShortIdRef.current).trim();
-      if (claimed && bound && claimed !== bound) {
-        throw new Error("That didn't match. Try again.");
-      }
-      setClaimedShortId(r.shortId);
-      try { sessionStorage.setItem(CLAIM_PREFILL_KEY, r.shortId); } catch { /* ignore */ }
-    }
+    return identifyWithFace({ embedding, padEvidence, deviceFingerprint });
   }
 
   async function finishLogin() {
-    try {
-      await applyLoginResult(await submitFaceLogin());
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (!loginNeedsPasskeyFactor(msg) || passkeyAfterFaceRef.current) throw e;
-      passkeyAfterFaceRef.current = true;
-      setStep('device');
-      await confirmDevicePasskey();
-      await applyLoginResult(await submitFaceLogin());
-    }
+    await applyLoginResult(await submitFaceLogin());
   }
 
   if (openingExchange && exchangeReturn) {
@@ -360,35 +298,8 @@ export function LoginFlow() {
             />
           )}
 
-          {step === 'claim' && (
-            <ClaimPinitId
-              claimedShortId={claimedShortId}
-              onClaimedShortIdChange={setClaimedShortId}
-              onBack={() => go('welcome')}
-              onSkipToFace={() => {
-                setError('');
-                setScanAttempts(0);
-                go('face');
-              }}
-              onNext={() => {
-                const claim = (toRootPinitId(claimedShortId) || claimedShortId).trim();
-                if (!claim) {
-                  setError('');
-                  go('face');
-                  return;
-                }
-                setClaimedShortId(claim);
-                claimedShortIdRef.current = claim;
-                try { sessionStorage.setItem(CLAIM_PREFILL_KEY, claim); } catch { /* ignore */ }
-                go('face');
-              }}
-              error={error}
-            />
-          )}
-
           {step === 'face' && (
             <FaceRoundScan
-              key={`face-login-${scanAttempts}`}
               mode="login"
               title="Sign In"
               claimedShortId={claimedShortId}
@@ -412,26 +323,25 @@ export function LoginFlow() {
                   .catch((e) => {
                     padEvidenceRef.current = null;
                     faceEmbeddingRef.current = null;
-                    passkeyAfterFaceRef.current = false;
                     const nextAttemptCount = scanAttempts + 1;
                     setScanAttempts(nextAttemptCount);
                     const raw = e instanceof Error ? e.message : '';
-                    if (/enter your pinit id/i.test(raw)) {
-                      setError(userFacingLoginError(raw));
-                      return;
-                    }
-                    setError(userFacingLoginError(raw));
+                    const msg = userFacingLoginError(raw);
+                    setError(nextAttemptCount >= 3 ? `${msg} Tap Start Face Scan when you are ready.` : msg);
                   });
               }}
-              onError={(m) => setError(userFacingLoginError(m))}
+              onError={(m) => {
+                const next = scanAttempts + 1;
+                setScanAttempts(next);
+                const msg = userFacingLoginError(m);
+                setError(next >= 3 ? `${msg} Tap Start Face Scan when you are ready.` : msg);
+              }}
               onScanStart={() => setError('')}
             />
           )}
 
-          {(step === 'device' || step === 'entering') && (
-            <QuietCameraWait
-              message={step === 'device' ? 'Confirm this device' : finishHint}
-            />
+          {step === 'entering' && (
+            <QuietCameraWait message={finishHint} />
           )}
         </motion.div>
       </AnimatePresence>
@@ -467,65 +377,6 @@ function WelcomeHome({
           Sign Up
         </button>
       )}
-    </div>
-  );
-}
-
-function ClaimPinitId({
-  claimedShortId,
-  onClaimedShortIdChange,
-  onNext,
-  onBack,
-  onSkipToFace,
-  error,
-}: {
-  claimedShortId: string;
-  onClaimedShortIdChange: (v: string) => void;
-  onNext: () => void;
-  onBack: () => void;
-  onSkipToFace: () => void;
-  error?: string;
-}) {
-  return (
-    <div className="pa-card" style={{ textAlign: 'center' }}>
-      <div style={{
-        width: 56, height: 56, margin: '4px auto 14px', borderRadius: 16,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'radial-gradient(circle at 50% 30%, rgba(59,158,255,0.28), rgba(29,111,216,0.06))',
-        border: '1px solid rgba(59,158,255,0.28)',
-      }}>
-        <UserCheck size={26} color="#3b9eff" />
-      </div>
-      <h1 style={{ fontSize: 20, fontWeight: 800 }}>Your Pinit ID</h1>
-      <p className="pa-muted" style={{ fontSize: 13, marginTop: 8 }}>
-        Optional. If you do not know it, sign in with Face Scan instead.
-      </p>
-      <label className="pa-muted" style={{ display: 'block', fontSize: 12, textAlign: 'left', marginTop: 16 }}>
-        Pinit ID
-        <input
-          value={claimedShortId}
-          onChange={(e) => onClaimedShortIdChange(e.target.value.toUpperCase())}
-          onKeyDown={(e) => { if (e.key === 'Enter') onNext(); }}
-          placeholder="PINIT-XXXXXX"
-          autoComplete="username"
-          autoFocus
-          style={{
-            display: 'block', width: '100%', marginTop: 6, padding: '10px 12px',
-            borderRadius: 10, border: '1px solid rgba(59,158,255,0.35)',
-            background: 'rgba(8,14,28,0.7)', color: '#e8eef8', fontWeight: 700, letterSpacing: 0.4,
-          }}
-        />
-      </label>
-      {error && <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 10 }}>{error}</p>}
-      <button className="pa-btn" style={{ marginTop: 14 }} onClick={onNext}>
-        Continue
-      </button>
-      <button type="button" className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onSkipToFace}>
-        I don't know my Pinit ID — Face Scan
-      </button>
-      <button type="button" className="pa-link" onClick={onBack} style={{ display: 'block', margin: '14px auto 0', fontSize: 13 }}>
-        Back
-      </button>
     </div>
   );
 }

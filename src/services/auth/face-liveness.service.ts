@@ -339,7 +339,7 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
     reasons.push('challenge_not_completed');
     return { verdict: 'UNKNOWN', reasons, scores, jti: challenge.jti };
   }
-  if (motion < minLiveMotion) {
+  if (!passive && motion < minLiveMotion) {
     reasons.push('insufficient_motion');
     return { verdict: 'UNKNOWN', reasons, scores, jti: challenge.jti };
   }
@@ -349,12 +349,15 @@ export function evaluatePad(challenge: IssuedPadChallenge | null, evidence: PadE
 
 export function padDenyMessage(verdict: PadVerdict, reasons?: string[]): string {
   if (verdict === 'SPOOF') {
-    return 'Liveness check failed. Use a live camera — printed photos and phone screens are not accepted.';
+    return 'Use a live camera. A photo or a screen cannot sign in.';
   }
   if (reasons?.includes('challenge_expired')) {
-    return 'Liveness expired before login finished. Scan your face again on the next try, then continue without long pauses.';
+    return 'Look at the camera again.';
   }
-  return 'Liveness was inconclusive. Face the camera in good light, follow the motion prompts, and retry.';
+  if (reasons?.includes('multiple_faces')) return 'Make sure only one person is visible.';
+  if (reasons?.includes('low_sharpness')) return 'Hold still for a moment.';
+  if (reasons?.includes('poor_quality') || reasons?.includes('no_face')) return 'Look at the camera.';
+  return 'Hold still and look at the camera.';
 }
 
 async function jtiAlreadyUsed(jti: string): Promise<boolean> {

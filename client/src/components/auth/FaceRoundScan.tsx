@@ -13,8 +13,11 @@ interface FaceRoundScanProps {
   scanAttempts?: number;
   identityError?: string;
   onClearIdentity?: () => void;
+  scanAgainLabel?: string;
+  samplesRequired?: number;
   onEmbedding: (emb: number[]) => void;
   onPadEvidence?: (evidence: FacePadEvidence) => void;
+  onSample?: (sample: { embedding: number[]; padEvidence: FacePadEvidence }, index: number) => void;
   onLightingSample?: (status: string, average: number) => void;
   onCapture?: (img: string | null) => void;
   onNext: () => void;
@@ -28,8 +31,11 @@ export function FaceRoundScan({
   mode = 'register',
   identityError,
   onClearIdentity,
+  scanAgainLabel = 'Not you? Scan again',
+  samplesRequired,
   onEmbedding,
   onPadEvidence,
+  onSample,
   onCapture,
   onNext,
   onError,
@@ -39,8 +45,11 @@ export function FaceRoundScan({
   const [camReady, setCamReady] = useState(false);
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
-  const [hint, setHint] = useState('Face the camera, then follow the motion prompts');
+  const [hint, setHint] = useState('Look at the camera');
+  const [sampleIndex, setSampleIndex] = useState(0);
   const scanningRef = useRef(false);
+  const autoStartedRef = useRef(false);
+  const needed = samplesRequired ?? (mode === 'register' ? 3 : 1);
   const videoRef = useRef<HTMLVideoElement | null>(null);
 
   useEffect(() => { void ensureFaceModels(); }, []);
@@ -55,9 +64,20 @@ export function FaceRoundScan({
       const result = await runPadCapture(video, {
         onProgress: setProgress,
         onHint: setHint,
+        mode: 'verify',
       });
       onEmbedding(result.embedding);
       onPadEvidence?.(result.padEvidence);
+      onSample?.({ embedding: result.embedding, padEvidence: result.padEvidence }, sampleIndex);
+      const nextCount = sampleIndex + 1;
+      if (nextCount < needed) {
+        scanningRef.current = false;
+        setScanning(false);
+        setProgress(0);
+        setSampleIndex(nextCount);
+        setHint(`Sample ${nextCount} of ${needed} saved. Look at the camera again.`);
+        return;
+      }
       setDone(true);
       setTimeout(onNext, 280);
     } catch (e) {
@@ -74,9 +94,19 @@ export function FaceRoundScan({
   }
 
   useEffect(() => {
-    if (mode !== 'login' || !camReady || !videoRef.current || scanningRef.current || done) return;
+    if (mode !== 'login' || !identityError) return;
+    scanningRef.current = false;
+    setScanning(false);
+    setDone(false);
+    setProgress(0);
+  }, [identityError, mode]);
+
+  useEffect(() => {
+    if (mode !== 'login' || !camReady || !videoRef.current || scanningRef.current || done || identityError) return;
+    if (autoStartedRef.current) return;
+    autoStartedRef.current = true;
     void runCapture(videoRef.current);
-  }, [mode, camReady, done]);
+  }, [mode, camReady, done, identityError]);
 
   function start() {
     if (!camReady || !videoRef.current) {
@@ -94,7 +124,8 @@ export function FaceRoundScan({
         subtitle={
           scanning ? hint
             : done ? 'Face captured'
-              : camReady ? 'Tap start — follow the live motion prompts'
+              : camReady
+                ? 'Look at the camera.'
                 : 'Starting camera…'
         }
       />
@@ -110,7 +141,7 @@ export function FaceRoundScan({
       )}
       {mode === 'login' && onClearIdentity && (
         <button type="button" className="pa-btn pa-btn-ghost" style={{ marginTop: 8, textDecoration: 'underline' }} onClick={onClearIdentity}>
-          Not you? Switch account or enter a different Pinit ID
+          {scanAgainLabel}
         </button>
       )}
       {scanning && !done && (
@@ -120,7 +151,9 @@ export function FaceRoundScan({
       )}
       {!scanning && !done && (
         <button className="pa-btn" style={{ marginTop: 12 }} onClick={start} disabled={!camReady}>
-          <Camera size={16} /> {camReady ? 'Start Face Scan' : 'Preparing camera…'}
+          <Camera size={16} /> {camReady
+            ? (needed > 1 ? `Start sample ${sampleIndex + 1} of ${needed}` : 'Start Face Scan')
+            : 'Preparing camera…'}
         </button>
       )}
     </div>

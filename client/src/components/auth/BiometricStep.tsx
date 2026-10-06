@@ -17,6 +17,8 @@ interface BiometricStepProps {
   exchangeReturn?: boolean;
   onDone: (result: BiometricResult) => void;
   onError?: (msg: string) => void;
+  /** Stay on this step until the person continues or skips. */
+  hold?: boolean;
 }
 
 /**
@@ -42,6 +44,7 @@ export function BiometricStep({
   claimedShortId,
   onDone,
   onError,
+  hold = false,
 }: BiometricStepProps) {
   const [progress, setProgress] = useState(0);
   const [done, setDone] = useState(false);
@@ -88,7 +91,7 @@ export function BiometricStep({
 
   /** Placeholder path — brief verification state, then continue. No credential. */
   useEffect(() => {
-    if (REQUIRE_PASSKEY) return;
+    if (REQUIRE_PASSKEY || hold) return;
     setPhase('scanning');
     setProgress(8);
     const finish = setTimeout(() => {
@@ -98,7 +101,7 @@ export function BiometricStep({
       setTimeout(() => onDoneRef.current({ ok: true, credentialId: '', simulated: false }), 260);
     }, 900);
     return () => clearTimeout(finish);
-  }, []);
+  }, [hold]);
 
   return (
     <div className="pa-card" style={{ textAlign: 'center' }}>
@@ -137,9 +140,9 @@ export function BiometricStep({
           </button>
         </div>
       )}
-      {REQUIRE_PASSKEY && phase === 'idle' && !done && (
+      {(REQUIRE_PASSKEY || hold) && phase === 'idle' && !done && (
         <button type="button" className="pa-btn" style={{ marginTop: 12 }} onClick={() => void run()}>
-          <Fingerprint size={16} /> Continue
+          <Fingerprint size={16} /> Add fingerprint
         </button>
       )}
     </div>

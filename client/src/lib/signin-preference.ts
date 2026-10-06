@@ -26,15 +26,11 @@ export function setSignInStartMethod(method: SignInStartMethod): void {
   }
 }
 
-/**
- * Face Scan opens the camera. The server identifies the account from the face
- * when no Pinit ID is stored. Pinit ID preference still starts at the ID form.
- */
+/** Sign-in always opens the camera. A Pinit ID is never asked. */
 export function resolveSignInEntryStep(
-  method: SignInStartMethod,
+  _method: SignInStartMethod,
   _rememberedPinitId: string,
-): 'claim' | 'face' {
-  if (method === 'pinit_id') return 'claim';
+): 'face' {
   return 'face';
 }
 

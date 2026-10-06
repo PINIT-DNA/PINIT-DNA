@@ -2,7 +2,7 @@ import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { authController } from '../controllers/auth.controller';
 import { requireAuth } from '../middleware/auth.middleware';
-import { faceRegister, faceLogin, faceIdentify, faceStatus, faceChallenge } from '../controllers/face-auth.controller';
+import { faceRegister, faceLogin, faceIdentify, faceStatus, faceChallenge, faceBeginEnrollment, faceReenroll } from '../controllers/face-auth.controller';
 import {
   passkeyRegisterStart,
   passkeyRegisterFinish,
@@ -42,6 +42,8 @@ authRouter.get('/business-setup/status', requireAuth, authController.businessSet
 
 // Enterprise Biometric Auth (UI contract unchanged)
 authRouter.post('/face/challenge', biometricLimiter, faceChallenge);
+authRouter.post('/face/enroll/begin', createAccountLimiter, faceBeginEnrollment);
+authRouter.post('/face/reenroll', requireAuth, biometricLimiter, faceReenroll);
 authRouter.post('/face/register', biometricLimiter, faceRegister);
 authRouter.post('/face/login',    biometricLimiter, faceLogin);
 // 1:N sign-in by face alone. Same rate limiter as login — this endpoint is the
