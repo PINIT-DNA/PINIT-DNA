@@ -206,8 +206,15 @@ export function LoginFlow() {
     const claim = (toRootPinitId(claimedShortIdRef.current) || claimedShortIdRef.current).trim();
     const returnedId = (toRootPinitId(result.user?.shortId || '') || result.user?.shortId || '').trim();
     const claimedId = (toRootPinitId(claim) || claim).trim();
-    if (returnedId && claimedId && returnedId !== claimedId) {
+    // claimReplaced: the remembered ID belonged to an account that no longer
+    // exists, and the server found this person's account by face. Accept it;
+    // the stale ID is overwritten below.
+    if (returnedId && claimedId && returnedId !== claimedId && !result.claimReplaced) {
       throw new Error("That didn't match. Try again.");
+    }
+    if (result.claimReplaced) {
+      try { sessionStorage.removeItem(CLAIM_PREFILL_KEY); } catch { /* ignore */ }
+      try { localStorage.removeItem('pinit_claimed_short_id'); } catch { /* ignore */ }
     }
     loginWithFaceResponse(result);
     const shortId = result.user?.shortId ?? '';

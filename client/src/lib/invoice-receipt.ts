@@ -25,7 +25,7 @@ export function formatInvoiceNumber(row: InvoiceReceiptInput): string {
 }
 
 export async function downloadInvoiceReceipt(row: InvoiceReceiptInput): Promise<void> {
-  const res = await api.get(`${API_BASE_URL}/subscription/billing/${row.id}/document`, {
+  const res = await api.get<Blob>(`${API_BASE_URL}/subscription/billing/${row.id}/document`, {
     responseType: 'blob',
   });
   const blob = new Blob([res.data], { type: 'application/pdf' });

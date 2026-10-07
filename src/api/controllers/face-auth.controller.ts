@@ -194,6 +194,9 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       success: true,
       matched: true,
       confidence: result.confidence,
+      // The Pinit ID the browser sent does not exist; the account was found by face.
+      // The browser replaces its remembered ID instead of rejecting the result.
+      claimReplaced: result.claimReplaced,
       user: {
         id: result.user.id,
         shortId: result.user.shortId,

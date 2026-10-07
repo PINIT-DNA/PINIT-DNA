@@ -480,6 +480,22 @@ async function loadFaceTemplateForUser(userId: string): Promise<number[] | null>
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * 1:N search with the same acceptance rule as face identify: the nearest
+ * enrolled face must be inside faceIdentify and clearly ahead of the next one.
+ * Used only after liveness has passed. Returns the account to verify 1:1, or null.
+ */
+async function findConfidentFaceMatch(probe: number[]): Promise<{ id: string; shortId: string } | null> {
+  const gallery = await loadAllFaceTemplates(prisma, { activeOnly: true });
+  const { best, secondDistance } = searchFaceGallery(probe, gallery);
+  if (!best || !isIdentifyAccept(best.distance, secondDistance, MATCH_THRESHOLDS.faceIdentify)) return null;
+  const user = await prisma.user.findFirst({
+    where: { id: best.userId, isActive: true, faceRegistered: true },
+    select: { id: true, shortId: true },
+  });
+  return user ?? null;
+}
+
 async function resolveClaimedUser(input: {
   claimedShortId?: string;
   claimedUserId?: string;
@@ -1063,7 +1079,7 @@ export const biometricAuthService = {
    * face vector cannot be guessed or iterated indefinitely.
    */
   async login(input: BiometricLoginInput): Promise<
-    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult; perf: FaceLoginPerf }
+    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult; perf: FaceLoginPerf; claimReplaced: boolean }
     | { ok: false; matched: false; message: string; perf?: FaceLoginPerf }
   > {
     const claim = (input.claimedShortId || input.claimedUserId || '').trim();
@@ -1095,7 +1111,7 @@ export const biometricAuthService = {
   },
 
   async loginUnthrottled(input: BiometricLoginInput): Promise<
-    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult; perf: FaceLoginPerf }
+    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult; perf: FaceLoginPerf; claimReplaced: boolean }
     | { ok: false; matched: false; message: string; perf?: FaceLoginPerf }
   > {
     const {
@@ -1184,20 +1200,34 @@ export const biometricAuthService = {
     }
 
     const tClaim = performance.now();
-    const boundUser = await resolveClaimedUser({ claimedShortId, claimedUserId });
-    claimMs = performance.now() - tClaim;
+    let boundUser = await resolveClaimedUser({ claimedShortId, claimedUserId });
+    // True when the claimed account does not exist (e.g. a Pinit ID this browser
+    // remembers from an account that was deleted) and the account was found by
+    // face instead. Liveness has already passed in this request, and a liveness
+    // challenge cannot be reused, so the search must happen here, not in a retry.
+    let claimReplaced = false;
     if (!boundUser) {
-      logger.warn('[Auth:Login] ✗ DENY — missing or unknown claimed account', {
+      const found = await findConfidentFaceMatch(normalizeEmbedding(faceEmbedding));
+      logger.warn('[Auth:Login] claimed account not found — searched enrolled faces instead', {
         hasShortId: Boolean(claimedShortId?.trim()),
         hasUserId: Boolean(claimedUserId?.trim()),
-        hasPasskeySession: false,
+        found: Boolean(found),
       });
       await logSecurityEvent('FACE_LOGIN_FAILED', {
         ip, userAgent, success: false,
-        detail: { reason: claimedShortId || claimedUserId ? 'unknown_claim' : 'no_claim' },
+        detail: {
+          reason: claimedShortId || claimedUserId ? 'unknown_claim' : 'no_claim',
+          fallback: found ? 'face_search_found' : 'face_search_no_match',
+        },
       });
-      return deny(denyMsg);
+      if (!found) {
+        claimMs = performance.now() - tClaim;
+        return deny(denyMsg);
+      }
+      boundUser = found;
+      claimReplaced = true;
     }
+    claimMs = performance.now() - tClaim;
 
     // Identity is locked to the claim or the verified passkey. Never search the gallery.
     const verifiedUserId = boundUser.id;
@@ -1375,6 +1405,7 @@ export const biometricAuthService = {
       confidence: fusion.overallConfidence,
       fusion,
       perf,
+      claimReplaced,
     };
   },
 

@@ -11,6 +11,8 @@ export interface FaceAuthResponse {
   accessToken?: string;
   refreshToken?: string;
   user?: { id: string; shortId: string; fullName: string; role?: string };
+  /** The Pinit ID sent did not exist; the server found the account by face. */
+  claimReplaced?: boolean;
   token?: string;
   nonce?: string;
   actions?: Array<'yaw_left' | 'yaw_right' | 'pitch_down'>;
