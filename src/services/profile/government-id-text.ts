@@ -67,7 +67,7 @@ export async function extractGovernmentDocumentText(mime: string, bytes: Buffer)
       }
       return literalsFromPdfBytes(bytes);
     }
-    if (mime === 'image/jpeg' || mime === 'image/png' || mime === 'image/webp') {
+    if (mime === 'image/jpeg' || mime === 'image/jpg' || mime === 'image/png' || mime === 'image/webp') {
       const result = await ocr.extractText(bytes, mime === 'image/jpg' ? 'image/jpeg' : mime);
       return (result.text || '').replace(/\s+/g, ' ').trim();
     }

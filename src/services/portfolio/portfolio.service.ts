@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { logger } from '../../lib/logger';
 import { config } from '../../config';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
