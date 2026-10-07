@@ -5,6 +5,7 @@
  *   multipart: documents (1–4 files), documentTypes (JSON array, optional per file),
  *              documentFaces (JSON array of { embedding, detectionScore?, relativeSize? } | null, optional),
  *              live (JSON { embedding, padEvidence? }, optional),
+ *              documentBack (optional back side of the first document),
  *              includeSavedProof ("true" to compare with the saved ID proof's earlier results)
  * GET  /profile/identity-verification/latest
  *
@@ -22,7 +23,7 @@ export const MAX_DOCUMENTS = 4;
 
 export const identityDocumentsUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 8 * 1024 * 1024, files: MAX_DOCUMENTS },
+  limits: { fileSize: 8 * 1024 * 1024, files: MAX_DOCUMENTS + 1 }, // + one back side
   fileFilter: (_req, file, cb) => {
     if (DOC_MIMES.has(file.mimetype.toLowerCase())) cb(null, true);
     else cb(new Error('Use a JPG, PNG, WEBP, or PDF of the document.'));
@@ -97,7 +98,10 @@ export function parseAnalyzeBody(body: Record<string, unknown>, fileCount: numbe
 
 export async function analyzeIdentityDocuments(req: Request, res: Response, next: NextFunction) {
   try {
-    const files = ((req as Request & { files?: Express.Multer.File[] }).files ?? []).filter((f) => f.buffer?.length);
+    const uploaded = (req as Request & { files?: Record<string, Express.Multer.File[]> }).files ?? {};
+    const files = (uploaded.documents ?? []).filter((f) => f.buffer?.length);
+    // An optional back side belongs to the first document (e.g. the Aadhaar address side).
+    const back = uploaded.documentBack?.[0];
     if (!files.length) {
       res.status(400).json({ success: false, error: 'Add at least one identity document.' });
       return;
@@ -114,6 +118,7 @@ export async function analyzeIdentityDocuments(req: Request, res: Response, next
         mimeType: f.mimetype,
         declaredType: parsed.types[i],
         documentFace: parsed.faces[i],
+        ...(i === 0 && back?.buffer?.length ? { backBytes: back.buffer, backMimeType: back.mimetype } : {}),
       })),
       live: parsed.live,
       trigger: 'ANALYZE',

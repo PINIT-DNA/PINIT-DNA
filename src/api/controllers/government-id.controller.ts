@@ -59,9 +59,11 @@ export async function checkGovernmentIdFace(req: Request, res: Response, next: N
 
 export async function sealGovernmentId(req: Request, res: Response, next: NextFunction) {
   try {
-    const file = (req as Request & { file?: Express.Multer.File }).file;
+    const files = (req as Request & { files?: Record<string, Express.Multer.File[]> }).files ?? {};
+    const file = files.document?.[0];
+    const back = files.documentBack?.[0];
     if (!file?.buffer?.length) {
-      res.status(400).json({ success: false, error: 'Choose one government ID to upload.' });
+      res.status(400).json({ success: false, error: 'Add the front side of your ID.' });
       return;
     }
     const result = await governmentIdService.sealDocument({
@@ -70,6 +72,8 @@ export async function sealGovernmentId(req: Request, res: Response, next: NextFu
       documentType: String(req.body?.documentType || ''),
       mimeType: file.mimetype,
       bytes: file.buffer,
+      backMimeType: back?.mimetype,
+      backBytes: back?.buffer,
       // Face on the document photograph, found on the device. Optional.
       documentFace: parseDeviceFace(req.body?.documentFace),
     });

@@ -21,7 +21,7 @@ import { padDenyMessage, type PadEvidence } from '../auth/face-liveness.service'
 import { isSupabaseStorageConfigured, uploadPrivateObject, deletePrivateObject } from '../../lib/supabase-storage';
 import { issueGovernmentIdSeal, readGovernmentIdSeal } from './government-id-seal';
 import { extractGovernmentDocumentText } from './government-id-text';
-import { mayListGovernmentIdOnFile, reviewGovernmentDocument, storedDocumentState } from './government-id-document-check';
+import { isPasswordProtectedPdf, mayListGovernmentIdOnFile, reviewGovernmentDocument, storedDocumentState } from './government-id-document-check';
 import { identityVerificationService } from '../identity-verification/identity-verification.service';
 import type { DeviceFace, VerificationResult } from '../identity-verification/types';
 import {
@@ -45,6 +45,8 @@ export interface GovernmentIdView {
   faceEnrolled: boolean;
   /** Always false until a document-verification provider is connected. */
   documentVerified: false;
+  /** A back side was stored with the front. */
+  hasBackSide: boolean;
 }
 
 const FACE_MISMATCH = 'The live face did not match the enrolled face on this Pinit account.';
@@ -110,6 +112,7 @@ function viewFromRow(row: {
   faceBinding: string;
   faceBindingCheckedAt: Date | null;
   documentState: string;
+  backStoragePath?: string | null;
 } | null, faceEnrolled: boolean, now = Date.now()): GovernmentIdView {
   const empty: GovernmentIdView = {
     documentStatus: 'NOT_ADDED',
@@ -119,6 +122,7 @@ function viewFromRow(row: {
     faceBindingCheckedAt: null,
     faceEnrolled,
     documentVerified: false,
+    hasBackSide: false,
   };
   if (!row || !isGovernmentDocumentType(row.documentType) || !mayListGovernmentIdOnFile(row.documentState)) {
     return empty;
@@ -131,6 +135,7 @@ function viewFromRow(row: {
     faceBindingCheckedAt: row.faceBindingCheckedAt?.toISOString() ?? null,
     faceEnrolled,
     documentVerified: false,
+    hasBackSide: Boolean(row.backStoragePath),
   };
 }
 
@@ -139,7 +144,7 @@ export const governmentIdService = {
     const [row, enrolled] = await Promise.all([
       prisma.governmentIdRecord.findUnique({
         where: { userId },
-        select: { documentType: true, sealedAt: true, faceBinding: true, faceBindingCheckedAt: true, documentState: true },
+        select: { documentType: true, sealedAt: true, faceBinding: true, faceBindingCheckedAt: true, documentState: true, backStoragePath: true },
       }),
       enrolledIdentity(userId),
     ]);
@@ -192,6 +197,9 @@ export const governmentIdService = {
     documentType: string;
     mimeType: string;
     bytes: Buffer;
+    /** Optional back side (e.g. the Aadhaar address side). Checked and stored like the front. */
+    backMimeType?: string;
+    backBytes?: Buffer;
     /** Face on the document photograph, found on the device (undefined = not examined). */
     documentFace?: DeviceFace | null;
   }): Promise<{ ok: true; view: GovernmentIdView } | { ok: false; message: string }> {
@@ -202,13 +210,33 @@ export const governmentIdService = {
       return { ok: false, message: 'That face check expired. Close this and add the ID again.' };
     }
     if (!isGovernmentDocumentType(input.documentType)) {
-      return { ok: false, message: 'Choose a passport, national ID, or driver\'s license.' };
+      return { ok: false, message: 'Choose Aadhaar, PAN card, passport, driving licence, voter ID or another government ID.' };
     }
     if (!input.bytes.length || input.bytes.length > MAX_BYTES) {
-      return { ok: false, message: 'Use one document under 8 MB.' };
+      return { ok: false, message: 'Use a file under 8 MB for the front side.' };
     }
     const mime = sniffGovernmentDocument(input.mimeType, input.bytes);
-    const extractedText = mime ? await extractGovernmentDocumentText(mime, input.bytes) : '';
+    const frontText = mime ? await extractGovernmentDocumentText(mime, input.bytes) : '';
+
+    // Back side: optional, read and checked like the front. Its text joins the
+    // front's, because some fields live only on the back (e.g. Aadhaar address).
+    const backBytes = input.backBytes && input.backBytes.length ? input.backBytes : null;
+    let backMime: string | null = null;
+    let backText = '';
+    if (backBytes) {
+      if (backBytes.length > MAX_BYTES) {
+        return { ok: false, message: 'Use a file under 8 MB for the back side.' };
+      }
+      backMime = sniffGovernmentDocument(input.backMimeType || '', backBytes);
+      if (!backMime) {
+        return { ok: false, message: 'The back side must be a JPG, PNG, WEBP or PDF.' };
+      }
+      if (backMime === 'application/pdf' && isPasswordProtectedPdf(backBytes)) {
+        return { ok: false, message: 'The back side is a password-locked PDF. Upload a photo or screenshot instead, or use Scan with camera.' };
+      }
+      backText = await extractGovernmentDocumentText(backMime, backBytes);
+    }
+    const extractedText = [frontText, backText].filter(Boolean).join('\n');
     const review = reviewGovernmentDocument({
       claimedType: input.documentType,
       mime,
@@ -265,10 +293,28 @@ export const governmentIdService = {
     const objectId = randomUUID();
     const storagePath = `government-id/${input.userId}/${objectId}.enc`;
     await uploadPrivateObject(storagePath, packed.cipher);
+    let backPacked: { cipher: Buffer; hash: string } | null = null;
+    let backStoragePath: string | null = null;
+    if (backBytes && backMime) {
+      backPacked = encryptBytes(backBytes);
+      backStoragePath = `government-id/${input.userId}/${objectId}-back.enc`;
+      try {
+        await uploadPrivateObject(backStoragePath, backPacked.cipher);
+      } catch (err) {
+        await deletePrivateObject(storagePath);
+        throw err;
+      }
+    }
+    const back = {
+      backStoragePath,
+      backContentHash: backPacked?.hash ?? null,
+      backMimeType: backMime,
+      backByteLength: backBytes ? backBytes.length : null,
+    };
 
     const previous = await prisma.governmentIdRecord.findUnique({
       where: { userId: input.userId },
-      select: { storagePath: true },
+      select: { storagePath: true, backStoragePath: true },
     });
     const now = new Date();
     try {
@@ -287,6 +333,7 @@ export const governmentIdService = {
           faceBinding,
           faceBindingCheckedAt: seal ? now : null,
           documentState,
+          ...back,
         },
         update: {
           biometricIdentityId: identity.id,
@@ -300,10 +347,12 @@ export const governmentIdService = {
           faceBinding,
           faceBindingCheckedAt: seal ? now : null,
           documentState,
+          ...back,
         },
       });
     } catch (err) {
       await deletePrivateObject(storagePath);
+      if (backStoragePath) await deletePrivateObject(backStoragePath);
       logger.warn('[GovernmentId] seal write failed', { userId: input.userId, error: err instanceof Error ? err.message : 'unknown' });
       return { ok: false, message: 'The government ID could not be saved. Try again.' };
     }
@@ -311,8 +360,11 @@ export const governmentIdService = {
     if (previous && previous.storagePath !== storagePath) {
       await deletePrivateObject(previous.storagePath);
     }
+    if (previous?.backStoragePath && previous.backStoragePath !== backStoragePath) {
+      await deletePrivateObject(previous.backStoragePath);
+    }
     if (identityRun) await identityVerificationService.registerFingerprints(input.userId, identityRun);
-    logger.info('[GovernmentId] document sealed', { userId: input.userId, documentType: input.documentType });
+    logger.info('[GovernmentId] document sealed', { userId: input.userId, documentType: input.documentType, backSide: Boolean(backStoragePath) });
     const view = await this.getForUser(input.userId);
     return { ok: true, view };
   },

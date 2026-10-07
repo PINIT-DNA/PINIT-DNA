@@ -1,13 +1,24 @@
 /**
  * Ensures the identity-verification tables exist (run records + keyed document
- * fingerprints). Additive and idempotent. Mirrors
- * prisma/migrations/20261007100000_identity_verification.
+ * fingerprints) and the optional back-side columns on government_id_records.
+ * Additive and idempotent. Mirrors prisma/migrations/20261007100000_identity_verification
+ * and 20261007160000_government_id_back_side.
  */
 const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 
 const SQL = [
+  // Back side of a government ID. Guarded so a database without the table never fails the deploy.
+  `DO $$
+  BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'government_id_records') THEN
+      ALTER TABLE "government_id_records" ADD COLUMN IF NOT EXISTS "backStoragePath" TEXT;
+      ALTER TABLE "government_id_records" ADD COLUMN IF NOT EXISTS "backContentHash" TEXT;
+      ALTER TABLE "government_id_records" ADD COLUMN IF NOT EXISTS "backMimeType" TEXT;
+      ALTER TABLE "government_id_records" ADD COLUMN IF NOT EXISTS "backByteLength" INTEGER;
+    END IF;
+  END $$`,
   `CREATE TABLE IF NOT EXISTS "identity_verification_runs" (
     "id" TEXT NOT NULL,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,

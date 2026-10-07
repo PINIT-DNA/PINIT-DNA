@@ -43,13 +43,19 @@ router.post(
   '/identity-verification/analyze',
   requireAuth,
   identityAnalyzeLimiter,
-  identityDocumentsUpload.array('documents', MAX_DOCUMENTS),
+  identityDocumentsUpload.fields([{ name: 'documents', maxCount: MAX_DOCUMENTS }, { name: 'documentBack', maxCount: 1 }]),
   analyzeIdentityDocuments,
 );
 router.get('/identity-verification/latest', requireAuth, getLatestIdentityVerification);
 router.get('/government-id', requireAuth, getGovernmentId);
 router.post('/government-id/face-check', requireAuth, governmentIdFaceLimiter, checkGovernmentIdFace);
-router.post('/government-id', requireAuth, governmentIdUpload.single('document'), sealGovernmentId);
+router.post(
+  '/government-id',
+  requireAuth,
+  // Front side required; back side optional (e.g. Aadhaar address side).
+  governmentIdUpload.fields([{ name: 'document', maxCount: 1 }, { name: 'documentBack', maxCount: 1 }]),
+  sealGovernmentId,
+);
 router.post('/avatar',         requireAuth, avatarUpload.single('avatar'), uploadProfileAvatar);
 router.delete('/avatar',       requireAuth, deleteProfileAvatar);
 router.get('/',              requireAuth, getProfile);

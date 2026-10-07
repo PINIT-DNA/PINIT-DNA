@@ -33,6 +33,9 @@ export interface UploadedDocument {
   documentFace?: DeviceFace | null;
   /** Text already read by the caller (avoids running OCR twice). */
   extractedText?: string;
+  /** Optional back side of the same document; its text joins the front's. */
+  backBytes?: Buffer;
+  backMimeType?: string;
 }
 
 export type RunTrigger = 'ANALYZE' | 'PROOF_SAVED';
@@ -45,9 +48,16 @@ export async function prepareDocument(d: UploadedDocument): Promise<DocumentInpu
   const mime = sniffGovernmentDocument(d.mimeType, d.bytes);
   const fileSignals = await collectFileSignals(mime, d.bytes);
   if (!mime) fileSignals.intact = false;
-  const extractedText = d.extractedText !== undefined
+  const frontText = d.extractedText !== undefined
     ? d.extractedText
     : mime && !fileSignals.locked ? await extractGovernmentDocumentText(mime, d.bytes) : '';
+  let backText = '';
+  if (d.backBytes?.length && d.extractedText === undefined) {
+    const backMime = sniffGovernmentDocument(d.backMimeType || '', d.backBytes);
+    const backSignals = backMime ? await collectFileSignals(backMime, d.backBytes) : { locked: false };
+    if (backMime && !backSignals.locked) backText = await extractGovernmentDocumentText(backMime, d.backBytes);
+  }
+  const extractedText = [frontText, backText].filter(Boolean).join('\n');
   return {
     declaredType: d.declaredType ?? null,
     mimeType: mime,

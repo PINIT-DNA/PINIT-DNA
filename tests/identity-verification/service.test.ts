@@ -184,3 +184,28 @@ describe('device face parsing', () => {
     expect(parseDeviceFace(JSON.stringify({ embedding: emb, detectionScore: 0.8 }))?.detectionScore).toBe(0.8);
   });
 });
+
+describe('front and back sides', () => {
+  async function pdf(text: string): Promise<Buffer> {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { PDFDocument, StandardFonts } = require('pdf-lib');
+    const doc = await PDFDocument.create();
+    const page = doc.addPage();
+    const font = await doc.embedFont(StandardFonts.Helvetica);
+    page.drawText(text, { x: 40, y: 700, size: 11, font });
+    return Buffer.from(await doc.save());
+  }
+
+  it('reads the back side and joins its text to the front, so back-only fields are found', async () => {
+    const { prepareDocument } = await import('../../src/services/identity-verification/identity-verification.service');
+    const { aadhaarAdapter } = await import('../../src/services/identity-verification/adapters/aadhaar');
+    const front = await pdf(text);
+    const back = await pdf('Address: 12 MG Road, Hyderabad, Telangana 500001');
+    const prepared = await prepareDocument({ bytes: front, mimeType: 'application/pdf', declaredType: 'AADHAAR', backBytes: back, backMimeType: 'application/pdf' });
+    expect(prepared.extractedText).toContain('Government of India');
+    expect(prepared.extractedText).toContain('500001');
+    const fields = aadhaarAdapter.extract(prepared.extractedText, { now: new Date(), documentIndex: 0 });
+    expect(fields.address?.value).toMatch(/Hyderabad/);
+    expect(fields.documentNumber?.value).toBe(AADHAAR);
+  });
+});

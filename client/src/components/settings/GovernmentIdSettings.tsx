@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BadgeCheck, Camera, Car, CreditCard, FileText, Landmark, Vote, IdCard, Lock, Plus, ShieldCheck, Upload, X } from 'lucide-react';
+import { BadgeCheck, Camera, Car, Check, CreditCard, FileText, Landmark, Vote, IdCard, Lock, Plus, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
 import { api, formatApiError } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
 import { cameraErrorMessage, openCameraStream } from '../../lib/camera-stream';
@@ -17,6 +17,7 @@ interface GovernmentIdView {
   faceBinding: FaceBinding | null;
   faceBindingCheckedAt: string | null;
   faceEnrolled: boolean;
+  hasBackSide?: boolean;
 }
 
 /** Upload choice → identity-verification document type (null = let the content decide). */
@@ -42,7 +43,30 @@ function addedOn(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type Step = 'idle' | 'choose' | 'camera';
+type Step = 'idle' | 'choose' | 'sides' | 'camera';
+type Side = 'front' | 'back';
+
+/**
+ * What the back of each document carries. null = nothing useful on the back,
+ * so no back slot is shown. The back is always optional.
+ */
+const BACK_SIDE: Record<DocumentType, { label: string; hint: string } | null> = {
+  AADHAAR: { label: 'Back side', hint: 'Has your address' },
+  PAN: null,
+  PASSPORT: { label: 'Last page', hint: 'Has your address and family details' },
+  DRIVERS_LICENSE: { label: 'Back side', hint: 'Validity and vehicle classes, on most cards' },
+  VOTER_ID: { label: 'Back side', hint: 'Has your address' },
+  NATIONAL_ID: { label: 'Back side', hint: 'If it carries details' },
+};
+
+const FRONT_SIDE: Record<DocumentType, string> = {
+  AADHAAR: 'Front side, with your photo and number',
+  PAN: 'Front side, with your photo and PAN',
+  PASSPORT: 'The page with your photo',
+  DRIVERS_LICENSE: 'Front side, with your photo',
+  VOTER_ID: 'Front side, with your photo',
+  NATIONAL_ID: 'Front side, with your photo',
+};
 
 /** The privacy promise, stated the same way wherever the card appears. */
 const PRIVACY_LINE = 'Encrypted and private. Only the Pinit team can access your document.';
@@ -65,7 +89,11 @@ export function GovernmentIdSettings({
   const [checksKey, setChecksKey] = useState(0);
   /** save = add or replace the proof on file; second = check another ID against it. */
   const [purpose, setPurpose] = useState<'save' | 'second'>('save');
-  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [front, setFront] = useState<File | null>(null);
+  const [back, setBack] = useState<File | null>(null);
+  const [cameraSide, setCameraSide] = useState<Side>('front');
+  const frontInputRef = useRef<HTMLInputElement | null>(null);
+  const backInputRef = useRef<HTMLInputElement | null>(null);
 
   const load = () => {
     setLoading(true);
@@ -82,81 +110,76 @@ export function GovernmentIdSettings({
 
   useEffect(() => { load(); }, []);
 
-  const upload = (file: File | undefined) => {
-    if (!file) {
-      setError('Choose a file.');
+  const resetSides = () => {
+    setFront(null);
+    setBack(null);
+    if (frontInputRef.current) frontInputRef.current.value = '';
+    if (backInputRef.current) backInputRef.current.value = '';
+  };
+
+  const setSide = (side: Side, file: File | null | undefined) => {
+    setError('');
+    if (side === 'front') setFront(file ?? null);
+    else setBack(file ?? null);
+  };
+
+  /**
+   * Saves the proof (purpose "save"), or checks it against the saved proof
+   * (purpose "second": analysed only, not stored, does not replace the saved proof).
+   * Front is required; back is optional and checked together with the front.
+   */
+  const submit = async () => {
+    if (!front) {
+      setError('Add the front side first.');
       return;
     }
     setSaving(true);
     setError('');
-    if (purpose === 'second') {
-      void checkSecondProof(file);
-      return;
-    }
-    void (async () => {
+    try {
       const body = new FormData();
-      body.append('document', file);
-      body.append('documentType', documentType);
       // Face on the document photo, found on this device. Only its numbers are
       // sent. A PDF is not examined, and the server reports that honestly.
-      const face = await documentFaceFromFile(file);
-      if (face !== undefined) body.append('documentFace', JSON.stringify(face));
-      return api.post(`${API_BASE_URL}/profile/government-id`, body);
-    })()
-      .then((r) => {
-        setSaving(false);
+      const face = await documentFaceFromFile(front);
+      const withBack = back && BACK_SIDE[documentType] ? back : null;
+      if (purpose === 'second') {
+        body.append('documents', front);
+        if (withBack) body.append('documentBack', withBack);
+        body.append('documentTypes', JSON.stringify([IDENTITY_TYPE[documentType]]));
+        if (face !== undefined) body.append('documentFaces', JSON.stringify([face]));
+        body.append('includeSavedProof', 'true');
+        const r = await api.post(`${API_BASE_URL}/profile/identity-verification/analyze`, body);
+        const data = r.data as { success?: boolean; error?: string };
+        if (!data.success) {
+          setError(data.error || 'This document could not be checked.');
+          return;
+        }
+      } else {
+        body.append('document', front);
+        if (withBack) body.append('documentBack', withBack);
+        body.append('documentType', documentType);
+        if (face !== undefined) body.append('documentFace', JSON.stringify(face));
+        const r = await api.post(`${API_BASE_URL}/profile/government-id`, body);
         const data = r.data as { success?: boolean; error?: string; governmentId?: GovernmentIdView };
         if (!data.governmentId) {
-          setError(data.error || 'This file was not saved.');
-          setStep('choose');
+          setError(data.error || 'This document was not saved.');
           return;
         }
         setView(data.governmentId);
-        setChecksKey((k) => k + 1);
         onSaved?.();
-        setStep('idle');
-        if (fileRef.current) fileRef.current.value = '';
-      })
-      .catch((err) => {
-        setSaving(false);
-        setError(formatApiError(err));
-        setStep('choose');
-      });
-  };
-
-  /**
-   * A second ID proof is checked against the saved proof's earlier results.
-   * It is analysed only; the file is not stored and does not replace the saved proof.
-   */
-  const checkSecondProof = async (file: File) => {
-    try {
-      const body = new FormData();
-      body.append('documents', file);
-      body.append('documentTypes', JSON.stringify([IDENTITY_TYPE[documentType]]));
-      const face = await documentFaceFromFile(file);
-      if (face !== undefined) body.append('documentFaces', JSON.stringify([face]));
-      body.append('includeSavedProof', 'true');
-      const r = await api.post(`${API_BASE_URL}/profile/identity-verification/analyze`, body);
-      const data = r.data as { success?: boolean; error?: string };
-      if (!data.success) {
-        setError(data.error || 'This document could not be checked.');
-        setStep('choose');
-        return;
       }
       setChecksKey((k) => k + 1);
       setStep('idle');
       setPurpose('save');
-      if (fileRef.current) fileRef.current.value = '';
+      resetSides();
     } catch (err) {
       setError(formatApiError(err));
-      setStep('choose');
     } finally {
       setSaving(false);
     }
   };
 
   const proofLine = view?.documentType
-    ? `${TYPE_LABEL[view.documentType]}${view.sealedAt ? ` · Added ${addedOn(view.sealedAt)}` : ''}`
+    ? `${TYPE_LABEL[view.documentType]}${view.hasBackSide ? ' · Front and back' : ''}${view.sealedAt ? ` · Added ${addedOn(view.sealedAt)}` : ''}`
     : '';
 
   const onFile = view?.documentStatus === 'ON_FILE';
@@ -164,10 +187,10 @@ export function GovernmentIdSettings({
     setStep('idle');
     setPurpose('save');
     setError('');
-    if (fileRef.current) fileRef.current.value = '';
+    resetSides();
   };
-  const startAdd = () => { setError(''); setPurpose('save'); setStep('choose'); };
-  const startSecondProof = () => { setError(''); setPurpose('second'); setStep('choose'); };
+  const startAdd = () => { setError(''); resetSides(); setPurpose('save'); setStep('choose'); };
+  const startSecondProof = () => { setError(''); resetSides(); setPurpose('second'); setStep('choose'); };
 
   return (
     <div className="space-y-3">
@@ -322,44 +345,85 @@ export function GovernmentIdSettings({
                   );
                 })}
               </div>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  disabled={saving}
-                  className="btn btn-primary btn-sm text-xs justify-center"
-                  onClick={() => { setError(''); setStep('camera'); }}
-                >
-                  <Camera size={14} /> Scan with camera
-                </button>
-                <button
-                  type="button"
-                  disabled={saving}
-                  className="btn btn-secondary btn-sm text-xs justify-center"
-                  onClick={() => fileRef.current?.click()}
-                >
-                  <Upload size={14} /> Upload a file
-                </button>
-              </div>
-              <p className="text-2xs text-slate-500 dark:text-gray-400">
-                JPG, PNG, WEBP or PDF. Make sure every corner is visible and the text is readable.
+              <button
+                type="button"
+                className="btn btn-primary btn-sm text-xs justify-center w-full"
+                onClick={() => {
+                  setError('');
+                  if (!BACK_SIDE[documentType]) setBack(null);
+                  setStep('sides');
+                }}
+              >
+                Continue
+              </button>
+            </div>
+          )}
+
+          {step === 'sides' && (
+            <div className="space-y-3">
+              <p className="text-sm text-slate-700 dark:text-gray-200">
+                Add your {TYPE_LABEL[documentType]}. Scan it with your camera or upload a photo, screenshot or PDF.
               </p>
+              <SideSlot
+                title="Front side"
+                hint={FRONT_SIDE[documentType]}
+                required
+                file={front}
+                disabled={saving}
+                onScan={() => { setError(''); setCameraSide('front'); setStep('camera'); }}
+                onUpload={() => frontInputRef.current?.click()}
+                onRemove={() => { setSide('front', null); if (frontInputRef.current) frontInputRef.current.value = ''; }}
+              />
+              {BACK_SIDE[documentType] ? (
+                <SideSlot
+                  title={BACK_SIDE[documentType]!.label}
+                  hint={BACK_SIDE[documentType]!.hint}
+                  file={back}
+                  disabled={saving}
+                  onScan={() => { setError(''); setCameraSide('back'); setStep('camera'); }}
+                  onUpload={() => backInputRef.current?.click()}
+                  onRemove={() => { setSide('back', null); if (backInputRef.current) backInputRef.current.value = ''; }}
+                />
+              ) : (
+                <p className="text-2xs text-slate-500 dark:text-gray-400">A PAN card has nothing to add on the back, so only the front is needed.</p>
+              )}
               <input
-                ref={fileRef}
+                ref={frontInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
                 disabled={saving}
                 className="hidden"
-                onChange={(e) => upload(e.target.files?.[0])}
+                onChange={(e) => setSide('front', e.target.files?.[0])}
               />
-              {saving && <p className="text-sm text-slate-500">Reading and checking your document…</p>}
+              <input
+                ref={backInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
+                disabled={saving}
+                className="hidden"
+                onChange={(e) => setSide('back', e.target.files?.[0])}
+              />
+              <p className="text-2xs text-slate-500 dark:text-gray-400">
+                JPG, PNG, WEBP or PDF, up to 8 MB per side. Make sure every corner is visible and the text is readable.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" disabled={saving} className="btn btn-secondary btn-sm text-xs justify-center" onClick={() => setStep('choose')}>
+                  Back
+                </button>
+                <button type="button" disabled={saving || !front} className="btn btn-primary btn-sm text-xs justify-center" onClick={() => void submit()}>
+                  {saving ? 'Reading and checking…' : purpose === 'second' ? 'Check this ID' : 'Save ID proof'}
+                </button>
+              </div>
             </div>
           )}
 
           {step === 'camera' && (
             <IdCameraCapture
+              key={cameraSide}
+              label={cameraSide === 'front' ? 'Front side' : BACK_SIDE[documentType]?.label ?? 'Back side'}
               busy={saving}
-              onCancel={() => setStep('choose')}
-              onCapture={(file) => upload(file)}
+              onCancel={() => setStep('sides')}
+              onCapture={(file) => { setSide(cameraSide, file); setStep('sides'); }}
             />
           )}
 
@@ -372,7 +436,58 @@ export function GovernmentIdSettings({
   );
 }
 
-const FLOW_STEPS = ['Choose document', 'Scan or upload'] as const;
+const FLOW_STEPS = ['Choose document', 'Front and back'] as const;
+
+/** One side of the document: Scan or Upload, then a preview with Change / Remove. */
+function SideSlot({
+  title, hint, required, file, disabled, onScan, onUpload, onRemove,
+}: {
+  title: string; hint: string; required?: boolean; file: File | null; disabled?: boolean;
+  onScan: () => void; onUpload: () => void; onRemove: () => void;
+}) {
+  const [preview, setPreview] = useState('');
+  useEffect(() => {
+    if (!file || !file.type.startsWith('image/')) { setPreview(''); return undefined; }
+    const url = URL.createObjectURL(file);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+
+  return (
+    <div className={`rounded-xl border px-3.5 py-3 ${file ? 'border-emerald-300 dark:border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-500/5' : 'border-slate-200 dark:border-white/10'}`}>
+      <div className="flex items-start gap-3">
+        <div className="w-16 h-11 rounded-md overflow-hidden bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0">
+          {preview
+            ? <img src={preview} alt="" className="w-full h-full object-cover" />
+            : file ? <FileText size={18} className="text-slate-500" /> : <IdCard size={18} className="text-slate-400" />}
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
+            {title}
+            <span className={`text-2xs font-semibold ${required ? 'text-amber-700 dark:text-amber-300' : 'text-slate-400 dark:text-gray-500'}`}>
+              {required ? 'Required' : 'Optional'}
+            </span>
+            {file && <Check size={14} className="text-emerald-600 dark:text-emerald-400" />}
+          </p>
+          <p className="text-2xs text-slate-500 dark:text-gray-400 truncate">{file ? file.name : hint}</p>
+        </div>
+      </div>
+      <div className="flex gap-2 mt-2.5">
+        <button type="button" disabled={disabled} onClick={onScan} className="btn btn-secondary btn-sm text-xs flex-1 justify-center">
+          <Camera size={13} /> {file ? 'Rescan' : 'Scan'}
+        </button>
+        <button type="button" disabled={disabled} onClick={onUpload} className="btn btn-secondary btn-sm text-xs flex-1 justify-center">
+          <Upload size={13} /> {file ? 'Change' : 'Upload'}
+        </button>
+        {file && (
+          <button type="button" disabled={disabled} onClick={onRemove} aria-label={`Remove ${title.toLowerCase()}`} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10">
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const DOCUMENT_OPTIONS: { type: DocumentType; hint: string; icon: React.ReactNode }[] = [
   { type: 'AADHAAR', hint: 'Front side, or the back for address', icon: <IdCard size={17} /> },
@@ -457,10 +572,12 @@ function IdentityDialog({
 }
 
 function IdCameraCapture({
+  label,
   busy,
   onCapture,
   onCancel,
 }: {
+  label: string;
   busy: boolean;
   onCapture: (file: File) => void;
   onCancel: () => void;
@@ -510,7 +627,7 @@ function IdCameraCapture({
         setCameraError('The ID photo could not be captured.');
         return;
       }
-      onCapture(new File([blob], 'government-id.jpg', { type: 'image/jpeg' }));
+      onCapture(new File([blob], `${label.toLowerCase().replace(/\s+/g, '-')}.jpg`, { type: 'image/jpeg' }));
     }, 'image/jpeg', 0.92);
   };
 
@@ -521,7 +638,7 @@ function IdCameraCapture({
         {/* Document frame; the dimmed surround shows where to place the card. */}
         <div className="absolute inset-x-[7%] inset-y-[14%] rounded-lg border-2 border-white/85 shadow-[0_0_0_9999px_rgba(15,23,42,0.35)] pointer-events-none" />
         <p className="absolute bottom-2 inset-x-0 text-center text-2xs font-medium text-white">
-          {ready ? 'Fit the whole document inside the frame' : 'Starting camera…'}
+          {ready ? `${label}: fit the whole side inside the frame` : 'Starting camera…'}
         </p>
       </div>
       {cameraError && <p className="text-sm text-amber-700 dark:text-amber-300">{cameraError}</p>}

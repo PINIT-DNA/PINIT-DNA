@@ -989,6 +989,11 @@ model GovernmentIdRecord {
   contentHash          String
   mimeType             String
   byteLength           Int
+  /// Optional back side (e.g. Aadhaar address). Private ciphertext object key, never a public URL.
+  backStoragePath      String?
+  backContentHash      String?
+  backMimeType         String?
+  backByteLength       Int?
   encryptionKeyVersion String    @default("v1")
   /// MATCHED | NOT_MATCHED | REQUIRES_RECHECK — live-face binding, not document validity.
   faceBinding          String    @default("REQUIRES_RECHECK")

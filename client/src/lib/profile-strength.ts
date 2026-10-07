@@ -45,18 +45,18 @@ const DOMAIN_PATTERN = /^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,}(?:\/[^\
 export const LINK_RULES: Record<LinkKey, { name: string; placeholder: string; error: string }> = {
   linkedin: {
     name: 'LinkedIn',
-    placeholder: 'https://linkedin.com/...',
-    error: 'Enter a link, like https://linkedin.com/...',
+    placeholder: 'your-name or linkedin.com/in/your-name',
+    error: 'Use your LinkedIn profile name or your linkedin.com/in/… link.',
   },
   github: {
     name: 'GitHub',
-    placeholder: 'https://github.com/...',
-    error: 'Enter a link, like https://github.com/...',
+    placeholder: 'username or github.com/username',
+    error: 'Use your GitHub username (letters, numbers and dashes) or your github.com link.',
   },
   instagram: {
     name: 'Instagram',
-    placeholder: 'https://instagram.com/...',
-    error: 'Enter a link, like https://instagram.com/...',
+    placeholder: '@username or instagram.com/username',
+    error: 'Use your Instagram username (letters, numbers, dots and underscores) or your instagram.com link.',
   },
   website: {
     name: 'Website or portfolio',
@@ -96,9 +96,25 @@ function addressBody(value: string): string {
   return value.replace(/^https?:\/\//i, '');
 }
 
-export function isValidLink(_key: LinkKey, value: string): boolean {
-  const body = addressBody(value);
-  return body.length > 0 && value.length <= MAX_LINK_LENGTH && DOMAIN_PATTERN.test(body);
+/**
+ * Social links must point at their own site with a valid username, so an
+ * Instagram box cannot hold some other website. A bare username is expanded
+ * by cleanLinkInput before it gets here.
+ */
+const PLATFORMS: Record<Exclude<LinkKey, 'website'>, { host: RegExp; path: RegExp }> = {
+  linkedin: { host: /^(?:[a-z]{2,3}\.)?linkedin\.com$/i, path: /^(?:in|pub|company)\/[A-Za-z0-9._%-]{2,100}$/ },
+  github: { host: /^github\.com$/i, path: /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})(?:\/[A-Za-z0-9._-]{1,100})?$/ },
+  instagram: { host: /^instagram\.com$/i, path: /^[A-Za-z0-9._]{1,30}$/ },
+};
+
+export function isValidLink(key: LinkKey, value: string): boolean {
+  const body = addressBody(value).replace(/^www\./i, '');
+  if (!body.length || value.length > MAX_LINK_LENGTH || !DOMAIN_PATTERN.test(body)) return false;
+  if (key === 'website') return true;
+  const slash = body.indexOf('/');
+  if (slash < 0) return false;
+  const rule = PLATFORMS[key];
+  return rule.host.test(body.slice(0, slash)) && rule.path.test(body.slice(slash + 1));
 }
 
 export function isValidExtraUrl(url: string): boolean {

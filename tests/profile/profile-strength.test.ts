@@ -4,6 +4,7 @@ import {
   cleanLinkInput,
   computeProfileStrength,
   emptySocialLinks,
+  isValidLink,
   linkHref,
   normalizeSocialLinks,
   readStoredSocialLinks,
@@ -180,5 +181,29 @@ describe('client copy', () => {
     const root = join(__dirname, '..', '..');
     const norm = (p: string) => readFileSync(join(root, p), 'utf8').replace(/\r\n/g, '\n');
     expect(norm('client/src/lib/profile-strength.ts')).toBe(norm('src/services/profile/profile-strength.ts'));
+  });
+});
+
+describe('social links accept a username or a link to their own site only', () => {
+  it.each([
+    ['instagram', 'ashwitha.creates', 'https://instagram.com/ashwitha.creates'],
+    ['instagram', '@ashwitha_r', 'https://instagram.com/ashwitha_r'],
+    ['instagram', 'https://www.instagram.com/ashwitha.creates/?igsh=abc', 'https://instagram.com/ashwitha.creates'],
+    ['github', 'ashwitha2004', 'https://github.com/ashwitha2004'],
+    ['linkedin', 'kavvam-ashwitha', 'https://linkedin.com/in/kavvam-ashwitha'],
+    ['linkedin', 'https://in.linkedin.com/in/ashwitha/', 'https://in.linkedin.com/in/ashwitha'],
+  ] as const)('%s: %s', (key, raw, expected) => {
+    const cleaned = cleanLinkInput(key, raw);
+    expect(cleaned).toBe(expected);
+    expect(isValidLink(key, cleaned)).toBe(true);
+  });
+
+  it.each([
+    ['instagram', 'https://evil.com/phish'],
+    ['instagram', 'bad name!'],
+    ['github', 'https://gitlab.com/someone'],
+    ['linkedin', 'https://linkedin.com/feed'],
+  ] as const)('rejects %s: %s', (key, raw) => {
+    expect(isValidLink(key, cleanLinkInput(key, raw))).toBe(false);
   });
 });
