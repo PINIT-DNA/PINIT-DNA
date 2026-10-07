@@ -132,7 +132,6 @@ export function SubscriptionPage() {
       <div className="rounded-2xl border border-bg-border bg-bg-card overflow-hidden">
         <div className="px-5 py-4 border-b border-bg-border flex items-center justify-between">
           <h2 className="font-semibold text-white">Payment history</h2>
-          <span className="text-2xs text-gray-500">Invoices available after live gateway</span>
         </div>
         {historyLoading ? (
           <div className="p-8 flex justify-center">
@@ -185,8 +184,9 @@ export function SubscriptionPage() {
                             : 'Receipt available after successful payment'
                         }
                         onClick={() => {
-                          downloadInvoiceReceipt(row);
-                          toast.success('Receipt downloaded');
+                          void downloadInvoiceReceipt(row)
+                            .then(() => toast.success('Receipt downloaded'))
+                            .catch(() => toast.error('Could not download the receipt'));
                         }}
                         className="inline-flex items-center gap-1 text-2xs text-dna-400 hover:text-dna-300 disabled:text-gray-600 disabled:cursor-not-allowed"
                       >

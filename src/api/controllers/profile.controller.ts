@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import multer from 'multer';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import bcrypt from 'bcryptjs';
 import { notifyPasswordChanged, notifySessionRevoked, notifyPhoneChanged } from '../../services/platform-events/account-events';
@@ -11,6 +12,8 @@ import {
   uploadAvatar as storeAvatar,
 } from '../../lib/avatar-storage';
 import { extractPinitCode, toExchangePinitId, toRootPinitId, toUserPinitId } from '../../lib/pinit-identity';
+import { computeProfileStrength, normalizeSocialLinks, readStoredSocialLinks } from '../../services/profile/profile-strength';
+import { mayListGovernmentIdOnFile } from '../../services/profile/government-id-document-check';
 
 const AVATAR_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif']);
 
@@ -42,21 +45,36 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
         notifyMonitoring: true, notifyUpdates: true,
         notifyVault: true, notifyDna: true, notifyInvestigation: true,
         notifyAutomation: true, notifySecurity: true, notifyReports: true, notifySystem: true,
+        socialLinks: true,
+        governmentIdRecord: { select: { documentState: true } },
+        portfolio: { select: { publishState: true } },
       },
     });
     if (!user) { res.status(404).json({ success: false, error: 'User not found' }); return; }
 
-    // Profile completion percentage
-    const fields = [user.fullName !== 'PINIT User', user.email, user.phone, user.organization, user.jobTitle, user.country, user.avatarUrl];
-    const filled = fields.filter(Boolean).length;
-    const completion = Math.round((filled / fields.length) * 100);
+    const { governmentIdRecord, portfolio, socialLinks: storedLinks, ...rest } = user;
+    const socialLinks = readStoredSocialLinks(storedLinks);
+    // Owner-only. GET /profile is auth-scoped to the caller; this flag is never
+    // put on public portfolio or share payloads.
+    const identityOnFile = mayListGovernmentIdOnFile(governmentIdRecord?.documentState);
+    const strength = computeProfileStrength({
+      ...rest,
+      hasPhoto: Boolean(user.avatarUrl),
+      portfolioPublished: portfolio?.publishState === 'PUBLISHED',
+      identityOnFile,
+      links: socialLinks,
+    });
 
     res.json({
       success: true,
       profile: {
-        ...user,
+        ...rest,
         avatarUrl: displayAvatarUrl(user.shortId, user.avatarUrl),
-        profileCompletion: completion,
+        socialLinks,
+        identityOnFile,
+        portfolioPublished: portfolio?.publishState === 'PUBLISHED',
+        profileCompletion: strength.percent,
+        profileStrength: strength,
       },
     });
   } catch (err) { next(err); }
@@ -139,6 +157,16 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
     const uid = userId(req);
     const { fullName, phone, organization, jobTitle, country, bio, theme } = req.body;
 
+    let socialLinks: ReturnType<typeof readStoredSocialLinks> | undefined;
+    if (req.body.socialLinks !== undefined) {
+      const parsed = normalizeSocialLinks(req.body.socialLinks);
+      if (!parsed.ok) {
+        res.status(400).json({ success: false, error: parsed.error });
+        return;
+      }
+      socialLinks = parsed.value;
+    }
+
     // Email was previously not accepted here at all, so the profile form could
     // never save one — biometric accounts are created without an email and had
     // no way to add it afterwards.
@@ -182,17 +210,21 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
         ...(country !== undefined && { country }),
         ...(bio !== undefined && { bio }),
         ...(theme !== undefined && { theme }),
+        ...(socialLinks !== undefined && { socialLinks: socialLinks as unknown as Prisma.InputJsonValue }),
       },
       select: {
         id: true, shortId: true, email: true, fullName: true,
         phone: true, organization: true, jobTitle: true, country: true,
-        avatarUrl: true, bio: true, theme: true,
+        avatarUrl: true, bio: true, theme: true, socialLinks: true,
       },
     });
     if (phone !== undefined && prev && prev.phone !== phone) {
       notifyPhoneChanged(uid);
     }
-    res.json({ success: true, profile: user });
+    res.json({
+      success: true,
+      profile: { ...user, socialLinks: readStoredSocialLinks(user.socialLinks) },
+    });
   } catch (err) { next(err); }
 }
 

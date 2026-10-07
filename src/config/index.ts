@@ -113,6 +113,15 @@ export const config = {
   port: optionalInt('PORT', 4000),
   apiPrefix: optional('API_PREFIX', '/api/v1'),
 
+  /**
+   * New Pinit accounts. Closed until explicitly resumed.
+   * Set REGISTRATION_OPEN=true on the API to allow sign-up again.
+   * Login for existing accounts is unaffected.
+   */
+  registration: {
+    open: optional('REGISTRATION_OPEN', 'false').toLowerCase() === 'true',
+  },
+
   hub: {
     appUrl: resolveHubAppUrl(),
   },

@@ -17,6 +17,10 @@ export interface UserProfileSummary {
   role?: string;
   avatarUrl?: string | null;
   profileCompletion?: number;
+  profileStrength?: {
+    percent: number;
+    items: Array<{ id: string; label: string; required: boolean; done: boolean; weight: number }>;
+  };
   jobTitle?: string | null;
   country?: string | null;
   bio?: string | null;

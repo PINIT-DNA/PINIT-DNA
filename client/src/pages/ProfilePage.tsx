@@ -1,21 +1,22 @@
 import { useEffect, useState } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import {
-  User, Shield, Bell, Clock, Activity, Save, RefreshCw,
+  User, Shield, Bell, Clock, Activity, RefreshCw,
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
-  Sun, Moon, Monitor, ShieldCheck, Download, Briefcase,
+  Sun, Moon, Monitor, ShieldCheck, Download, Briefcase, BadgeCheck,
 } from 'lucide-react';
 import { api, listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { PortfolioEditor } from './profile/PortfolioEditor';
-import { ProfilePhotoPicker } from './profile/ProfilePhotoPicker';
+import { ProfileDetailsTab } from './profile/ProfileDetailsTab';
 import { useTheme } from '../hooks/useTheme';
 import { useAccountViewMode } from '../hooks/useAccountViewMode';
 import { BusinessProfileHub } from './business/BusinessProfileHub';
 import { formatDistanceToNow, format } from 'date-fns';
 import toast from 'react-hot-toast';
-import { notifyProfileUpdated, PROFILE_UPDATED_EVENT, useUserProfile } from '../hooks/useUserProfile';
+import { PROFILE_UPDATED_EVENT, useUserProfile } from '../hooks/useUserProfile';
 import { SignInMethodSettings } from '../components/settings/SignInMethodSettings';
+import { GovernmentIdSettings } from '../components/settings/GovernmentIdSettings';
 import { formatBytes } from '../hooks/useApi';
 import type { VaultRecord } from '../types/dashboard.types';
 import {
@@ -121,18 +122,33 @@ export function ProfilePage() {
     return <BusinessProfileHub profile={profile} stats={stats} />;
   }
 
+  const avatar = (
+    <div className="w-full h-full rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white overflow-hidden">
+      {profile?.avatarUrl
+        ? <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />
+        : (profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P')}
+    </div>
+  );
+
   return (
-    <div className={`page-shell w-full ${tab === 'portfolio' ? 'max-w-6xl' : 'max-w-5xl'}`}>
+    <div className={`page-shell w-full ${tab === 'portfolio' || tab === 'profile' ? 'max-w-6xl' : 'max-w-5xl'}`}>
       {tab !== 'portfolio' && (
       <div className="card mb-6">
         <div className="flex items-start gap-4 flex-wrap">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0 overflow-hidden">
-            {profile?.avatarUrl
-              ? <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />
-              : (profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P')}
-          </div>
+          <div className="w-16 h-16 shrink-0">{avatar}</div>
           <div className="flex-1 min-w-0">
-            <h1 className="text-lg font-bold text-white">{profile?.fullName}</h1>
+            <h1 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2 flex-wrap">
+              {profile?.fullName}
+              {/* Owner-only. GET /profile is scoped to the signed-in user; public pages never get this flag. */}
+              {profile?.identityOnFile && (
+                <span
+                  title="Only you can see this"
+                  className="inline-flex items-center gap-1 text-2xs font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
+                >
+                  <BadgeCheck size={12} /> ID on file
+                </span>
+              )}
+            </h1>
             <p className="text-sm text-dna-400 font-mono">{profile?.shortId}</p>
             {profile?.email && <p className="text-xs text-gray-500">{profile.email}</p>}
             {profile?.organization && <p className="text-xs text-gray-500">{profile.organization}{profile.jobTitle ? ` · ${profile.jobTitle}` : ''}</p>}
@@ -175,93 +191,12 @@ export function ProfilePage() {
       </div>
 
       {/* Tab content */}
-      {tab === 'profile' && <ProfileTab profile={profile} onUpdate={setProfile} />}
+      {tab === 'profile' && <ProfileDetailsTab profile={profile} onUpdate={setProfile} />}
       {tab === "portfolio" && <PortfolioEditor />}
       {tab === 'security'      && <SecurityTab profile={profile} />}
       {tab === 'notifications' && <NotificationsTab profile={profile} onUpdate={setProfile} />}
       {tab === 'activity'      && <ActivityTab />}
       {tab === 'settings'      && <SettingsTab />}
-    </div>
-  );
-}
-
-// ── Profile Tab ────────────────────────────────────────────────────────────────
-
-function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) => void }) {
-  const [form, setForm] = useState({
-    fullName: profile?.fullName ?? '',
-    email: profile?.email ?? '',
-    phone: profile?.phone ?? '',
-    organization: profile?.organization ?? '',
-    jobTitle: profile?.jobTitle ?? '',
-    country: profile?.country ?? '',
-    bio: profile?.bio ?? '',
-  });
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  // Email is unique across PINIT, so a save can legitimately fail. Show why
-  // instead of the form appearing to succeed.
-  const [saveError, setSaveError] = useState('');
-
-  const handleSave = async () => {
-    setSaving(true);
-    setSaveError('');
-    try {
-      const { data } = await api.put(`${API_BASE_URL}/profile`, form);
-      onUpdate({ ...profile, ...(data as any).profile });
-      notifyProfileUpdated();
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } catch (err: any) {
-      setSaveError(
-        err?.response?.data?.error || 'Could not save your profile. Please try again.',
-      );
-    } finally { setSaving(false); }
-  };
-
-  return (
-    <div className="card space-y-4">
-      <h2 className="text-sm font-semibold text-white flex items-center gap-2"><User size={14} className="text-dna-400" /> Personal Information</h2>
-
-      <ProfilePhotoPicker
-        compact
-        photoUrl={profile?.avatarUrl || ''}
-        name={form.fullName || profile?.fullName || ''}
-        onChange={(url) => onUpdate({ ...profile, avatarUrl: url || null })}
-      />
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Full Name" value={form.fullName} onChange={v => setForm({ ...form, fullName: v })} />
-        <Field label="PINIT ID" value={profile?.shortId} disabled />
-        <Field
-          label="Email"
-          value={form.email}
-          onChange={v => { setForm({ ...form, email: v }); setSaveError(''); }}
-          placeholder="you@example.com"
-        />
-        <Field label="Phone" value={form.phone} onChange={v => setForm({ ...form, phone: v })} placeholder="+91 9876543210" />
-        <Field label="Organization" value={form.organization} onChange={v => setForm({ ...form, organization: v })} placeholder="Company name" />
-        <Field label="Job Title" value={form.jobTitle} onChange={v => setForm({ ...form, jobTitle: v })} placeholder="Software Engineer" />
-        <Field label="Country" value={form.country} onChange={v => setForm({ ...form, country: v })} placeholder="India" />
-      </div>
-
-      <div>
-        <label className="text-2xs text-gray-500 font-medium mb-1 block">Bio</label>
-        <textarea
-          value={form.bio}
-          onChange={e => setForm({ ...form, bio: e.target.value })}
-          className="w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-white resize-none h-20 focus:outline-none focus:border-dna-500"
-          placeholder="Tell us about yourself..."
-        />
-      </div>
-
-      {saveError && (
-        <p role="alert" className="text-xs text-red-400 mb-2">{saveError}</p>
-      )}
-
-      <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-sm text-xs">
-        {saving ? <RefreshCw size={12} className="animate-spin" /> : saved ? '✓ Saved' : <><Save size={12} /> Save Changes</>}
-      </button>
     </div>
   );
 }
@@ -286,6 +221,10 @@ function SecurityTab({ profile }: { profile: any }) {
 
   return (
     <div className="space-y-4">
+      <div className="card">
+        <GovernmentIdSettings />
+      </div>
+
       {/* Security Overview */}
       <div className="card">
         <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-3"><Shield size={14} className="text-dna-400" /> Security Overview</h2>
@@ -753,24 +692,6 @@ function SettingsTab() {
 }
 
 // ── Shared components ──────────────────────────────────────────────────────────
-
-function Field({ label, value, onChange, disabled, placeholder, type }: {
-  label: string; value: string; onChange?: (v: string) => void; disabled?: boolean; placeholder?: string; type?: string;
-}) {
-  return (
-    <div>
-      <label className="text-2xs text-gray-500 font-medium mb-1 block">{label}</label>
-      <input
-        type={type ?? 'text'}
-        value={value}
-        onChange={onChange ? e => onChange(e.target.value) : undefined}
-        disabled={disabled}
-        placeholder={placeholder}
-        className={`w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-white focus:outline-none focus:border-dna-500 ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
-      />
-    </div>
-  );
-}
 
 function StatMini({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
   return (

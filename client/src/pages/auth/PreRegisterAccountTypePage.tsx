@@ -7,6 +7,8 @@ import {
   resolveExchangeReturn,
   stashExchangeReturn,
 } from '../../lib/exchange-return';
+import { REGISTRATION_OPEN } from '../../lib/registration-gate';
+import { RegistrationClosed } from '../../components/auth/RegistrationClosed';
 
 function cardClass(selected: boolean, variant: 'individual' | 'business'): string {
   const base = 'ob-type-card text-left rounded-2xl border p-6 transition-all w-full';
@@ -28,6 +30,8 @@ export function PreRegisterAccountTypePage() {
   useEffect(() => {
     if (exchangeReturn) stashExchangeReturn(exchangeReturn);
   }, [exchangeReturn]);
+
+  if (!REGISTRATION_OPEN) return <RegistrationClosed />;
 
   function handleContinue() {
     setPreRegisterAccountType(type);

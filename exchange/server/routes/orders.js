@@ -24,11 +24,12 @@ import { authorizeLicenseDownload } from '../lib/license-auth.js';
 import { ensureLicensedShare, publicAccessFromOrder } from '../lib/licensed-access.js';
 import { recordBridgeEvent, markBridgeEventProcessed, retryDueBridgeEvents } from '../lib/bridge-events.js';
 import { getSql, runSql, allSql } from '../lib/db.js';
-import { requireBuyer, requireVerifiedIdentity } from '../lib/rbac.js';
+import { requireBuyer, requireVerifiedIdentity, findUserByPinitId } from '../lib/rbac.js';
 import { postAssetActivity, emitForSeal } from '../lib/asset-activity.js';
 import { downloadsRemaining, describeEntitlement, LICENSE_TERMS_VERSION } from '../lib/licensing.js';
 import { formatMoney, activeCurrency } from '../lib/money.js';
 import { identityMatchSql, samePinitFace } from '../lib/pinit-identity.js';
+import { saleDocument, creditNoteDocument, renderFinancialPdf } from '../lib/financial-document.js';
 
 const router = express.Router();
 
@@ -644,9 +645,9 @@ router.get('/my-orders', requireVerifiedIdentity, requireBuyer, async (req, res)
  * currency the order was actually charged in, so a historical INR order never
  * renders as USD after the platform currency changes.
  */
-router.get('/invoice/:sealId', requireVerifiedIdentity, requireBuyer, async (req, res) => {
+router.get('/invoice/:sealId', requireVerifiedIdentity, async (req, res) => {
   try {
-    const buyerPinitId = req.verifiedPinitId;
+    const actor = req.verifiedPinitId;
     const order = await getSql(
       `SELECT o.*, l.title
          FROM orders_sealed o
@@ -655,24 +656,40 @@ router.get('/invoice/:sealId', requireVerifiedIdentity, requireBuyer, async (req
       [req.params.sealId],
     );
     if (!order) return res.status(404).json({ error: 'Order not found' });
-    if (!buyerPinitId || !samePinitFace(order.buyer_pinit_id, buyerPinitId)) {
-      // Same response as missing, so invoices cannot be enumerated.
-      return res.status(404).json({ error: 'Order not found' });
+    const audience = req.query.audience === 'seller' ? 'seller' : 'buyer';
+    const owns = audience === 'seller'
+      ? samePinitFace(order.seller_pinit_id, actor)
+      : samePinitFace(order.buyer_pinit_id, actor);
+    if (!actor || !owns) return res.status(404).json({ error: 'Order not found' });
+
+    const seller = await findUserByPinitId(order.seller_pinit_id);
+    const document = saleDocument({
+      order: {
+        ...order,
+        invoice_number: order.invoice_number || `INV-${String(order.seal_id).replace('SEAL-', '')}`,
+      },
+      sellerName: seller?.name,
+      audience,
+    });
+    if (req.query.format === 'pdf') {
+      const pdf = renderFinancialPdf(document);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${document.number}.pdf"`);
+      return res.send(pdf);
     }
 
     const cur = order.currency || activeCurrency();
     const gross = Number(order.price_paid || 0);
     const fee = Number(order.platform_fee || 0);
-
     res.json({
-      invoice_number: order.invoice_number || `INV-${String(order.seal_id).replace('SEAL-', '')}`,
+      invoice_number: document.number,
       issued_at: order.sealed_at,
       seal_id: order.seal_id,
       order_id: order.order_id,
       status: order.status,
       payment_status: order.payment_status,
-      seller: { pinit_id: order.seller_pinit_id, exchange_id: order.seller_exchange_id },
-      buyer: { pinit_id: order.buyer_pinit_id },
+      seller: { pinit_id: order.seller_pinit_id, exchange_id: order.seller_exchange_id, name: seller?.name || null },
+      buyer: { pinit_id: order.buyer_pinit_id, name: order.buyer_name || null },
       item: {
         title: order.title || order.asset_id,
         asset_id: order.asset_id,
@@ -693,10 +710,47 @@ router.get('/invoice/:sealId', requireVerifiedIdentity, requireBuyer, async (req
         platform_fee_display: formatMoney(fee, cur),
         total_display: formatMoney(gross, cur),
       },
-      // No tax is computed. Stated explicitly so an invoice is never mistaken
-      // for a tax document until GST handling is implemented.
-      tax: { applied: false, note: 'Tax not applied. This document is not a tax invoice.' },
+      tax: document.tax,
+      document,
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/credit-note/:sealId', requireVerifiedIdentity, async (req, res) => {
+  try {
+    const actor = req.verifiedPinitId;
+    const order = await getSql(
+      `SELECT o.*, l.title
+         FROM orders_sealed o
+         LEFT JOIN listings l ON l.listing_id = o.listing_id
+        WHERE o.seal_id = ?`,
+      [req.params.sealId],
+    );
+    if (!order) return res.status(404).json({ error: 'Order not found' });
+    const party = samePinitFace(order.buyer_pinit_id, actor) || samePinitFace(order.seller_pinit_id, actor);
+    if (!actor || !party) return res.status(404).json({ error: 'Order not found' });
+    const refunded = String(order.status || '').toLowerCase() === 'refunded'
+      || String(order.payment_status || '').toLowerCase() === 'refunded';
+    const refund = await getSql('SELECT * FROM refunds WHERE seal_id = ? ORDER BY created_at DESC LIMIT 1', [order.seal_id]);
+    if (!refunded && !refund) return res.status(404).json({ error: 'This order has not been refunded' });
+    const seller = await findUserByPinitId(order.seller_pinit_id);
+    const document = creditNoteDocument({
+      order: {
+        ...order,
+        invoice_number: order.invoice_number || `INV-${String(order.seal_id).replace('SEAL-', '')}`,
+      },
+      refund: refund || { id: `REF-${order.seal_id}`, amount: order.price_paid, status: 'completed', reason: null, created_at: order.sealed_at },
+      sellerName: seller?.name,
+    });
+    if (req.query.format === 'pdf') {
+      const pdf = renderFinancialPdf(document);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${document.number}.pdf"`);
+      return res.send(pdf);
+    }
+    res.json({ document });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

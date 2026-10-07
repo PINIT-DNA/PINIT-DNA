@@ -20,6 +20,7 @@ import opportunitiesRoutes from './routes/opportunities.js';
 import commerceRoutes from './routes/commerce.js';
 import portfolioRoutes from './routes/portfolio.js'; // public /p/:slug + seller builder API
 import sellerOnboardingRoutes from './routes/seller-onboarding.js';
+import payoutRoutes from './routes/payouts.js';
 import webhookRoutes from './routes/webhooks.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -101,6 +102,7 @@ app.use('/api/opportunities', opportunitiesRoutes);
 app.use('/api/commerce', commerceRoutes);
 app.use('/api/portfolio', portfolioRoutes);
 app.use('/api/seller/onboarding', sellerOnboardingRoutes);
+app.use('/api/seller/payouts', payoutRoutes);
 // Inbound gateway callbacks. Authenticated by HMAC signature, not by session.
 app.use('/api/webhooks', webhookRoutes);
 

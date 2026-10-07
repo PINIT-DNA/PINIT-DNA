@@ -132,6 +132,12 @@
   letter-spacing: -0.03em; margin-bottom: 10px;
   color: var(--f-ink);
 }
+.pf-id-on-file {
+  display: inline-block; margin: 0 0 10px; padding: 3px 8px;
+  font-size: 0.72rem; letter-spacing: 0.04em;
+  color: var(--f-soft); border: 1px solid color-mix(in srgb, var(--f-soft) 35%, transparent);
+  border-radius: 999px;
+}
 .pf-tagline { font-size: 1.02rem; color: var(--f-soft); margin-bottom: 12px; opacity: 0.92; }
 .pf-bio {
   font-size: 0.9rem; line-height: 1.65; max-width: 58ch;

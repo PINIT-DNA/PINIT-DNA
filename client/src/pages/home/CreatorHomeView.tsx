@@ -19,6 +19,7 @@ import {
 import { BRAND } from '../../config/brand.config';
 import type { UserProfileSummary } from '../../hooks/useUserProfile';
 import { isRealDisplayName } from '../../hooks/useUserProfile';
+import { ProfileCompletionCard } from '../../components/profile/ProfileCompletionCard';
 
 export type HomePortfolioGroup = {
   id: string;
@@ -235,7 +236,11 @@ export function CreatorHomeView({
               </div>
             </div>
           </div>
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-col items-end gap-4 shrink-0">
+            {profile?.profileStrength && profile.profileStrength.percent < 100 && (
+              <ProfileCompletionCard strength={profile.profileStrength} place="dashboard" />
+            )}
+            <div className="flex items-center gap-2">
             <Link to="/generate" className="btn btn-primary btn-sm gap-2">
               <Plus size={14} /> Protect New
             </Link>
@@ -243,6 +248,7 @@ export function CreatorHomeView({
               <RefreshCw size={13} className={refreshing ? 'animate-spin' : ''} />
               <span className="hidden sm:inline">Refresh</span>
             </button>
+            </div>
           </div>
         </div>
         <div className="relative mt-8 grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">

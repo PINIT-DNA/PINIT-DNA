@@ -3,6 +3,8 @@ import { Receipt, Download, FileText, AlertCircle } from 'lucide-react';
 import { apiFetch } from '../../lib/api.js';
 import { formatMoney } from '../../lib/money.js';
 import EmptyState from '../../components/EmptyState.jsx';
+import FinancialDocument from '../../components/FinancialDocument.jsx';
+import { downloadPdf } from '../../lib/download-pdf.js';
 
 /**
  * Buyer order history — the commercial record, distinct from My Licences.
@@ -51,7 +53,18 @@ export default function BuyerOrders({ user, onNavigate }) {
     setInvoice(data);
   };
 
-  const printInvoice = () => window.print();
+  const printInvoice = async () => {
+    if (!invoice?.seal_id && !invoice?.document) return;
+    const seal = invoice.seal_id;
+    try {
+      await downloadPdf(
+        `/api/orders/invoice/${encodeURIComponent(seal)}?format=pdf`,
+        `${invoice.invoice_number || 'receipt'}.pdf`,
+      );
+    } catch (err) {
+      setInvoiceError(err.message || 'The PDF could not be downloaded.');
+    }
+  };
 
   if (loading) {
     return <div className="studio-mod studio-mod--loading">Loading your orders…</div>;
@@ -145,56 +158,29 @@ export default function BuyerOrders({ user, onNavigate }) {
             </div>
 
             <div className="invoice-body">
-              <div className="invoice-grid">
-                <div><dt>Issued</dt><dd>{invoice.issued_at ? new Date(invoice.issued_at).toLocaleString() : '—'}</dd></div>
-                <div><dt>Order</dt><dd className="mono">{invoice.order_id}</dd></div>
-                <div><dt>Seal</dt><dd className="mono">{invoice.seal_id}</dd></div>
-                <div><dt>Payment</dt><dd className="cap">{invoice.payment_status}</dd></div>
-                <div><dt>Seller</dt><dd className="mono">{invoice.seller?.pinit_id}</dd></div>
-                <div><dt>Buyer</dt><dd className="mono">{invoice.buyer?.pinit_id}</dd></div>
-              </div>
-
-              <table className="invoice-lines">
-                <thead>
-                  <tr><th scope="col">Item</th><th scope="col">Licence</th><th scope="col" className="num">Amount</th></tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>
-                      {invoice.item?.title}
-                      <span className="orders-table__sub">{invoice.seal_id}</span>
-                    </td>
-                    <td className="cap">
-                      {invoice.item?.license_tier}
-                      <span className="orders-table__sub">{invoice.item?.entitlement}</span>
-                    </td>
-                    <td className="num">{invoice.totals?.gross_display}</td>
-                  </tr>
-                </tbody>
-                <tfoot>
-                  <tr>
-                    <th scope="row" colSpan={2}>Total paid ({invoice.currency})</th>
-                    <td className="num strong">{invoice.totals?.total_display}</td>
-                  </tr>
-                </tfoot>
-              </table>
-
+              <FinancialDocument document={invoice.document} />
               <p className="invoice-note">
                 Licence terms {invoice.terms?.version}
                 {invoice.terms?.accepted_at
                   ? ` accepted ${new Date(invoice.terms.accepted_at).toLocaleString()}`
                   : ' — acceptance not recorded for this order'}.
               </p>
-              {invoice.tax && !invoice.tax.applied && (
-                <p className="invoice-note invoice-note--warn">{invoice.tax.note}</p>
-              )}
             </div>
 
             <div className="modal-footer">
               <button type="button" className="btn-secondary" onClick={() => setInvoice(null)}>Close</button>
               <button type="button" className="btn-primary" onClick={printInvoice}>
-                <Download size={16} /> Print / save PDF
+                <Download size={16} /> Download PDF
               </button>
+              {String(invoice.payment_status || invoice.status || '').toLowerCase().includes('refund') && (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => downloadPdf(`/api/orders/credit-note/${encodeURIComponent(invoice.seal_id)}?format=pdf`, `CN-${invoice.invoice_number}.pdf`)}
+                >
+                  Credit note
+                </button>
+              )}
             </div>
           </div>
         </div>

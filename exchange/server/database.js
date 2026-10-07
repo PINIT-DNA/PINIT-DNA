@@ -493,6 +493,17 @@ function applyTrustHardeningSchema() {
       `CREATE INDEX IF NOT EXISTS idx_disputes_seal ON disputes(seal_id)`,
       `CREATE INDEX IF NOT EXISTS idx_disputes_asset ON disputes(asset_id)`,
       `CREATE INDEX IF NOT EXISTS idx_payouts_seller ON payouts(seller_pinit_id, status)`,
+      `CREATE TABLE IF NOT EXISTS seller_payout_accounts (
+        id TEXT PRIMARY KEY,
+        pinit_id TEXT NOT NULL,
+        account_holder TEXT NOT NULL,
+        ifsc TEXT NOT NULL,
+        last4 TEXT NOT NULL,
+        account_fingerprint TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'verified',
+        verified_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`,
+      `CREATE INDEX IF NOT EXISTS idx_payout_accounts_seller ON seller_payout_accounts(pinit_id, status)`,
       // Links an accrued earning to the payout batch that settles it.
       `ALTER TABLE seller_earnings ADD COLUMN payout_id TEXT`,
     ];

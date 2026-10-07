@@ -22,6 +22,7 @@ import {
   SELLER_SUBSCRIPTION_AMOUNT_CENTS,
   SELLER_SUBSCRIPTION_CURRENCY,
 } from '../razorpay.js';
+import { verificationReceiptDocument, renderFinancialPdf } from '../lib/financial-document.js';
 
 const router = express.Router();
 router.use(requireVerifiedIdentity);
@@ -63,7 +64,7 @@ function defaultIdempotencyKey(pinitId) {
 
 async function loadVerifiedPaymentMethod(pinitId) {
   return getSql(
-    `SELECT id, provider, provider_method_id, status, method_type, last4, brand, verified_at
+    `SELECT id, provider, provider_method_id, provider_payment_id, status, method_type, last4, brand, verified_at
      FROM seller_payment_methods
      WHERE pinit_id = ? AND status = 'verified'
      ORDER BY verified_at DESC LIMIT 1`,
@@ -106,6 +107,35 @@ router.get('/status', async (req, res) => {
     res.json(await buildStatusResponse(user));
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/receipt', async (req, res) => {
+  try {
+    const user = req.exchangeUser;
+    const payment = await loadVerifiedPaymentMethod(user.pinit_id);
+    if (!payment?.provider_payment_id && !payment?.id) {
+      return res.status(404).json({ error: 'RECEIPT_NOT_FOUND', message: 'No verified seller payment is on file.' });
+    }
+    const document = verificationReceiptDocument({
+      user: { name: user.name, pinit_id: user.pinit_id },
+      payment: {
+        number: `RCPT-${String(payment.provider_payment_id || payment.id).slice(-12)}`,
+        verifiedAt: payment.verified_at,
+        reference: payment.provider_payment_id || payment.id,
+        amount: SELLER_SUBSCRIPTION_AMOUNT_CENTS / 100,
+        currency: SELLER_SUBSCRIPTION_CURRENCY,
+      },
+    });
+    if (req.query.format === 'pdf') {
+      const pdf = renderFinancialPdf(document);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${document.number}.pdf"`);
+      return res.send(pdf);
+    }
+    res.json({ document });
+  } catch (err) {
+    res.status(500).json({ error: 'RECEIPT_FAILED', message: 'The verification receipt could not be loaded.' });
   }
 });
 

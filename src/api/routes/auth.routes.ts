@@ -9,6 +9,7 @@ import {
   passkeyLoginStart,
   passkeyLoginFinish,
 } from '../controllers/passkey.controller';
+import { blockNewRegistration, blockNewRegistrationUnlessSignedIn } from '../../services/auth/registration-gate';
 
 export const authRouter = Router();
 
@@ -30,7 +31,7 @@ const createAccountLimiter = rateLimit({
   message: { success: false, message: 'Too many accounts created from this network. Please try again later.' },
 });
 
-authRouter.post('/create',  createAccountLimiter, authController.createAccount);
+authRouter.post('/create',  createAccountLimiter, blockNewRegistration, authController.createAccount);
 authRouter.post('/login',   authController.login);
 authRouter.post('/refresh', authController.refresh);
 authRouter.post('/logout',  authController.logout);
@@ -42,16 +43,16 @@ authRouter.get('/business-setup/status', requireAuth, authController.businessSet
 
 // Enterprise Biometric Auth (UI contract unchanged)
 authRouter.post('/face/challenge', biometricLimiter, faceChallenge);
-authRouter.post('/face/enroll/begin', createAccountLimiter, faceBeginEnrollment);
+authRouter.post('/face/enroll/begin', createAccountLimiter, blockNewRegistration, faceBeginEnrollment);
 authRouter.post('/face/reenroll', requireAuth, biometricLimiter, faceReenroll);
-authRouter.post('/face/register', biometricLimiter, faceRegister);
+authRouter.post('/face/register', biometricLimiter, blockNewRegistration, faceRegister);
 authRouter.post('/face/login',    biometricLimiter, faceLogin);
 // 1:N sign-in by face alone. Same rate limiter as login — this endpoint is the
 // most attractive one to brute-force, since a caller supplies no account claim.
 authRouter.post('/face/identify', biometricLimiter, faceIdentify);
 authRouter.get('/face/status',    requireAuth, faceStatus);
 
-authRouter.post('/passkey/register/start',  biometricLimiter, passkeyRegisterStart);
-authRouter.post('/passkey/register/finish', biometricLimiter, passkeyRegisterFinish);
+authRouter.post('/passkey/register/start',  biometricLimiter, blockNewRegistrationUnlessSignedIn, passkeyRegisterStart);
+authRouter.post('/passkey/register/finish', biometricLimiter, blockNewRegistrationUnlessSignedIn, passkeyRegisterFinish);
 authRouter.post('/passkey/login/start',     biometricLimiter, passkeyLoginStart);
 authRouter.post('/passkey/login/finish',    biometricLimiter, passkeyLoginFinish);

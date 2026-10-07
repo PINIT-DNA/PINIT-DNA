@@ -4,6 +4,8 @@ import { LoginFlow } from './LoginFlow';
 import { RegistrationFlow } from './RegistrationFlow';
 import { getPreRegisterAccountType } from '../../lib/pre-register';
 import { resolveExchangeReturn, stashExchangeReturn } from '../../lib/exchange-return';
+import { REGISTRATION_OPEN } from '../../lib/registration-gate';
+import { RegistrationClosed } from '../../components/auth/RegistrationClosed';
 
 function Booting() {
   return (
@@ -30,6 +32,11 @@ export function RegisterGateway() {
   const { user, loading } = useAuth();
   const [searchParams] = useSearchParams();
   if (loading) return <Booting />;
+
+  if (!REGISTRATION_OPEN) {
+    if (user) return <Navigate to="/" replace />;
+    return <RegistrationClosed />;
+  }
 
   const er = resolveExchangeReturn(searchParams.get('exchange_return'));
   if (er) stashExchangeReturn(er);

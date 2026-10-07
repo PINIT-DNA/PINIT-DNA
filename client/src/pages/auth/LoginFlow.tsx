@@ -43,7 +43,7 @@ function userFacingLoginError(msg: string): string {
     return 'Camera access is required to sign in with Face Scan.';
   }
   if (/not recognized/.test(m)) {
-    return 'Face not recognized. Look at the camera again, or sign up if this is a new account.';
+    return 'Face not recognized. Look at the camera again.';
   }
   if (/capture_aborted|aborterror/.test(m)) {
     return 'Look at the camera and hold still for a second.';
@@ -134,16 +134,6 @@ export function LoginFlow() {
     void ensureFaceModels();
     collectFingerprint().then((f) => { deviceFpRef.current = f.hash; }).catch(() => {});
   }, [navigate, exchangeReturn]);
-
-  function goToRegister() {
-    const er = exchangeReturn || takeStashedExchangeReturn();
-    if (er) {
-      setError('Continue with Hub to use your existing account.');
-      return;
-    }
-    clearRegistration();
-    navigate('/register/account-type', { replace: true });
-  }
 
   async function enterAfterLogin() {
     const pendingInvite = takePendingTeamInvite();
@@ -294,7 +284,6 @@ export function LoginFlow() {
               exchangeReturn={!!exchangeReturn}
               error={error}
               onSignIn={startSignIn}
-              onSignUp={goToRegister}
             />
           )}
 
@@ -351,12 +340,10 @@ export function LoginFlow() {
 
 function WelcomeHome({
   onSignIn,
-  onSignUp,
   exchangeReturn,
   error,
 }: {
   onSignIn: () => void;
-  onSignUp: () => void;
   exchangeReturn?: boolean;
   error?: string;
 }) {
@@ -372,11 +359,6 @@ function WelcomeHome({
       <button className="pa-btn" style={{ marginTop: 22 }} onClick={onSignIn}>
         Sign In
       </button>
-      {!exchangeReturn && (
-        <button className="pa-btn pa-btn-ghost" style={{ marginTop: 10 }} onClick={onSignUp}>
-          Sign Up
-        </button>
-      )}
     </div>
   );
 }

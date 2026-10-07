@@ -1,7 +1,8 @@
 /**
- * Client-side Hub subscription receipt / invoice text from billing history.
- * Works with mock and live gateway rows without changing entitlement logic.
+ * Hub subscription receipt. The PDF is built by the same document renderer as Exchange.
  */
+import { api } from '../services/dashboard.api';
+import { API_BASE_URL } from '../config/api.config';
 
 export interface InvoiceReceiptInput {
   id: string;
@@ -23,38 +24,15 @@ export function formatInvoiceNumber(row: InvoiceReceiptInput): string {
   return `INV-${y}${m}-${seg}`;
 }
 
-export function buildInvoiceReceipt(row: InvoiceReceiptInput): string {
-  const amount = Number(row.amountInr || 0).toFixed(2);
-  const inv = formatInvoiceNumber(row);
-  const currency = (row.currency || 'INR').toUpperCase();
-
-  return [
-    'PINIT HUB — PAYMENT RECEIPT',
-    '===========================',
-    '',
-    `Invoice number: ${inv}`,
-    `Date: ${new Date(row.createdAt).toUTCString()}`,
-    `Status: ${row.status}`,
-    `Provider: ${row.provider}`,
-    `External reference: ${row.transactionId || 'N/A'}`,
-    `Plan: ${row.planName || 'Subscription'}`,
-    `Amount: ${currency} ${amount}`,
-    '',
-    'This receipt confirms a Pinit HUB subscription payment.',
-    'It is not a marketplace sale or licensing invoice.',
-    '',
-    'Thank you for using Pinit HUB.',
-  ].join('\n');
-}
-
-export function downloadInvoiceReceipt(row: InvoiceReceiptInput): void {
-  const text = buildInvoiceReceipt(row);
-  const inv = formatInvoiceNumber(row);
-  const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+export async function downloadInvoiceReceipt(row: InvoiceReceiptInput): Promise<void> {
+  const res = await api.get(`${API_BASE_URL}/subscription/billing/${row.id}/document`, {
+    responseType: 'blob',
+  });
+  const blob = new Blob([res.data], { type: 'application/pdf' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `${inv}.txt`;
+  a.download = `${formatInvoiceNumber(row)}.pdf`;
   a.click();
   URL.revokeObjectURL(url);
 }

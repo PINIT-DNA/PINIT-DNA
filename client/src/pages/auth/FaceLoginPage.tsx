@@ -3,6 +3,8 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import { FaceAuth } from '../../components/auth/FaceAuth';
 import { applyFaceAuthTokens } from '../../lib/auth';
 import { Dna, Shield, Fingerprint } from 'lucide-react';
+import { REGISTRATION_OPEN } from '../../lib/registration-gate';
+import { RegistrationClosed } from '../../components/auth/RegistrationClosed';
 
 export function FaceLoginPage() {
   const location = useLocation();
@@ -10,6 +12,9 @@ export function FaceLoginPage() {
     location.pathname.includes('register') ? 'register' : 'login',
   );
   const navigate = useNavigate();
+  if (!REGISTRATION_OPEN && (mode === 'register' || location.pathname.includes('register'))) {
+    return <RegistrationClosed />;
+  }
   const handleSuccess = (data: Record<string, unknown>) => {
     if (typeof data.accessToken === 'string') {
       applyFaceAuthTokens({
@@ -51,7 +56,7 @@ export function FaceLoginPage() {
       <FaceAuth
         mode={mode}
         onSuccess={handleSuccess}
-        onSwitchMode={() => setMode(mode === 'login' ? 'register' : 'login')}
+        onSwitchMode={REGISTRATION_OPEN ? () => setMode(mode === 'login' ? 'register' : 'login') : undefined}
       />
 
       {/* Security badges */}

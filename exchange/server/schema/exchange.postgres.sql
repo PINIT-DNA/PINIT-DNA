@@ -392,3 +392,18 @@ CREATE INDEX IF NOT EXISTS idx_ex_disputes_seal ON exchange.disputes (seal_id);
 CREATE INDEX IF NOT EXISTS idx_ex_disputes_asset ON exchange.disputes (asset_id);
 CREATE INDEX IF NOT EXISTS idx_ex_disputes_status ON exchange.disputes (status);
 CREATE INDEX IF NOT EXISTS idx_ex_payouts_seller ON exchange.payouts (seller_pinit_id, status);
+
+-- Payout destination. The full account number is never stored.
+-- A row exists only after the account number and IFSC checks pass.
+CREATE TABLE IF NOT EXISTS exchange.seller_payout_accounts (
+  id TEXT PRIMARY KEY,
+  pinit_id TEXT NOT NULL,
+  account_holder TEXT NOT NULL,
+  ifsc TEXT NOT NULL,
+  last4 TEXT NOT NULL,
+  account_fingerprint TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'verified',
+  verified_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ex_payout_accounts_seller ON exchange.seller_payout_accounts (pinit_id, status);
