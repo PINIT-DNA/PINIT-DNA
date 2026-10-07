@@ -31,7 +31,10 @@ export default defineConfig({
       '@pinit/certificate': SHARED_CERTIFICATE,
       // The shared certificate lives in client/, so Node looks for qrcode there.
       // Exchange installs it in its own node_modules, which that walk never reaches.
-      qrcode: require.resolve('qrcode'),
+      // Point at the browser build: require.resolve('qrcode') returns the Node
+      // entry, and an exact-file alias skips the package's "browser" mapping,
+      // which bundled pngjs and crashed the site with "inherits is not a function".
+      qrcode: require.resolve('qrcode/lib/browser.js'),
     },
     // The shared file is outside this app; dedupe keeps a single React copy.
     dedupe: ['react', 'react-dom', 'qrcode'],
