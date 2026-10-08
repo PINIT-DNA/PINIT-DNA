@@ -20,7 +20,8 @@ async function pdfWithText(text: string): Promise<Buffer> {
 
 async function reviewPdf(text: string, claimedType: GovernmentDocumentType, faceBound = true): Promise<DocumentReview> {
   const bytes = await pdfWithText(text);
-  const extractedText = await extractGovernmentDocumentText('application/pdf', bytes);
+  const extracted = await extractGovernmentDocumentText('application/pdf', bytes);
+  const extractedText = extracted.text;
   expect(extractedText.toLowerCase()).toContain(text.slice(0, 8).toLowerCase());
   return reviewGovernmentDocument({
     claimedType,

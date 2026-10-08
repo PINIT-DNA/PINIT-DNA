@@ -50,11 +50,27 @@ export type FieldName = (typeof FIELD_NAMES)[number];
 /** Where a value came from. MRZ and checksummed numbers are stronger than free OCR text. */
 export type FieldSource = 'MRZ' | 'OCR' | 'PATTERN' | 'DEVICE' | 'CLAIM';
 
+/** READ = taken from the document. VALIDATED = also passed a format or checksum check. */
+export type FieldStatus = 'READ' | 'VALIDATED' | 'NEEDS_REVIEW' | 'INVALID';
+
 export interface ExtractedField {
   value: string;
   /** 0..1 — how sure the reader is that this is the right text, not that it is true. */
   confidence: number;
   source: FieldSource;
+  /** Absent on older saved runs. Treat those as READ. */
+  status?: FieldStatus;
+}
+
+/** One OCR word with its place on the page. Not returned to the account owner. */
+export interface OcrToken {
+  text: string;
+  /** 0–100, as reported by the OCR engine for this word. */
+  confidence: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
 }
 
 export type ExtractedFields = Partial<Record<FieldName, ExtractedField>>;
@@ -193,6 +209,8 @@ export interface DocumentInput {
   mimeType: string | null;
   bytes: Buffer;
   extractedText: string;
+  /** Word boxes from OCR. Used to tell a name line from the line above it. */
+  ocrTokens?: OcrToken[];
   fileSignals?: FileSignals;
   /**
    * Face found on the document photograph by the device (face-api-v1).
@@ -214,6 +232,14 @@ export interface FileSignals {
   editingSoftware?: string | null;
   pdfIncrementalUpdates?: number;
   looksLikeScreenshot?: boolean;
+  /** Mean brightness 0–255 of the greyscale image. */
+  meanLuma?: number;
+  /** Share of pixels that are blown out (glare or overexposure). */
+  glareRatio?: number;
+  /** Set when quality is too poor to OCR. The image is not read. */
+  unclear?: boolean;
+  /** Tesseract confidence 0–100 when OCR ran. Absent when OCR was skipped. */
+  ocrConfidence?: number;
 }
 
 export interface DeviceFace {

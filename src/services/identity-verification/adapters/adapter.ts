@@ -4,12 +4,14 @@
  * register it in registry.ts.
  */
 import type {
-  DocumentElement, ElementReport, ExtractedField, ExtractedFields, FieldName, FieldSource, Finding, IdentityDocumentType,
+  DocumentElement, ElementReport,   ExtractedField, ExtractedFields, FieldName, FieldSource, FieldStatus, Finding, IdentityDocumentType, OcrToken,
 } from '../types';
 
 export interface AdapterContext {
   now: Date;
   documentIndex: number;
+  /** Present when the image was OCR'd with word positions. */
+  tokens?: OcrToken[];
 }
 
 export interface Detection {
@@ -41,8 +43,8 @@ export interface DocumentAdapter {
 
 export const DETECTION_THRESHOLD = 0.45;
 
-export function field(value: string, confidence: number, source: FieldSource): ExtractedField {
-  return { value, confidence: Math.max(0, Math.min(1, confidence)), source };
+export function field(value: string, confidence: number, source: FieldSource, status: FieldStatus = 'READ'): ExtractedField {
+  return { value, confidence: Math.max(0, Math.min(1, confidence)), source, status };
 }
 
 /** Score = share of weighted features present, capped at 1. */

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { BadgeCheck, Camera, Car, Check, CreditCard, FileText, Landmark, Vote, IdCard, Lock, Plus, ShieldCheck, Trash2, Upload, X } from 'lucide-react';
+import { BadgeCheck, Camera, Car, Check, CreditCard, FileText, Landmark, Vote, IdCard, Lock, Plus, ShieldCheck, Upload, X } from 'lucide-react';
 import { api, formatApiError } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
-import { cameraErrorMessage, openCameraStream } from '../../lib/camera-stream';
+import { cameraErrorMessage, openCameraStream, preferContinuousFocus, preferNaturalExposure } from '../../lib/camera-stream';
 import { IdentityChecks } from './IdentityChecks';
+import { FaceRoundScan } from '../auth/FaceRoundScan';
 import { documentFaceFromFile } from '../../lib/document-face';
+import type { FacePadEvidence } from '../../lib/face-api-client';
 
 type DocumentType = 'AADHAAR' | 'PAN' | 'PASSPORT' | 'DRIVERS_LICENSE' | 'VOTER_ID' | 'NATIONAL_ID';
 type FaceBinding = 'MATCHED' | 'NOT_MATCHED' | 'REQUIRES_RECHECK';
@@ -43,7 +45,33 @@ function addedOn(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-type Step = 'idle' | 'choose' | 'sides' | 'camera';
+type Step = 'idle' | 'choose' | 'capture' | 'preview' | 'camera' | 'analysis' | 'face' | 'result';
+type CheckStatus = 'PASS' | 'FAIL' | 'NOT_RUN' | 'UNKNOWN' | 'PENDING';
+
+interface Finding { code: string; severity: string; message: string }
+interface VerificationRun {
+  status: 'CHECKS_PASSED' | 'REVIEW_REQUIRED' | 'REJECTED' | 'INSUFFICIENT_EVIDENCE';
+  reasons: string[];
+  stages: Array<{ stage: string; status: Exclude<CheckStatus, 'PENDING'>; findings: Finding[] }>;
+  documents?: Array<{
+    origin?: string;
+    detectedType?: string | null;
+    fields?: Record<string, { value?: string; confidence?: number; status?: 'READ' | 'VALIDATED' | 'NEEDS_REVIEW' | 'INVALID' } | undefined>;
+  }>;
+  face?: { documentPhoto?: 'USABLE_FACE' | 'POOR_FACE' | 'NO_FACE' | 'NOT_PROVIDED' };
+}
+
+const RESULT_LABEL: Record<VerificationRun['status'], string> = {
+  CHECKS_PASSED: 'Checks passed',
+  REVIEW_REQUIRED: 'Needs review',
+  REJECTED: 'Not accepted',
+  INSUFFICIENT_EVIDENCE: 'Not enough information',
+};
+
+function stageOf(run: VerificationRun | null, name: string): CheckStatus {
+  return run?.stages.find((s) => s.stage === name)?.status ?? 'PENDING';
+}
+
 type Side = 'front' | 'back';
 
 /**
@@ -57,15 +85,6 @@ const BACK_SIDE: Record<DocumentType, { label: string; hint: string } | null> = 
   DRIVERS_LICENSE: { label: 'Back side', hint: 'Validity and vehicle classes, on most cards' },
   VOTER_ID: { label: 'Back side', hint: 'Has your address' },
   NATIONAL_ID: { label: 'Back side', hint: 'If it carries details' },
-};
-
-const FRONT_SIDE: Record<DocumentType, string> = {
-  AADHAAR: 'Front side, with your photo and number',
-  PAN: 'Front side, with your photo and PAN',
-  PASSPORT: 'The page with your photo',
-  DRIVERS_LICENSE: 'Front side, with your photo',
-  VOTER_ID: 'Front side, with your photo',
-  NATIONAL_ID: 'Front side, with your photo',
 };
 
 /** The privacy promise, stated the same way wherever the card appears. */
@@ -87,10 +106,15 @@ export function GovernmentIdSettings({
   const [documentType, setDocumentType] = useState<DocumentType>('AADHAAR');
   const [saving, setSaving] = useState(false);
   const [checksKey, setChecksKey] = useState(0);
+  const [clearing, setClearing] = useState(false);
+  const [verification, setVerification] = useState<VerificationRun | null>(null);
+  const [activeSide, setActiveSide] = useState<Side>('front');
+  const liveRef = useRef<{ embedding: number[]; padEvidence?: FacePadEvidence } | null>(null);
   /** save = add or replace the proof on file; second = check another ID against it. */
   const [purpose, setPurpose] = useState<'save' | 'second'>('save');
   const [front, setFront] = useState<File | null>(null);
   const [back, setBack] = useState<File | null>(null);
+  const [frontRead, setFrontRead] = useState(false);
   const [cameraSide, setCameraSide] = useState<Side>('front');
   const frontInputRef = useRef<HTMLInputElement | null>(null);
   const backInputRef = useRef<HTMLInputElement | null>(null);
@@ -113,6 +137,7 @@ export function GovernmentIdSettings({
   const resetSides = () => {
     setFront(null);
     setBack(null);
+    setFrontRead(false);
     if (frontInputRef.current) frontInputRef.current.value = '';
     if (backInputRef.current) backInputRef.current.value = '';
   };
@@ -135,6 +160,8 @@ export function GovernmentIdSettings({
     }
     setSaving(true);
     setError('');
+    setVerification(null);
+    setStep('analysis');
     try {
       const body = new FormData();
       // Face on the document photo, found on this device. Only its numbers are
@@ -167,10 +194,23 @@ export function GovernmentIdSettings({
         setView(data.governmentId);
         onSaved?.();
       }
-      setChecksKey((k) => k + 1);
-      setStep('idle');
-      setPurpose('save');
-      resetSides();
+      const latest = await api.get(`${API_BASE_URL}/profile/identity-verification/latest`);
+      const run = (latest.data as { verification?: VerificationRun | null }).verification ?? null;
+      if (!run?.stages) {
+        setError('The document was received, but the check result could not be read.');
+        return;
+      }
+      const rejected = currentRejection(run, documentType, Boolean(BACK_SIDE[documentType]));
+      if (rejected) {
+        setError(rejected);
+        const redoBack = rejected.includes('address') && Boolean(BACK_SIDE[documentType]);
+        setActiveSide(redoBack ? 'back' : 'front');
+        if (redoBack) setBack(null);
+        else setFront(null);
+        setStep('capture');
+        return;
+      }
+      setVerification(run);
     } catch (err) {
       setError(formatApiError(err));
     } finally {
@@ -187,10 +227,125 @@ export function GovernmentIdSettings({
     setStep('idle');
     setPurpose('save');
     setError('');
+    setActiveSide('front');
+    setVerification(null);
+    liveRef.current = null;
     resetSides();
   };
-  const startAdd = () => { setError(''); resetSides(); setPurpose('save'); setStep('choose'); };
-  const startSecondProof = () => { setError(''); resetSides(); setPurpose('second'); setStep('choose'); };
+
+  /** Reads one side without saving it. A side is kept only when this says it is current. */
+  const readSide = async (file: File): Promise<VerificationRun> => {
+    const body = new FormData();
+    const face = await documentFaceFromFile(file);
+    body.append('documents', file);
+    body.append('documentTypes', JSON.stringify([IDENTITY_TYPE[documentType]]));
+    if (face !== undefined) body.append('documentFaces', JSON.stringify([face]));
+    const r = await api.post(`${API_BASE_URL}/profile/identity-verification/analyze`, body);
+    const data = r.data as { success?: boolean; error?: string; verification?: VerificationRun };
+    if (!data.verification?.stages) {
+      throw new Error(data.error || 'This ID could not be read.');
+    }
+    return data.verification;
+  };
+
+  const acceptPreview = async () => {
+    const file = activeSide === 'front' ? front : back;
+    if (!file) return;
+    if (activeSide === 'back') {
+      await submit();
+      return;
+    }
+    if (activeSide === 'front' && frontRead && verification) {
+      if (BACK_SIDE[documentType]) {
+        setActiveSide('back');
+        setStep('capture');
+        return;
+      }
+      await submit();
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const run = await readSide(file);
+      const reason = currentRejection(run, documentType, false);
+      if (reason) {
+        setError(reason);
+        setFront(null);
+        setFrontRead(false);
+        if (frontInputRef.current) frontInputRef.current.value = '';
+        setActiveSide('front');
+        setStep('capture');
+        return;
+      }
+      setVerification(run);
+      setFrontRead(true);
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const retake = () => {
+    setError('');
+    if (activeSide === 'front') setFrontRead(false);
+    setSide(activeSide, null);
+    if (activeSide === 'front' && frontInputRef.current) frontInputRef.current.value = '';
+    if (activeSide === 'back' && backInputRef.current) backInputRef.current.value = '';
+    setStep('capture');
+  };
+
+  const submitLive = async () => {
+    if (!front || !liveRef.current) {
+      setError('Take a live selfie first.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const body = new FormData();
+      const face = await documentFaceFromFile(front);
+      const withBack = back && BACK_SIDE[documentType] ? back : null;
+      body.append('documents', front);
+      if (withBack) body.append('documentBack', withBack);
+      body.append('documentTypes', JSON.stringify([IDENTITY_TYPE[documentType]]));
+      if (face !== undefined) body.append('documentFaces', JSON.stringify([face]));
+      body.append('live', JSON.stringify(liveRef.current));
+      if (purpose === 'second') body.append('includeSavedProof', 'true');
+      const r = await api.post(`${API_BASE_URL}/profile/identity-verification/analyze`, body);
+      const data = r.data as { success?: boolean; error?: string; verification?: VerificationRun };
+      if (!data.success || !data.verification?.stages) {
+        setError(data.error || 'The live photo could not be checked.');
+        return;
+      }
+      setVerification(data.verification);
+      setChecksKey((k) => k + 1);
+      setStep('result');
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clearProof = async () => {
+    setClearing(true);
+    setError('');
+    try {
+      const r = await api.delete(`${API_BASE_URL}/profile/government-id`);
+      setView((r.data as { governmentId?: GovernmentIdView }).governmentId ?? null);
+      setChecksKey((k) => k + 1);
+      onSaved?.();
+    } catch (err) {
+      setError(formatApiError(err));
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  const startAdd = () => { setError(''); setActiveSide('front'); setVerification(null); liveRef.current = null; resetSides(); setPurpose('save'); setStep('choose'); };
+  const startSecondProof = () => { setError(''); setActiveSide('front'); setVerification(null); liveRef.current = null; resetSides(); setPurpose('second'); setStep('choose'); };
 
   return (
     <div className="space-y-3">
@@ -227,7 +382,7 @@ export function GovernmentIdSettings({
             </ol>
             <div className="flex items-center gap-4 flex-wrap">
               <button type="button" className="btn btn-primary btn-sm text-xs" onClick={startAdd}>
-                <Plus size={13} /> Add Identity Proof
+                <Plus size={13} /> Verify your identity
               </button>
               <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-gray-400">
                 <Lock size={12} /> {PRIVACY_LINE}
@@ -254,6 +409,9 @@ export function GovernmentIdSettings({
             <div className="flex gap-4 pt-1">
               <button type="button" className="text-sm font-medium text-dna-600 dark:text-dna-400" onClick={startAdd}>
                 Replace
+              </button>
+              <button type="button" disabled={clearing} className="text-sm font-medium text-slate-500 dark:text-gray-400" onClick={() => void clearProof()}>
+                {clearing ? 'Clearing…' : 'Clear'}
               </button>
             </div>
             <IdentityChecks refreshKey={checksKey} onAddSecondProof={startSecondProof} />
@@ -304,8 +462,9 @@ export function GovernmentIdSettings({
 
       {step !== 'idle' && (
         <IdentityDialog
-          title={purpose === 'second' ? 'Add a second ID proof' : view?.documentStatus === 'ON_FILE' ? 'Replace identity proof' : 'Add identity proof'}
-          stepIndex={step === 'choose' ? 0 : 1}
+          title={dialogTitle(step, activeSide)}
+          steps={flowStepsFor(documentType)}
+          stepIndex={flowIndexFor(step, activeSide, Boolean(BACK_SIDE[documentType]))}
           onClose={closeFlow}
         >
           {step === 'choose' && (
@@ -350,68 +509,84 @@ export function GovernmentIdSettings({
                 className="btn btn-primary btn-sm text-xs justify-center w-full"
                 onClick={() => {
                   setError('');
+                  setActiveSide('front');
                   if (!BACK_SIDE[documentType]) setBack(null);
-                  setStep('sides');
+                  setStep('capture');
                 }}
               >
-                Continue
+                Scan or upload your ID
               </button>
             </div>
           )}
 
-          {step === 'sides' && (
+          {step === 'capture' && (
             <div className="space-y-3">
-              <p className="text-sm text-slate-700 dark:text-gray-200">
-                Add your {TYPE_LABEL[documentType]}. Scan it with your camera or upload a photo, screenshot or PDF.
-              </p>
-              <SideSlot
-                title="Front side"
-                hint={FRONT_SIDE[documentType]}
-                required
-                file={front}
-                disabled={saving}
-                onScan={() => { setError(''); setCameraSide('front'); setStep('camera'); }}
-                onUpload={() => frontInputRef.current?.click()}
-                onRemove={() => { setSide('front', null); if (frontInputRef.current) frontInputRef.current.value = ''; }}
-              />
-              {BACK_SIDE[documentType] ? (
-                <SideSlot
-                  title={BACK_SIDE[documentType]!.label}
-                  hint={BACK_SIDE[documentType]!.hint}
-                  file={back}
-                  disabled={saving}
-                  onScan={() => { setError(''); setCameraSide('back'); setStep('camera'); }}
-                  onUpload={() => backInputRef.current?.click()}
-                  onRemove={() => { setSide('back', null); if (backInputRef.current) backInputRef.current.value = ''; }}
-                />
-              ) : (
-                <p className="text-2xs text-slate-500 dark:text-gray-400">A PAN card has nothing to add on the back, so only the front is needed.</p>
-              )}
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm text-xs justify-center"
+                  onClick={() => { setError(''); setCameraSide(activeSide); setStep('camera'); }}
+                >
+                  <Camera size={14} /> Scan
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm text-xs justify-center"
+                  onClick={() => (activeSide === 'front' ? frontInputRef : backInputRef).current?.click()}
+                >
+                  <Upload size={14} /> Upload
+                </button>
+              </div>
               <input
                 ref={frontInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-                disabled={saving}
                 className="hidden"
-                onChange={(e) => setSide('front', e.target.files?.[0])}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setSide('front', file);
+                  setStep('preview');
+                }}
               />
               <input
                 ref={backInputRef}
                 type="file"
                 accept="image/jpeg,image/png,image/webp,application/pdf,.jpg,.jpeg,.png,.webp,.pdf"
-                disabled={saving}
                 className="hidden"
-                onChange={(e) => setSide('back', e.target.files?.[0])}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  setSide('back', file);
+                  setStep('preview');
+                }}
               />
-              <p className="text-2xs text-slate-500 dark:text-gray-400">
-                JPG, PNG, WEBP or PDF, up to 8 MB per side. Make sure every corner is visible and the text is readable.
-              </p>
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm text-xs justify-center w-full"
+                onClick={() => {
+                  setError('');
+                  if (activeSide === 'back') { setActiveSide('front'); setStep('preview'); return; }
+                  setStep('choose');
+                }}
+              >
+                Back
+              </button>
+            </div>
+          )}
+
+          {step === 'preview' && (
+            <div className="space-y-3">
+              <IdPreview file={activeSide === 'front' ? front : back} />
+              {activeSide === 'front' && frontRead && verification && (
+                <FieldReadout run={verification} type={documentType} />
+              )}
               <div className="grid grid-cols-2 gap-2">
-                <button type="button" disabled={saving} className="btn btn-secondary btn-sm text-xs justify-center" onClick={() => setStep('choose')}>
-                  Back
+                <button type="button" disabled={saving} className="btn btn-secondary btn-sm text-xs justify-center" onClick={retake}>
+                  Try again
                 </button>
-                <button type="button" disabled={saving || !front} className="btn btn-primary btn-sm text-xs justify-center" onClick={() => void submit()}>
-                  {saving ? 'Reading and checking…' : purpose === 'second' ? 'Check this ID' : 'Save ID proof'}
+                <button type="button" disabled={saving || !(activeSide === 'front' ? front : back)} className="btn btn-primary btn-sm text-xs justify-center" onClick={() => void acceptPreview()}>
+                  {saving ? 'Checking…' : 'Continue'}
                 </button>
               </div>
             </div>
@@ -422,12 +597,77 @@ export function GovernmentIdSettings({
               key={cameraSide}
               label={cameraSide === 'front' ? 'Front side' : BACK_SIDE[documentType]?.label ?? 'Back side'}
               busy={saving}
-              onCancel={() => setStep('sides')}
-              onCapture={(file) => { setSide(cameraSide, file); setStep('sides'); }}
+              onCancel={() => setStep('capture')}
+              onCapture={(file) => { setSide(cameraSide, file); setStep('preview'); }}
             />
           )}
 
-          {error && (
+          {step === 'analysis' && (
+            <div className="space-y-3">
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">Document analysis</p>
+              {verification && <FieldReadout run={verification} type={documentType} />}
+              {saving && <p className="text-xs text-slate-500">Reading and checking…</p>}
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" disabled={saving} className="btn btn-secondary btn-sm text-xs justify-center" onClick={() => setStep('preview')}>
+                  Back
+                </button>
+                <button
+                  type="button"
+                  disabled={saving || !verification || currentRejection(verification, documentType, Boolean(BACK_SIDE[documentType])) !== null}
+                  className="btn btn-primary btn-sm text-xs justify-center"
+                  onClick={() => { setError(''); setStep('face'); }}
+                >
+                  Continue
+                </button>
+              </div>
+            </div>
+          )}
+
+          {step === 'face' && (
+            <div className="space-y-3">
+              <div className="idv-face pinit-auth">
+                <FaceRoundScan
+                  mode="login"
+                  title="Take a live selfie"
+                  samplesRequired={1}
+                  identityError={error}
+                  onEmbedding={(embedding) => { liveRef.current = { embedding, padEvidence: liveRef.current?.padEvidence }; }}
+                  onPadEvidence={(padEvidence) => {
+                    if (liveRef.current) liveRef.current = { ...liveRef.current, padEvidence };
+                  }}
+                  onNext={() => { void submitLive(); }}
+                  onError={setError}
+                />
+              </div>
+              {saving && <p className="text-xs text-slate-500">Checking the live photo…</p>}
+            </div>
+          )}
+
+          {step === 'result' && verification && (
+            <div className="space-y-4">
+              <FieldReadout run={verification} type={documentType} />
+              <p className="text-sm font-semibold text-slate-900 dark:text-white">Face verification</p>
+              <CheckList items={faceLines(verification)} />
+              <div className="rounded-xl border border-slate-200 dark:border-white/10 px-4 py-5 text-center">
+                <p className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Identity result</p>
+                {identityVerified(verification) ? (
+                  <p className="mt-2 text-base font-semibold text-emerald-700 dark:text-emerald-300 inline-flex items-center gap-1.5">
+                    Identity Verified <Check size={16} />
+                  </p>
+                ) : (
+                  <p className="mt-2 text-base font-semibold text-slate-900 dark:text-white">{RESULT_LABEL[verification.status]}</p>
+                )}
+                {verification.reasons[0] && (
+                  <p className="mt-2 text-xs text-slate-600 dark:text-gray-300">{verification.reasons[0]}</p>
+                )}
+              </div>
+              <button type="button" className="btn btn-primary btn-sm text-xs justify-center w-full" onClick={closeFlow}>
+                Done
+              </button>
+            </div>
+          )}
+
+          {error && step !== 'face' && (
             <p role="alert" className="mt-3 text-sm text-amber-700 dark:text-amber-200">{error}</p>
           )}
         </IdentityDialog>
@@ -436,15 +676,154 @@ export function GovernmentIdSettings({
   );
 }
 
-const FLOW_STEPS = ['Choose document', 'Front and back'] as const;
+function flowStepsFor(type: DocumentType): string[] {
+  return BACK_SIDE[type]
+    ? ['Document', 'Front side', 'Back side', 'Identity result']
+    : ['Document', 'Front side', 'Identity result'];
+}
 
-/** One side of the document: Scan or Upload, then a preview with Change / Remove. */
-function SideSlot({
-  title, hint, required, file, disabled, onScan, onUpload, onRemove,
-}: {
-  title: string; hint: string; required?: boolean; file: File | null; disabled?: boolean;
-  onScan: () => void; onUpload: () => void; onRemove: () => void;
-}) {
+function flowIndexFor(step: Exclude<Step, 'idle'>, side: Side, hasBack: boolean): number {
+  if (step === 'choose') return 0;
+  if (step === 'capture' || step === 'preview' || step === 'camera') return side === 'back' && hasBack ? 2 : 1;
+  return hasBack ? 3 : 2;
+}
+
+function dialogTitle(step: Exclude<Step, 'idle'>, side: Side): string {
+  if (step === 'choose') return 'Government ID';
+  if (step === 'capture' || step === 'camera') return side === 'front' ? 'Front side' : 'Back side';
+  if (step === 'preview') return side === 'front' ? 'Front side preview' : 'Back side preview';
+  if (step === 'analysis') return 'Document analysis';
+  if (step === 'face') return 'Face verification';
+  return 'Identity result';
+}
+
+function fieldPresent(fields: Record<string, { value?: string } | undefined>, key: string): boolean {
+  if (key === 'dateOfBirth') {
+    const dob = fields.dateOfBirth?.value?.trim();
+    const year = fields.yearOfBirth?.value?.trim();
+    return Boolean(dob || year);
+  }
+  const value = fields[key]?.value?.trim() ?? '';
+  return value.length >= 2;
+}
+
+function activeDocument(run: VerificationRun) {
+  return (run.documents ?? []).find((d) => d.origin !== 'SAVED_PROOF') ?? run.documents?.[0];
+}
+
+/** Fields the OCR actually produced. The issuer line is filled in by the adapter, so it does not count as a read. */
+function realFields(run: VerificationRun): Array<[string, { value?: string }]> {
+  const fields = activeDocument(run)?.fields ?? {};
+  return Object.entries(fields).filter((entry): entry is [string, { value?: string }] => {
+    const [key, field] = entry;
+    return key !== 'issuingAuthority' && (field?.value?.trim().length ?? 0) >= 2;
+  });
+}
+
+/**
+ * A clearer photo is asked for only when OCR extracted no document fields.
+ * A partial read (for example the date, but not the name) is shown and left for review.
+ */
+function unreadDetails(run: VerificationRun): string | null {
+  if (realFields(run).length > 0) return null;
+  return 'This photo is not clear enough to read the document. Scan or upload a clearer image.';
+}
+
+function currentRejection(run: VerificationRun, type?: DocumentType, _includeAddress = false): string | null {
+  const findings = run.stages.flatMap((s) => s.findings);
+  const mismatch = findings.find((f) => f.code === 'TYPE_MISMATCH');
+  if (mismatch) return mismatch.message;
+  const duplicate = findings.find((f) => f.code === 'DUPLICATE_DOCUMENT_OTHER_ACCOUNT');
+  if (duplicate) return duplicate.message;
+  if (findings.some((f) => f.code === 'DOCUMENT_EXPIRED')) return 'This ID has expired.';
+  if (findings.some((f) => f.code === 'DATE_INVALID' || f.code === 'DATE_ORDER_INVALID')) return 'The date on this ID is not valid.';
+  if (!type || realFields(run).length > 0) return null;
+  const unclear = findings.find((f) => f.message === 'Document image is unclear. Please capture the ID again.');
+  if (unclear) return unclear.message;
+  const unread = findings.find((f) => f.code === 'TEXT_UNREADABLE' || f.code === 'FILE_UNREADABLE');
+  if (unread) return unread.message;
+  return unreadDetails(run);
+}
+
+const READOUT_ROWS: Array<{ key: string; label: string }> = [
+  { key: 'fullName', label: 'Name' },
+  { key: 'documentNumber', label: 'ID number' },
+  { key: 'dateOfBirth', label: 'Date of birth' },
+  { key: 'gender', label: 'Gender' },
+];
+
+function FieldReadout({ run, type }: { run: VerificationRun; type: DocumentType }) {
+  const fields = activeDocument(run)?.fields ?? {};
+  const detected = activeDocument(run)?.detectedType;
+  const rows = READOUT_ROWS.filter((row) => row.key === 'fullName' || row.key === 'documentNumber' || fieldPresent(fields, row.key) || (row.key === 'dateOfBirth' && type !== 'VOTER_ID'));
+  const photo = run.face?.documentPhoto;
+  return (
+    <div className="rounded-xl border border-slate-200 dark:border-white/10 px-3 py-2 space-y-2">
+      {detected && <p className="text-2xs font-semibold uppercase tracking-wider text-slate-500">Document detected: {detected.replace(/_/g, ' ')}</p>}
+      {rows.map((row) => {
+        const field = row.key === 'dateOfBirth'
+          ? (fields.dateOfBirth ?? fields.yearOfBirth)
+          : fields[row.key];
+        const value = field?.value?.trim() ?? '';
+        const present = value.length >= 2;
+        const status = !present
+          ? 'Needs review'
+          : field?.status === 'VALIDATED'
+            ? 'Validated'
+            : field?.status === 'NEEDS_REVIEW' || field?.status === 'INVALID'
+              ? 'Needs review'
+              : 'Read';
+        const ok = status === 'Read' || status === 'Validated';
+        return (
+          <div key={row.key}>
+            <p className="text-2xs text-slate-500">{row.key === 'documentNumber' && type === 'AADHAAR' ? 'Aadhaar number' : row.label}</p>
+            <p className="text-sm text-slate-900 dark:text-white">{present ? value : '—'}</p>
+            <p className={`text-2xs ${ok ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-700 dark:text-amber-300'}`}>
+              {status}
+            </p>
+          </div>
+        );
+      })}
+      <p className="text-2xs text-slate-500">Photo {photo === 'USABLE_FACE' || photo === 'POOR_FACE' ? '· Detected' : photo === 'NO_FACE' ? '· Not detected' : '· Not checked yet'}</p>
+    </div>
+  );
+}
+
+function faceLines(run: VerificationRun | null): Array<{ label: string; status: CheckStatus }> {
+  const liveness = stageOf(run, 'PAD_LIVENESS');
+  return [
+    { label: 'Face detected', status: liveness === 'PENDING' || liveness === 'NOT_RUN' ? liveness : 'PASS' },
+    { label: 'Liveness passed', status: liveness },
+    { label: 'ID photo matched', status: stageOf(run, 'DOCUMENT_PHOTO_VS_LIVE_FACE') },
+  ];
+}
+
+function identityVerified(run: VerificationRun): boolean {
+  return run.status === 'CHECKS_PASSED' && currentRejection(run) === null;
+}
+
+function CheckList({ items }: { items: Array<{ label: string; status: CheckStatus }> }) {
+  return (
+    <ul className="space-y-2">
+      {items.map((item) => (
+        <li key={item.label} className="flex items-center gap-2 text-sm text-slate-800 dark:text-gray-200">
+          {item.status === 'PASS' && <Check size={15} className="text-emerald-600 dark:text-emerald-400 shrink-0" />}
+          {item.status === 'FAIL' && <X size={15} className="text-red-600 dark:text-red-400 shrink-0" />}
+          {(item.status === 'PENDING' || item.status === 'NOT_RUN' || item.status === 'UNKNOWN') && (
+            <span className="w-3.5 h-3.5 rounded-full border border-slate-300 dark:border-gray-600 shrink-0" />
+          )}
+          <span>{item.label}</span>
+          {item.status === 'NOT_RUN' && <span className="text-2xs text-slate-400">Not run</span>}
+          {item.status === 'UNKNOWN' && <span className="text-2xs text-amber-700 dark:text-amber-300">Not confirmed</span>}
+          {item.status === 'FAIL' && <span className="text-2xs text-red-700 dark:text-red-300">Did not pass</span>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/** Large preview of the side just scanned or uploaded. */
+function IdPreview({ file }: { file: File | null }) {
   const [preview, setPreview] = useState('');
   useEffect(() => {
     if (!file || !file.type.startsWith('image/')) { setPreview(''); return undefined; }
@@ -453,39 +832,17 @@ function SideSlot({
     return () => URL.revokeObjectURL(url);
   }, [file]);
 
+  if (!file) return <p className="text-sm text-slate-500">No image to preview.</p>;
+  if (!preview) {
+    return (
+      <div className="rounded-xl border border-slate-200 dark:border-white/10 px-4 py-8 text-center">
+        <FileText size={28} className="mx-auto text-slate-400" />
+        <p className="mt-2 text-sm text-slate-700 dark:text-gray-200">{file.name}</p>
+      </div>
+    );
+  }
   return (
-    <div className={`rounded-xl border px-3.5 py-3 ${file ? 'border-emerald-300 dark:border-emerald-500/40 bg-emerald-50/40 dark:bg-emerald-500/5' : 'border-slate-200 dark:border-white/10'}`}>
-      <div className="flex items-start gap-3">
-        <div className="w-16 h-11 rounded-md overflow-hidden bg-slate-100 dark:bg-white/10 flex items-center justify-center shrink-0">
-          {preview
-            ? <img src={preview} alt="" className="w-full h-full object-cover" />
-            : file ? <FileText size={18} className="text-slate-500" /> : <IdCard size={18} className="text-slate-400" />}
-        </div>
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-1.5">
-            {title}
-            <span className={`text-2xs font-semibold ${required ? 'text-amber-700 dark:text-amber-300' : 'text-slate-400 dark:text-gray-500'}`}>
-              {required ? 'Required' : 'Optional'}
-            </span>
-            {file && <Check size={14} className="text-emerald-600 dark:text-emerald-400" />}
-          </p>
-          <p className="text-2xs text-slate-500 dark:text-gray-400 truncate">{file ? file.name : hint}</p>
-        </div>
-      </div>
-      <div className="flex gap-2 mt-2.5">
-        <button type="button" disabled={disabled} onClick={onScan} className="btn btn-secondary btn-sm text-xs flex-1 justify-center">
-          <Camera size={13} /> {file ? 'Rescan' : 'Scan'}
-        </button>
-        <button type="button" disabled={disabled} onClick={onUpload} className="btn btn-secondary btn-sm text-xs flex-1 justify-center">
-          <Upload size={13} /> {file ? 'Change' : 'Upload'}
-        </button>
-        {file && (
-          <button type="button" disabled={disabled} onClick={onRemove} aria-label={`Remove ${title.toLowerCase()}`} className="p-2 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10">
-            <Trash2 size={14} />
-          </button>
-        )}
-      </div>
-    </div>
+    <img src={preview} alt="ID preview" className="w-full max-h-72 object-contain rounded-xl border border-slate-200 dark:border-white/10 bg-slate-50 dark:bg-black/20" />
   );
 }
 
@@ -505,11 +862,13 @@ const DOCUMENT_OPTIONS: { type: DocumentType; hint: string; icon: React.ReactNod
  */
 function IdentityDialog({
   title,
+  steps,
   stepIndex,
   onClose,
   children,
 }: {
   title: string;
+  steps: string[];
   /** 0-based step of the add flow. */
   stepIndex: number;
   onClose: () => void;
@@ -544,7 +903,7 @@ function IdentityDialog({
           <div className="flex-1 min-w-0">
             <p id="idv-title" className="text-sm font-semibold text-slate-900 dark:text-white">{title}</p>
             <p className="text-2xs text-slate-500 dark:text-gray-400">
-              {`Step ${stepIndex + 1} of ${FLOW_STEPS.length} · ${FLOW_STEPS[stepIndex]}`}
+              {`Step ${stepIndex + 1} of ${steps.length} · ${steps[stepIndex] ?? ''}`}
             </p>
           </div>
           <button
@@ -557,7 +916,7 @@ function IdentityDialog({
           </button>
         </div>
         <div className="flex gap-1.5 px-5 pt-3" aria-hidden="true">
-          {FLOW_STEPS.map((label, i) => (
+          {steps.map((label, i) => (
             <span key={label} className={`h-1 flex-1 rounded-full ${i <= stepIndex ? 'bg-dna-500' : 'bg-slate-200 dark:bg-white/10'}`} />
           ))}
         </div>
@@ -589,12 +948,15 @@ function IdCameraCapture({
 
   useEffect(() => {
     let stopped = false;
-    void openCameraStream({ facingMode: 'environment' })
-      .then((stream) => {
+    void openCameraStream({ facingMode: 'environment', detail: true })
+      .then(async (stream) => {
         if (stopped) {
           stream.getTracks().forEach((track) => track.stop());
           return;
         }
+        const track = stream.getVideoTracks()[0];
+        await preferContinuousFocus(track);
+        await preferNaturalExposure(track);
         streamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -633,12 +995,11 @@ function IdCameraCapture({
 
   return (
     <div className="space-y-3">
-      <div className="relative rounded-xl overflow-hidden bg-slate-900 aspect-[4/3]">
-        <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
-        {/* Document frame; the dimmed surround shows where to place the card. */}
-        <div className="absolute inset-x-[7%] inset-y-[14%] rounded-lg border-2 border-white/85 shadow-[0_0_0_9999px_rgba(15,23,42,0.35)] pointer-events-none" />
-        <p className="absolute bottom-2 inset-x-0 text-center text-2xs font-medium text-white">
-          {ready ? `${label}: fit the whole side inside the frame` : 'Starting camera…'}
+      <div className="relative rounded-xl overflow-hidden bg-black aspect-[4/3]">
+        <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-contain" />
+        <div className="absolute inset-3 rounded-lg border border-white/70 pointer-events-none" />
+        <p className="absolute bottom-2 inset-x-0 text-center text-2xs font-medium text-white" style={{ color: '#ffffff' }}>
+          {ready ? `${label}` : 'Starting camera…'}
         </p>
       </div>
       {cameraError && <p className="text-sm text-amber-700 dark:text-amber-300">{cameraError}</p>}

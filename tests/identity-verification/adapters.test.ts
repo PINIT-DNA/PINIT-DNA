@@ -98,6 +98,50 @@ describe('aadhaar adapter', () => {
     expect(aadhaarAdapter.validate(f, ctx, bad).map((x) => x.code)).toContain('CHECKSUM_INVALID');
   });
 
+  it('keeps an uncertain OCR spelling and does not rewrite it', () => {
+    const text = 'Kavvvam Ashwitha\nDOB: 28/07/2005 FEMALE';
+    const f = aadhaarAdapter.extract(text, ctx);
+    expect(f.fullName?.value).toBe('Kavvvam Ashwitha');
+    expect(f.fullName?.status).toBe('NEEDS_REVIEW');
+  });
+
+  it('finds the name when a stray mark sits on its own line between the name and the date', () => {
+    const t = (text: string, x0: number, y0: number, confidence = 90) => ({ text, confidence, x0, y0, x1: x0 + 60, y1: y0 + 30 });
+    const tokens = [
+      t('Saigo', 500, 287, 33), t('efigH', 600, 287, 0),
+      t('Kavvam', 500, 333, 89), t('Ashwitha', 600, 333, 92),
+      t(';', 840, 340, 63),
+      t('S8/DOB:', 500, 385, 16), t('28/07/2005', 700, 395, 96),
+      t('FEMALE', 560, 471, 96),
+    ];
+    const f = aadhaarAdapter.extract('Kavvam Ashwitha\nDOB: 28/07/2005\nFEMALE', { ...ctx, tokens });
+    expect(f.fullName?.value).toBe('Kavvam Ashwitha');
+    expect(f.fullName?.status).toBe('READ');
+  });
+
+  it('keeps a checksum failure as review and does not change the digits', () => {
+    const bad = `${grouped.slice(0, -1)}${(+grouped.slice(-1) + 1) % 10}`;
+    const f = aadhaarAdapter.extract(`Test Person\nDOB: 01/01/2000 FEMALE\n${bad}`, ctx);
+    expect(f.documentNumber?.value).toBe(bad.replace(/\s/g, ''));
+    expect(f.documentNumber?.status).toBe('NEEDS_REVIEW');
+  });
+
+  it('keeps the name words and the 12-digit line at the bottom, not the VID', () => {
+    const text = `Government of India efigH Kavwvam Ashwitha DE DOB: 28/07/2005 FEMALE ${grouped} VID 9173 2648 1530 4826`;
+    const f = aadhaarAdapter.extract(text, ctx);
+    expect(f.fullName?.value).toBe('Kavwvam Ashwitha');
+    expect(f.documentNumber?.value).toBe(n);
+  });
+
+  it('reads a name that sits before the date, and a number with uneven spacing', () => {
+    const spaced = n.split('').join(' ');
+    const text = `ASHWITHA KAVVAM DOB: 28/07/2005 FEMALE ${spaced}`;
+    const f = aadhaarAdapter.extract(text, ctx);
+    expect(f.fullName?.value).toBe('ASHWITHA KAVVAM');
+    expect(f.dateOfBirth?.value).toBe('2005-07-28');
+    expect(f.documentNumber?.value).toBe(n);
+  });
+
   it('accepts a masked Aadhaar without claiming a checksum', () => {
     const f = aadhaarAdapter.extract('Unique Identification Authority of India Test Person Year of Birth: 1995 MALE XXXX XXXX 4321', ctx);
     expect(f.documentNumber?.value).toBe('XXXXXXXX4321');

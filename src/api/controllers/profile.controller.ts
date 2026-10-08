@@ -37,7 +37,7 @@ export async function getProfile(req: Request, res: Response, next: NextFunction
       select: {
         id: true, shortId: true, email: true, fullName: true, role: true,
         createdAt: true, lastLoginAt: true,
-        phone: true, organization: true, jobTitle: true, country: true,
+        phone: true, organization: true, jobTitle: true, country: true, address: true,
         organizationIndustry: true, organizationSize: true, workspaceName: true,
         businessSetupCompletedAt: true, accountType: true,
         avatarUrl: true, bio: true, theme: true,
@@ -157,6 +157,16 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
     const uid = userId(req);
     const { fullName, phone, organization, jobTitle, country, bio, theme } = req.body;
 
+    let address: string | null | undefined;
+    if (req.body.address !== undefined) {
+      const raw = String(req.body.address ?? '').trim().replace(/\s+/g, ' ');
+      if (raw.length > 400) {
+        res.status(400).json({ success: false, error: 'Address is too long.' });
+        return;
+      }
+      address = raw === '' ? null : raw;
+    }
+
     let socialLinks: ReturnType<typeof readStoredSocialLinks> | undefined;
     if (req.body.socialLinks !== undefined) {
       const parsed = normalizeSocialLinks(req.body.socialLinks);
@@ -208,13 +218,14 @@ export async function updateProfile(req: Request, res: Response, next: NextFunct
         ...(organization !== undefined && { organization }),
         ...(jobTitle !== undefined && { jobTitle }),
         ...(country !== undefined && { country }),
+        ...(address !== undefined && { address }),
         ...(bio !== undefined && { bio }),
         ...(theme !== undefined && { theme }),
         ...(socialLinks !== undefined && { socialLinks: socialLinks as unknown as Prisma.InputJsonValue }),
       },
       select: {
         id: true, shortId: true, email: true, fullName: true,
-        phone: true, organization: true, jobTitle: true, country: true,
+        phone: true, organization: true, jobTitle: true, country: true, address: true,
         avatarUrl: true, bio: true, theme: true, socialLinks: true,
       },
     });

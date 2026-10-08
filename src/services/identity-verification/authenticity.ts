@@ -36,6 +36,23 @@ export function edgeSharpness(data: Buffer, width: number, height: number): numb
   return count ? sum / count : 0;
 }
 
+/** Exact sentence shown when a capture is too poor to read. OCR must not run. */
+export const UNCLEAR_DOCUMENT = 'Document image is unclear. Please capture the ID again.';
+
+/**
+ * True when blur, size, darkness, or glare would make OCR unreliable.
+ * PDFs are not judged here (they have no pixel raster in these signals).
+ */
+export function imageUnclear(s: FileSignals): boolean {
+  if (s.intact === false) return true;
+  if (!s.widthPx || !s.heightPx) return false;
+  if (Math.min(s.widthPx, s.heightPx) < MIN_SHORT_SIDE_PX) return true;
+  if (s.sharpness !== undefined && s.sharpness < BLUR_THRESHOLD) return true;
+  if (s.meanLuma !== undefined && (s.meanLuma < 28 || s.meanLuma > 240)) return true;
+  if (s.glareRatio !== undefined && s.glareRatio > 0.4) return true;
+  return false;
+}
+
 function editorIn(haystack: string): string | null {
   const lower = haystack.toLowerCase();
   return EDITORS.find((e) => lower.includes(e)) ?? null;
@@ -70,6 +87,15 @@ export async function collectFileSignals(mime: string | null, bytes: Buffer): Pr
         .raw()
         .toBuffer({ resolveWithObject: true });
       signals.sharpness = edgeSharpness(data, info.width, info.height);
+      let luma = 0;
+      let hot = 0;
+      for (let i = 0; i < data.length; i++) {
+        const p = data[i]!;
+        luma += p;
+        if (p >= 245) hot++;
+      }
+      signals.meanLuma = data.length ? luma / data.length : undefined;
+      signals.glareRatio = data.length ? hot / data.length : undefined;
       signals.intact = true;
     }
   } catch {

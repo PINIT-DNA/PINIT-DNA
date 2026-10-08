@@ -5,9 +5,10 @@
  * NOT RUN / UNKNOWN and its evidence. Owner-only.
  */
 import { useEffect, useState } from 'react';
-import { ChevronDown, CircleAlert, CircleCheck, CircleMinus, CircleX, Plus } from 'lucide-react';
+import { ChevronDown, CircleAlert, CircleCheck, CircleMinus, CircleX, Eye, EyeOff, Plus, ShieldCheck } from 'lucide-react';
 import { api } from '../../services/dashboard.api';
 import { API_BASE_URL } from '../../config/api.config';
+import { notifyProfileUpdated } from '../../hooks/useUserProfile';
 
 type Status = 'CHECKS_PASSED' | 'REVIEW_REQUIRED' | 'REJECTED' | 'INSUFFICIENT_EVIDENCE';
 type StageStatus = 'PASS' | 'FAIL' | 'NOT_RUN' | 'UNKNOWN';
@@ -95,6 +96,130 @@ function headlineFindings(v: Verification): Finding[] {
   return [...bad, ...good].filter((f) => (seen.has(f.message) ? false : (seen.add(f.message), true))).slice(0, 6);
 }
 
+interface VerifiedDetails {
+  documentType: string | null;
+  verifiedAt: string;
+  revealed: boolean;
+  addressEditedByOwner?: boolean;
+  fullName: string | null;
+  documentNumber: string | null;
+  dateOfBirth: string | null;
+  gender: string | null;
+  address: string | null;
+}
+
+/**
+ * Once every check has passed, the profile shows only the status. The details
+ * read from the ID are kept encrypted and are shown here, to the owner only,
+ * when asked for. Sensitive values stay masked until the owner chooses to show them.
+ */
+function VerifiedSummary({ v }: { v: Verification }) {
+  const [open, setOpen] = useState(false);
+  const [reveal, setReveal] = useState(false);
+  const [details, setDetails] = useState<VerifiedDetails | null>(null);
+  const [state, setState] = useState<'idle' | 'loading' | 'missing'>('idle');
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+
+  async function saveAddress() {
+    setSaving(true);
+    setSaveError('');
+    try {
+      await api.patch(`${API_BASE_URL}/profile/government-id/details`, { address: draft });
+      setEditing(false);
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      const message = (err as { response?: { data?: { error?: string } } })?.response?.data?.error;
+      setSaveError(message || 'Could not save the address. Try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    let alive = true;
+    setState('loading');
+    api.get(`${API_BASE_URL}/profile/government-id/details${reveal ? '?reveal=1' : ''}`)
+      .then((r) => {
+        if (!alive) return;
+        const d = (r.data as { details?: VerifiedDetails | null }).details ?? null;
+        setDetails(d);
+        setState(d ? 'idle' : 'missing');
+      })
+      .catch(() => { if (alive) setState('missing'); });
+    return () => { alive = false; };
+  }, [open, reveal, reloadKey]);
+
+  const rows: Array<[string, string | null | undefined]> = details
+    ? [['Name', details.fullName], ['Number', details.documentNumber], ['Date of birth', details.dateOfBirth ? showValue('dateOfBirth', details.dateOfBirth) : null], ['Gender', details.gender ? showValue('gender', details.gender) : null], ['Address', details.address]]
+    : [];
+
+  return (
+    <div className="mt-3 rounded-xl border border-emerald-200/70 dark:border-emerald-500/25 bg-emerald-50/60 dark:bg-emerald-500/5 p-3.5">
+      <div className="flex items-center gap-2.5">
+        <span className="grid h-8 w-8 place-items-center rounded-full bg-emerald-100 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300"><ShieldCheck size={17} /></span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-900 dark:text-white">Identity verified</p>
+          <p className="text-2xs text-slate-500 dark:text-gray-400">{new Date(v.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · all checks passed</p>
+        </div>
+        <span className="flex-1" />
+        <button type="button" onClick={() => { setOpen((o) => !o); if (open) setReveal(false); }} aria-expanded={open}
+          className="inline-flex items-center gap-1 text-xs font-medium text-dna-600 dark:text-dna-400">
+          <ChevronDown size={13} className={`transition-transform ${open ? 'rotate-180' : ''}`} /> {open ? 'Hide details' : 'My verified details'}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-3 border-t border-emerald-200/60 dark:border-emerald-500/20 pt-3">
+          {state === 'loading' && !details && <p className="text-xs text-slate-500">Loading…</p>}
+          {state === 'missing' && <p className="text-xs text-slate-500 dark:text-gray-400">Your details will appear here after your next identity check.</p>}
+          {details && (
+            <>
+              <dl className="grid grid-cols-[minmax(0,7rem)_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+                {rows.filter(([, val]) => val).map(([k, val]) => (
+                  <div key={k} className="contents">
+                    <dt className="text-slate-500 dark:text-gray-400">{k}</dt>
+                    <dd className="text-slate-900 dark:text-gray-100 break-words tabular-nums">{val}</dd>
+                  </div>
+                ))}
+              </dl>
+              {reveal && details.address && (
+                <div className="mt-2.5">
+                  {!editing ? (
+                    <button type="button" onClick={() => { setDraft(details.address ?? ''); setSaveError(''); setEditing(true); }}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-dna-600 dark:text-dna-400">
+                      Address wrong or incomplete? Edit it
+                    </button>
+                  ) : (
+                    <div className="space-y-2">
+                      <label className="block text-2xs font-medium text-slate-600 dark:text-gray-300" htmlFor="verified-address">Address as printed on your ID</label>
+                      <textarea id="verified-address" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} maxLength={400}
+                        className="w-full rounded-lg border border-slate-300 dark:border-white/15 bg-white dark:bg-white/5 px-2.5 py-2 text-xs text-slate-900 dark:text-gray-100" />
+                      {saveError && <p className="text-2xs text-red-600 dark:text-red-400">{saveError}</p>}
+                      <div className="flex gap-2">
+                        <button type="button" disabled={saving} onClick={saveAddress} className="btn btn-primary btn-sm text-xs">{saving ? 'Saving…' : 'Save address'}</button>
+                        <button type="button" disabled={saving} onClick={() => setEditing(false)} className="btn btn-sm text-xs">Cancel</button>
+                      </div>
+                    </div>
+                  )}
+                  {details.addressEditedByOwner && !editing && <p className="mt-1 text-2xs text-slate-400 dark:text-gray-500">You corrected this address.</p>}
+                </div>
+              )}
+              <button type="button" onClick={() => setReveal((r) => !r)} className="mt-2.5 inline-flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-gray-300">
+                {reveal ? <><EyeOff size={13} /> Hide sensitive details</> : <><Eye size={13} /> Show sensitive details</>}
+              </button>
+              <p className="mt-2 text-2xs text-slate-400 dark:text-gray-500">Only you can see this. It is stored encrypted and is never shown on shared links or your public page.</p>
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function IdentityChecks({ refreshKey = 0, onAddSecondProof }: { refreshKey?: number; onAddSecondProof?: () => void }) {
   const [v, setV] = useState<Verification | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -110,7 +235,12 @@ export function IdentityChecks({ refreshKey = 0, onAddSecondProof }: { refreshKe
     return () => { alive = false; };
   }, [refreshKey]);
 
+  // The account name is filled from the ID once the checks pass, so refresh the profile once.
+  const passed = loaded && v?.status === 'CHECKS_PASSED';
+  useEffect(() => { if (passed) notifyProfileUpdated(); }, [passed]);
+
   if (!loaded || !v || !Array.isArray(v.stages)) return null;
+  if (v.status === 'CHECKS_PASSED') return <VerifiedSummary v={v} />;
   const decision = DECISION[v.status];
   const docChecks = v.documentChecks ? STAGE_STATUS[v.documentChecks] : null;
   const needsCorroboration = v.status === 'INSUFFICIENT_EVIDENCE' && v.documentChecks === 'PASS' && !v.identityCorroborated;

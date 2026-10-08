@@ -500,6 +500,8 @@ model User {
   /// Validated by src/services/profile/profile-strength.ts before every write.
   socialLinks                Json?
   country                    String?
+  /// Postal address entered on the profile. Not an identity-document field.
+  address                    String?
   jobTitle                   String?
   notifyCertificates         Boolean               @default(true)
   notifyMonitoring           Boolean               @default(true)
@@ -994,6 +996,9 @@ model GovernmentIdRecord {
   backContentHash      String?
   backMimeType         String?
   backByteLength       Int?
+  /// AES-256-GCM ciphertext of the details read from a verified ID (name, number, date of birth, gender, address).
+  /// Written only when the identity checks pass. Never returned to anyone but the owner, and only on request.
+  identityDataCipher   Bytes?
   encryptionKeyVersion String    @default("v1")
   /// MATCHED | NOT_MATCHED | REQUIRES_RECHECK — live-face binding, not document validity.
   faceBinding          String    @default("REQUIRES_RECHECK")

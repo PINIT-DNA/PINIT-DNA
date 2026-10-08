@@ -39,6 +39,9 @@ Thumbs.db
 # Python AI isolated venv
 python-ai/.venv/
 
+# Local Apache Tika server jar (not part of the app deploy)
+tools/tika/
+
 # Design-mockup canvas and throwaway maintenance scripts (Exchange)
 exchange/.design-preview/
 exchange/scripts/

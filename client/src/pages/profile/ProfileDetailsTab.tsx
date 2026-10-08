@@ -1,8 +1,7 @@
 /**
- * Profile tab: personal details, links and identity proof, with a live
- * profile-strength rail. The score shown here is computed with the same
- * module the server uses (lib/profile-strength.ts), so it matches what is
- * saved and what the avatar dropdown shows.
+ * Profile tab: personal details, links and identity proof. Completion is
+ * still computed with the same module the server uses, so field markers
+ * match what is saved.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
@@ -12,7 +11,6 @@ import { API_BASE_URL } from '../../config/api.config';
 import { notifyProfileUpdated } from '../../hooks/useUserProfile';
 import { GovernmentIdSettings } from '../../components/settings/GovernmentIdSettings';
 import { GithubIcon, InstagramIcon, LinkedinIcon } from '../../components/icons/BrandIcons';
-import { ProfileCompletionCard } from '../../components/profile/ProfileCompletionCard';
 import { ProfilePhotoPicker } from './ProfilePhotoPicker';
 import {
   cleanExtraUrl,
@@ -36,6 +34,7 @@ type FormState = {
   email: string;
   phone: string;
   country: string;
+  address: string;
   organization: string;
   jobTitle: string;
   bio: string;
@@ -70,6 +69,7 @@ function formFrom(profile: any): FormState {
     email: profile?.email ?? '',
     phone: profile?.phone ?? '',
     country: profile?.country ?? '',
+    address: profile?.address ?? '',
     organization: profile?.organization ?? '',
     jobTitle: profile?.jobTitle ?? '',
     bio: profile?.bio ?? '',
@@ -190,11 +190,7 @@ export function ProfileDetailsTab({
   };
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_300px] items-start">
-      <aside className="lg:sticky lg:top-4 lg:order-2">
-        <ProfileCompletionCard strength={strength} place="profile" />
-      </aside>
-      <div className="space-y-4 min-w-0 lg:order-1">
+    <div className="space-y-4 min-w-0">
         {/* ── Personal information ───────────────────────────────────── */}
         <section className="card space-y-5" aria-labelledby="pf-personal-h">
           <h2 id="pf-personal-h" className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2">
@@ -217,7 +213,8 @@ export function ProfileDetailsTab({
           </FieldGroup>
 
           <FieldGroup title="Contact">
-            <TextField id="pf-email" label="Email" type="email" required missing={!done.has('email')} value={form.email} onChange={set('email')} placeholder="you@example.com" autoComplete="email" wide />
+            <TextField id="pf-email" label="Email" type="email" required missing={!done.has('email')} value={form.email} onChange={set('email')} placeholder="you@example.com" autoComplete="email" />
+            <TextField id="pf-address" label="Full address" value={form.address} onChange={set('address')} placeholder="House, street, city, PIN" autoComplete="street-address" />
             <TextField id="pf-phone" label="Phone" type="tel" required missing={!done.has('phone')} value={form.phone} onChange={set('phone')} placeholder="+91 98765 43210" autoComplete="tel" />
             <TextField id="pf-country" label="Country" required missing={!done.has('country')} value={form.country} onChange={set('country')} placeholder="India" autoComplete="country-name" />
           </FieldGroup>
@@ -388,7 +385,6 @@ export function ProfileDetailsTab({
             </button>
           </div>
         )}
-      </div>
     </div>
   );
 }

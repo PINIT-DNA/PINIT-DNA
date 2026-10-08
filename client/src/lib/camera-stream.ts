@@ -87,6 +87,8 @@ export async function preferNaturalExposure(track: MediaStreamTrack | null | und
 export async function openCameraStream(opts?: {
   facingMode?: CameraFacing;
   audio?: boolean;
+  /** Ask for a sharp, full-frame picture. Used when scanning an ID. */
+  detail?: boolean;
 }): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getUserMedia) {
     throw Object.assign(new Error('Camera API unavailable'), { name: 'NotSupportedError' });
@@ -96,6 +98,15 @@ export async function openCameraStream(opts?: {
   const audio = opts?.audio ?? false;
 
   const attempts: MediaStreamConstraints[] = [
+    ...(opts?.detail ? [{
+      video: {
+        facingMode: { ideal: facing },
+        width: { ideal: 1920 },
+        height: { ideal: 1080 },
+        focusMode: 'continuous',
+      },
+      audio,
+    } as MediaStreamConstraints] : []),
     { video: { facingMode: { ideal: facing } }, audio },
     { video: true, audio },
     { video: true, audio: false },

@@ -1074,6 +1074,26 @@ html.dark .skeleton {
    Pinit HUB Authentication — enterprise dark shell (biometric-only)
    Scoped under .pinit-auth so it is isolated from the rest of the app.
    ════════════════════════════════════════════════════════════════════════════ */
+/* Identity dialog reuses the face camera without taking over the page. */
+.idv-face.pinit-auth {
+  position: static;
+  inset: auto;
+  overflow: visible;
+  background: transparent;
+  min-height: 0;
+}
+.idv-face.pinit-auth .pa-card {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  padding: 0;
+  border-radius: 0;
+}
+.idv-face.pinit-auth .pa-cam {
+  width: 160px;
+  height: 160px;
+}
+
 .pinit-auth {
   --pa-bg: #0f1115;
   --pa-panel: rgba(24, 26, 31, 0.92);

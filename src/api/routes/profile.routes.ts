@@ -8,7 +8,10 @@ import {
 } from '../controllers/profile.controller';
 import {
   checkGovernmentIdFace,
+  clearGovernmentId,
   getGovernmentId,
+  getGovernmentIdDetails,
+  updateGovernmentIdAddress,
   governmentIdUpload,
   sealGovernmentId,
 } from '../controllers/government-id.controller';
@@ -48,6 +51,9 @@ router.post(
 );
 router.get('/identity-verification/latest', requireAuth, getLatestIdentityVerification);
 router.get('/government-id', requireAuth, getGovernmentId);
+router.get('/government-id/details', requireAuth, getGovernmentIdDetails);
+router.patch('/government-id/details', requireAuth, updateGovernmentIdAddress);
+router.delete('/government-id', requireAuth, clearGovernmentId);
 router.post('/government-id/face-check', requireAuth, governmentIdFaceLimiter, checkGovernmentIdFace);
 router.post(
   '/government-id',

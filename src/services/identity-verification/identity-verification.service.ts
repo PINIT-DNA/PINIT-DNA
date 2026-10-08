@@ -21,6 +21,7 @@ import { extractGovernmentDocumentText } from '../profile/government-id-text';
 import { sniffGovernmentDocument } from '../profile/government-id-status';
 import { collectFileSignals } from './authenticity';
 import { runIdentityVerification } from './pipeline';
+import { buildVerifiedIdentityData } from './verified-details';
 import type {
   DeviceFace, DocumentInput, DocumentReport, ExtractedFields, IdentityDocumentType, LiveCapture, VerificationResult,
 } from './types';
@@ -48,14 +49,28 @@ export async function prepareDocument(d: UploadedDocument): Promise<DocumentInpu
   const mime = sniffGovernmentDocument(d.mimeType, d.bytes);
   const fileSignals = await collectFileSignals(mime, d.bytes);
   if (!mime) fileSignals.intact = false;
-  const frontText = d.extractedText !== undefined
-    ? d.extractedText
-    : mime && !fileSignals.locked ? await extractGovernmentDocumentText(mime, d.bytes) : '';
+  let frontText = '';
+  let frontConfidence: number | undefined;
+  let ocrTokens: DocumentInput['ocrTokens'];
+  if (d.extractedText !== undefined) {
+    frontText = d.extractedText;
+  } else if (mime && !fileSignals.locked) {
+    const read = await extractGovernmentDocumentText(mime, d.bytes);
+    frontText = read.text;
+    frontConfidence = read.confidence;
+    ocrTokens = read.tokens;
+  }
+  if (frontConfidence !== undefined) fileSignals.ocrConfidence = frontConfidence;
   let backText = '';
   if (d.backBytes?.length && d.extractedText === undefined) {
     const backMime = sniffGovernmentDocument(d.backMimeType || '', d.backBytes);
     const backSignals = backMime ? await collectFileSignals(backMime, d.backBytes) : { locked: false };
-    if (backMime && !backSignals.locked) backText = await extractGovernmentDocumentText(backMime, d.backBytes);
+    if (backMime && !backSignals.locked) {
+      const backRead = await extractGovernmentDocumentText(backMime, d.backBytes);
+      backText = backRead.text;
+      const shifted = backRead.tokens.map((t) => ({ ...t, y0: t.y0 + 8000, y1: t.y1 + 8000 }));
+      ocrTokens = [...(ocrTokens ?? []), ...shifted];
+    }
   }
   const extractedText = [frontText, backText].filter(Boolean).join('\n');
   return {
@@ -63,6 +78,7 @@ export async function prepareDocument(d: UploadedDocument): Promise<DocumentInpu
     mimeType: mime,
     bytes: d.bytes,
     extractedText,
+    ocrTokens,
     fileSignals,
     documentFace: d.documentFace,
   };
@@ -161,6 +177,24 @@ async function recordRun(userId: string, result: VerificationResult, trigger: Ru
   }
 }
 
+/**
+ * When the identity checks pass, keep the details that were read (encrypted, next
+ * to the saved document) and fill the account's name from the ID. Nothing is
+ * stored for a run that did not pass, and a failure here never blocks the person.
+ */
+async function persistVerifiedIdentity(userId: string, result: VerificationResult, runId: string | null, now: Date): Promise<void> {
+  const data = buildVerifiedIdentityData(result, runId, now);
+  if (!data) return;
+  try {
+    const packed = encryptBytes(Buffer.from(JSON.stringify(data), 'utf8'));
+    const saved = await prisma.governmentIdRecord.updateMany({ where: { userId }, data: { identityDataCipher: packed.cipher } });
+    if (data.fullName) await prisma.user.update({ where: { id: userId }, data: { fullName: data.fullName } });
+    logger.info('[IdentityVerification] verified details kept', { userId, stored: saved.count > 0, nameFilled: Boolean(data.fullName), documents: data.documents.length });
+  } catch (err) {
+    logger.warn('[IdentityVerification] verified details not kept', { userId, error: err instanceof Error ? err.message : 'unknown' });
+  }
+}
+
 export const identityVerificationService = {
   /**
    * Runs the full pipeline. Two passes: the first reads the document numbers so
@@ -209,6 +243,7 @@ export const identityVerificationService = {
       documentTypes: result.audit.documentTypes.join(','),
       findings: result.audit.findingCodes.length,
     });
+    await persistVerifiedIdentity(input.userId, result, runId, now);
     return { result, runId };
   },
 
@@ -269,10 +304,12 @@ export function ownerView(result: VerificationResult) {
     riskScore: result.riskScore,
     documents: result.documents.map((d) => ({
       ...d,
-      fields: Object.fromEntries(Object.entries(d.fields).map(([k, f]) => [
-        k,
-        k === 'documentNumber' || k === 'virtualId' ? { ...f!, value: mask(f!.value) } : f,
-      ])),
+      fields: Object.fromEntries(Object.entries(d.fields).flatMap(([k, f]) => {
+        if (!f || k === 'address' || k === 'fatherOrGuardianName' || k === 'motherName' || k === 'virtualId') return [];
+        if (k === 'documentNumber') return [[k, { ...f, value: mask(f.value) }]];
+        if (k === 'dateOfBirth' && /^\d{4}/.test(f.value)) return [[k, { ...f, value: `••/••/${f.value.slice(0, 4)}` }]];
+        return [[k, f]];
+      })),
     })),
     crossDocument: result.crossDocument,
     face: result.face,

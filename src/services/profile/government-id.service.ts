@@ -5,10 +5,11 @@
  * The document ciphertext is stored apart from the face template.
  * Nothing here decides that the government document is authentic.
  */
-import { randomUUID } from 'crypto';
+import { createHash, randomUUID } from 'crypto';
 import { prisma } from '../../lib/prisma';
 import { logger } from '../../lib/logger';
-import { encryptBytes, decryptTemplate, CURRENT_ENCRYPTION_KEY_VERSION } from '../auth/biometric-crypto.service';
+import { encryptBytes, decryptBytes, decryptTemplate, CURRENT_ENCRYPTION_KEY_VERSION } from '../auth/biometric-crypto.service';
+import { viewVerifiedDetails, type VerifiedDetailsView, type VerifiedIdentityData } from '../identity-verification/verified-details';
 import { acceptProbeForActiveEngine } from '../auth/recognition-engine';
 import {
   isFaceProbeQualityOk,
@@ -151,6 +152,41 @@ export const governmentIdService = {
     return viewFromRow(row, Boolean(enrolled));
   },
 
+  /**
+   * The details read from this account's verified ID, for the owner only.
+   * Sensitive values are masked unless the owner asks to reveal them. Returns
+   * null when no verified ID is kept.
+   */
+  async verifiedDetailsForUser(userId: string, reveal: boolean): Promise<VerifiedDetailsView | null> {
+    const row = await prisma.governmentIdRecord.findUnique({ where: { userId }, select: { identityDataCipher: true } });
+    if (!row?.identityDataCipher) return null;
+    try {
+      const data = JSON.parse(decryptBytes(Buffer.from(row.identityDataCipher)).toString('utf8')) as VerifiedIdentityData;
+      logger.info('[GovernmentId] verified details viewed', { userId, revealed: reveal });
+      return viewVerifiedDetails(data, reveal);
+    } catch (err) {
+      logger.warn('[GovernmentId] verified details unreadable', { userId, error: err instanceof Error ? err.message : 'unknown' });
+      return null;
+    }
+  },
+
+  /**
+   * The owner corrects the address that was read from their ID. The stored
+   * details are decrypted, the address replaced and encrypted again; nothing
+   * else changes. Returns false when no verified details are kept.
+   */
+  async updateVerifiedAddress(userId: string, address: string): Promise<boolean> {
+    const row = await prisma.governmentIdRecord.findUnique({ where: { userId }, select: { identityDataCipher: true } });
+    if (!row?.identityDataCipher) return false;
+    const data = JSON.parse(decryptBytes(Buffer.from(row.identityDataCipher)).toString('utf8')) as VerifiedIdentityData;
+    data.address = address;
+    data.addressEditedByOwner = true;
+    const packed = encryptBytes(Buffer.from(JSON.stringify(data), 'utf8'));
+    await prisma.governmentIdRecord.update({ where: { userId }, data: { identityDataCipher: packed.cipher } });
+    logger.info('[GovernmentId] verified address corrected by the owner', { userId });
+    return true;
+  },
+
   async onFileForUser(userId: string): Promise<boolean> {
     const row = await prisma.governmentIdRecord.findUnique({ where: { userId }, select: { documentState: true } });
     return mayListGovernmentIdOnFile(row?.documentState);
@@ -216,7 +252,9 @@ export const governmentIdService = {
       return { ok: false, message: 'Use a file under 8 MB for the front side.' };
     }
     const mime = sniffGovernmentDocument(input.mimeType, input.bytes);
-    const frontText = mime ? await extractGovernmentDocumentText(mime, input.bytes) : '';
+    const frontRead: { text: string; confidence: number; unclear?: boolean } = mime ? await extractGovernmentDocumentText(mime, input.bytes) : { text: '', confidence: 0 };
+    if (frontRead.unclear) return { ok: false, message: 'Document image is unclear. Please capture the ID again.' };
+    const frontText = frontRead.text;
 
     // Back side: optional, read and checked like the front. Its text joins the
     // front's, because some fields live only on the back (e.g. Aadhaar address).
@@ -234,7 +272,9 @@ export const governmentIdService = {
       if (backMime === 'application/pdf' && isPasswordProtectedPdf(backBytes)) {
         return { ok: false, message: 'The back side is a password-locked PDF. Upload a photo or screenshot instead, or use Scan with camera.' };
       }
-      backText = await extractGovernmentDocumentText(backMime, backBytes);
+      const backRead = await extractGovernmentDocumentText(backMime, backBytes);
+      if (backRead.unclear) return { ok: false, message: 'Document image is unclear. Please capture the ID again.' };
+      backText = backRead.text;
     }
     const extractedText = [frontText, backText].filter(Boolean).join('\n');
     const review = reviewGovernmentDocument({
@@ -289,6 +329,14 @@ export const governmentIdService = {
       return { ok: false, message: 'Private document storage is not configured.' };
     }
 
+    const fileHash = createHash('sha256').update(input.bytes).digest('hex');
+    const sameImage = await prisma.governmentIdRecord.findFirst({
+      where: { contentHash: fileHash, userId: { not: input.userId } },
+      select: { id: true },
+    });
+    if (sameImage) {
+      return { ok: false, message: 'This identity document image is already associated with another PINIT account.' };
+    }
     const packed = encryptBytes(input.bytes);
     const objectId = randomUUID();
     const storagePath = `government-id/${input.userId}/${objectId}.enc`;
@@ -326,7 +374,7 @@ export const governmentIdService = {
           documentType: input.documentType,
           sealedAt: now,
           storagePath,
-          contentHash: packed.hash,
+          contentHash: fileHash,
           mimeType: mime,
           byteLength: input.bytes.length,
           encryptionKeyVersion: CURRENT_ENCRYPTION_KEY_VERSION,
@@ -340,7 +388,7 @@ export const governmentIdService = {
           documentType: input.documentType,
           sealedAt: now,
           storagePath,
-          contentHash: packed.hash,
+          contentHash: fileHash,
           mimeType: mime,
           byteLength: input.bytes.length,
           encryptionKeyVersion: CURRENT_ENCRYPTION_KEY_VERSION,
@@ -367,5 +415,22 @@ export const governmentIdService = {
     logger.info('[GovernmentId] document sealed', { userId: input.userId, documentType: input.documentType, backSide: Boolean(backStoragePath) });
     const view = await this.getForUser(input.userId);
     return { ok: true, view };
+  },
+
+  /** Removes the signed-in user's saved ID and the details read from it. */
+  async clearForUser(userId: string): Promise<GovernmentIdView> {
+    const row = await prisma.governmentIdRecord.findUnique({
+      where: { userId },
+      select: { storagePath: true, backStoragePath: true },
+    });
+    if (row?.storagePath) await deletePrivateObject(row.storagePath).catch(() => undefined);
+    if (row?.backStoragePath) await deletePrivateObject(row.backStoragePath).catch(() => undefined);
+    await prisma.$transaction([
+      prisma.governmentIdRecord.deleteMany({ where: { userId } }),
+      prisma.identityDocumentFingerprint.deleteMany({ where: { userId } }),
+      prisma.identityVerificationRun.deleteMany({ where: { userId } }),
+    ]);
+    logger.info('[GovernmentId] proof cleared', { userId });
+    return this.getForUser(userId);
   },
 };

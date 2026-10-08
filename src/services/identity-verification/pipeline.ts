@@ -97,7 +97,13 @@ export function runIdentityVerification(ctx: PipelineContext): VerificationResul
       idFindings.push({ code: 'FILE_UNREADABLE', severity: 'HIGH', message: `${n}: the file is damaged or not a supported image/PDF.`, documentIndex: index });
       status = 'UNKNOWN';
     } else if (words < 2) {
-      idFindings.push({ code: 'TEXT_UNREADABLE', severity: 'HIGH', message: `${n}: no readable text was found. Use a sharper, well-lit photo of the document.`, documentIndex: index });
+      idFindings.push({
+        code: 'TEXT_UNREADABLE', severity: 'HIGH',
+        message: doc.fileSignals?.unclear
+          ? 'Document image is unclear. Please capture the ID again.'
+          : `${n}: no readable text was found. Use a sharper, well-lit photo of the document.`,
+        documentIndex: index,
+      });
       status = 'UNKNOWN';
     }
     if (c.type) {
@@ -132,7 +138,7 @@ export function runIdentityVerification(ctx: PipelineContext): VerificationResul
   const extractFindings: Finding[] = [];
   const reports: DocumentReport[] = classified.map(({ doc, index, c }) => {
     const adapter = c.type ? adapterFor(c.type) : null;
-    const fields = adapter ? adapter.extract(doc.extractedText, { now, documentIndex: index }) : {};
+    const fields = adapter ? adapter.extract(doc.extractedText, { now, documentIndex: index, tokens: doc.ocrTokens }) : {};
     const missing = adapter ? adapter.expectedFields.filter((f) => !fields[f]) : [];
     if (adapter) {
       extractFindings.push({
@@ -158,9 +164,19 @@ export function runIdentityVerification(ctx: PipelineContext): VerificationResul
     };
   });
   const anyFields = reports.some((r) => Object.keys(r.fields).length);
+  const extractionReliable = reports.filter((r) => r.detectedType).every((r) => {
+    const adapter = adapterFor(r.detectedType!);
+    if (!adapter) return false;
+    return adapter.requiredFields.every((name) => {
+      const f = r.fields[name];
+      return Boolean(f && f.value.trim().length >= 2 && f.status !== 'NEEDS_REVIEW' && f.status !== 'INVALID' && f.confidence >= 0.75);
+    });
+  });
   stages.push(stage('INFORMATION_EXTRACTED',
-    !recognisedCount ? 'NOT_RUN' : reports.every((r) => !r.detectedType || Object.keys(r.fields).length) ? 'PASS' : anyFields ? 'UNKNOWN' : 'FAIL',
-    'Text was read from the documents. Reading text is not verification.',
+    !recognisedCount ? 'NOT_RUN' : extractionReliable ? 'PASS' : anyFields ? 'UNKNOWN' : 'FAIL',
+    extractionReliable
+      ? 'Required fields were read with enough confidence. Reading text is not verification.'
+      : 'Text was read, but a required field is missing or not confident enough to treat as extracted.',
     reports.filter((r) => r.detectedType).map((r) => `#${r.index + 1}: ${Object.keys(r.fields).length} field(s) read, ${r.missingFields.length} expected but not found`),
     extractFindings));
 
@@ -239,7 +255,7 @@ export function runIdentityVerification(ctx: PipelineContext): VerificationResul
   const dupFindings: Finding[] = [];
   fingerprints.forEach((fp, i) => {
     if (fp && ctx.fingerprintsOnOtherAccounts?.has(fp)) {
-      dupFindings.push({ code: 'DUPLICATE_DOCUMENT_OTHER_ACCOUNT', severity: 'CRITICAL', message: `Document #${i + 1}: this document number is already linked to another PINIT account.`, documentIndex: i });
+      dupFindings.push({ code: 'DUPLICATE_DOCUMENT_OTHER_ACCOUNT', severity: 'CRITICAL', message: 'This identity document is already associated with another PINIT account.', documentIndex: i });
     }
   });
   const distinctDocs = new Set(crossReports.filter((r) => r.detectedType && r.detectedType !== 'GOVERNMENT_ID')
@@ -346,7 +362,11 @@ export function runIdentityVerification(ctx: PipelineContext): VerificationResul
   // ── 11. Final Verification Decision ───────────────────────────────────────
   const documentChecks = combine([stages[3]!.status, stages[4]!.status].filter((s) => s !== 'NOT_RUN'));
   const corroboration = corroborate(stages, face, pad, distinctDocs);
-  const { status, reasons, codes } = decide({ reports, risks, documentChecks, corroboration, recognisedCount });
+  const decided = decide({ reports, risks, documentChecks, corroboration, recognisedCount });
+  const unclear = all.find((f) => f.message === 'Document image is unclear. Please capture the ID again.');
+  const status = decided.status;
+  const reasons = unclear ? [unclear.message, ...decided.reasons.filter((r) => r !== unclear.message)] : decided.reasons;
+  const codes = decided.codes;
   const decisionBasis = basisFor(stages, status);
   stages.push(stage('VERIFICATION_DECISION',
     status === 'CHECKS_PASSED' ? 'PASS' : status === 'REJECTED' ? 'FAIL' : 'UNKNOWN',

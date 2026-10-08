@@ -19,10 +19,44 @@ function userId(req: Request): string {
   return (req as Request & { user?: { sub?: string } }).user?.sub || '';
 }
 
+export async function clearGovernmentId(req: Request, res: Response, next: NextFunction) {
+  try {
+    const view = await governmentIdService.clearForUser(userId(req));
+    res.json({ success: true, governmentId: view });
+  } catch (err) { next(err); }
+}
+
 export async function getGovernmentId(req: Request, res: Response, next: NextFunction) {
   try {
     const view = await governmentIdService.getForUser(userId(req));
     res.json({ success: true, governmentId: view });
+  } catch (err) { next(err); }
+}
+
+/** Owner-only: the details read from the verified ID. Masked unless ?reveal=1. */
+export async function getGovernmentIdDetails(req: Request, res: Response, next: NextFunction) {
+  try {
+    const details = await governmentIdService.verifiedDetailsForUser(userId(req), req.query.reveal === '1');
+    res.set('Cache-Control', 'no-store');
+    res.json({ success: true, details });
+  } catch (err) { next(err); }
+}
+
+/** Owner-only: correct the address read from the ID. */
+export async function updateGovernmentIdAddress(req: Request, res: Response, next: NextFunction) {
+  try {
+    const raw = typeof req.body?.address === 'string' ? req.body.address : '';
+    const address = [...raw].map((ch) => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? ' ' : ch)).join('').replace(/\s+/g, ' ').trim();
+    if (address.length < 10 || address.length > 400) {
+      res.status(400).json({ success: false, error: 'Enter the full address, between 10 and 400 characters.' });
+      return;
+    }
+    const ok = await governmentIdService.updateVerifiedAddress(userId(req), address);
+    if (!ok) {
+      res.status(404).json({ success: false, error: 'There are no verified details to correct yet.' });
+      return;
+    }
+    res.json({ success: true });
   } catch (err) { next(err); }
 }
 
