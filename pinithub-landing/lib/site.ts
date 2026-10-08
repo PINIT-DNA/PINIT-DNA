@@ -57,3 +57,10 @@ export function appSurface(): AppSurface {
   if (raw === 'admin' || raw === 'cms') return 'admin';
   return 'full';
 }
+
+/**
+ * Walkthrough video for the landing page's "Watch PINIT in action" button.
+ * Leave unset until the film is ready: the button then opens a "coming soon"
+ * panel. Accepts a YouTube / Vimeo / ScreenPal link or a direct .mp4 URL.
+ */
+export const LANDING_DEMO_VIDEO_URL = process.env.NEXT_PUBLIC_LANDING_DEMO_VIDEO_URL?.trim() || '';
