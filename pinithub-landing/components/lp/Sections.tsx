@@ -114,6 +114,13 @@ export function Business() {
   );
 }
 
+// Sample listings. Artwork is from PINIT Exchange's own hero images.
+const LISTINGS = [
+  { name: 'Golden Hour Fields', kind: 'Photography', src: '/images/exchange/golden-fields.jpg', alt: 'A wheat field at sunset', prices: ['Personal ₹499', 'Commercial ₹2,400', 'Exclusive ₹18,000'] },
+  { name: 'Neon Rain', kind: 'Cinematic still', src: '/images/exchange/neon-rain.jpg', alt: 'A woman on a rainy neon-lit street at night', prices: ['Personal ₹299', 'Commercial ₹1,800'] },
+  { name: 'Liquid Gold', kind: 'Digital art', src: '/images/exchange/liquid-gold.jpg', alt: 'Swirls of gold, magenta and teal paint', prices: ['Commercial ₹6,500', 'Exclusive on request'] },
+];
+
 export function Exchange() {
   return (
     <section className="band-card lp-block" id="exchange" aria-labelledby="exchange-title">
@@ -127,9 +134,20 @@ export function Exchange() {
           </p>
         </Reveal>
         <Reveal className="ex-grid">
-          <article className="lot"><div className="img" style={{ background: 'linear-gradient(135deg,#1C3F8F,#2F7CF6 45%,#F2A93B)' }}><span className="badge"><i />Verified owner</span></div><div className="body"><span className="lp-title">Monsoon over Charminar</span><span className="by">Photography · Hyderabad</span><div className="lic"><span>Personal ₹499</span><span>Commercial ₹2,400</span><span>Exclusive ₹18,000</span></div></div></article>
-          <article className="lot"><div className="img" style={{ background: 'radial-gradient(circle at 30% 30%,#F0627A,#7A2CBF 55%,#0F1733)' }}><span className="badge"><i />Verified owner</span></div><div className="body"><span className="lp-title">Neon Lotus poster series</span><span className="by">Design · Bengaluru</span><div className="lic"><span>Personal ₹299</span><span>Commercial ₹1,800</span></div></div></article>
-          <article className="lot"><div className="img" style={{ background: 'conic-gradient(from 90deg at 60% 50%,#22C08A,#0E6E57,#0F1733,#22C08A)' }}><span className="badge"><i />Verified owner</span></div><div className="body"><span className="lp-title">Western Ghats, 4K drone loop</span><span className="by">Video · Kochi</span><div className="lic"><span>Commercial ₹6,500</span><span>Exclusive on request</span></div></div></article>
+          {LISTINGS.map((l) => (
+            <article className="lot" key={l.name}>
+              <div className="img">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={l.src} alt={l.alt} width={1000} height={700} loading="lazy" decoding="async" />
+                <span className="badge"><i />Verified owner</span>
+              </div>
+              <div className="body">
+                <span className="lp-title">{l.name}</span>
+                <span className="by">{l.kind}</span>
+                <div className="lic">{l.prices.map((p) => <span key={p}>{p}</span>)}</div>
+              </div>
+            </article>
+          ))}
         </Reveal>
         <p className="mock-note" style={{ marginTop: 16 }}>Sample listings to show how a listing looks. </p>
         <div style={{ marginTop: 20 }}>

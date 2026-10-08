@@ -105,8 +105,9 @@ const TABS: Tab[] = [
         <div className="ui-bar"><b>Exchange · your listing</b><span className="sp" /><span className="mini-pill mp-mint">Live</span></div>
         <div className="ui-body">
           <div style={{ display: 'grid', gridTemplateColumns: '96px minmax(0,1fr)', gap: 14, alignItems: 'center' }}>
-            <span style={{ aspectRatio: '1', borderRadius: 12, background: 'linear-gradient(135deg,#1C3F8F,#F2A93B)' }} />
-            <div><strong>Monsoon over Charminar</strong><div style={{ color: 'var(--muted)', fontSize: 13 }}>Licensed 2 times this month</div></div>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/images/exchange/golden-fields.jpg" alt="" width={96} height={96} loading="lazy" style={{ aspectRatio: '1', borderRadius: 12, objectFit: 'cover', width: '100%' }} />
+            <div><strong>Golden Hour Fields</strong><div style={{ color: 'var(--muted)', fontSize: 13 }}>Licensed 2 times this month</div></div>
           </div>
           <div className="kv"><span>Personal licence</span><b>₹499</b></div>
           <div className="kv"><span>Commercial licence</span><b>₹2,400</b></div>
