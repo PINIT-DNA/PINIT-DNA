@@ -12,7 +12,8 @@ import { GenerationProgress } from './components/GenerationProgress';
 import { generateDna } from './services/api';
 import type { AppStage, DnaSession, EncryptionResult, VaultStoreResponse } from './types';
 import { DNA_GENERATOR_VERSION } from './config/dna-versions';
-import { requestCustodyLocation, type CustodyLocation } from './lib/location-consent';
+import { type CustodyLocation } from './lib/location-consent';
+import { collectProtectCaptureContext } from './lib/protect-capture-context';
 
 type FlowStage = AppStage | 'vaulting';
 
@@ -72,17 +73,23 @@ export default function App() {
     setStage('processing');
 
     try {
-      // Optional custody GPS — start in parallel; never block DNA generate
-      const locPromise = requestCustodyLocation();
-      void locPromise.then(setCustodyLocation);
+      const ctx = await collectProtectCaptureContext(selectedFile);
+      if (ctx.location) setCustodyLocation(ctx.location);
 
-      const result = await generateDna(selectedFile);
-      // Prefer GPS if it finished during generate; otherwise continue without waiting
-      const loc = await Promise.race([
-        locPromise,
-        new Promise<CustodyLocation | null>((resolve) => setTimeout(() => resolve(null), 50)),
-      ]);
-      if (loc) setCustodyLocation(loc);
+      const result = await generateDna(selectedFile, {
+        locationShared: ctx.locationShared,
+        latitude: ctx.latitude,
+        longitude: ctx.longitude,
+        gpsAccuracy: ctx.gpsAccuracy,
+        timezone: ctx.timezone,
+        captureMethod: ctx.captureMethod,
+        deviceModel: ctx.deviceModel,
+        software: ctx.software,
+        capturedAt: ctx.capturedAt,
+        width: ctx.width,
+        height: ctx.height,
+      });
+      if (ctx.location) setCustodyLocation(ctx.location);
 
       setSession({
         dnaRecordId:      result.dnaRecordId,
@@ -129,6 +136,7 @@ export default function App() {
     setSession((prev) => (prev ? {
       ...prev,
       vault,
+      filename: vault.originalFileName || prev.filename,
       fileAnalysis: vault.contentAnalysis ?? prev.fileAnalysis ?? null,
       // Download can be fetched on demand from Success — don't block protect UX.
       downloadReady: true,
@@ -169,7 +177,7 @@ export default function App() {
     <div className="min-h-screen flex flex-col bg-bg-base">
       <Header />
 
-      <main className={`flex-1 mx-auto w-full px-0 sm:px-4 py-4 sm:py-8 ${isWorking ? 'max-w-6xl' : 'max-w-5xl'}`}>
+      <main className="flex-1 mx-auto w-full max-w-6xl px-0 sm:px-4 py-3 sm:py-6">
         <AnimatePresence mode="wait">
           {stage === 'idle' && (
             <motion.div key="idle" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>

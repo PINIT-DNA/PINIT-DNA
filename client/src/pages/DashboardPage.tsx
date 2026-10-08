@@ -19,6 +19,7 @@ import {
 } from '../lib/forensic-reports-storage';
 import { toUserPinitId } from '../lib/pinit-identity';
 import { API_BASE_URL } from '../config/api.config';
+import { hubPortfolioHref } from '../lib/hub-portfolio-url';
 import { useAuth } from '../context/AuthContext';
 import { isRealDisplayName, useUserProfile } from '../hooks/useUserProfile';
 import { UpgradeWelcomeModal } from '../components/subscription/UpgradeWelcomeModal';
@@ -27,7 +28,7 @@ import {
   markUpgradeWelcomeSeen,
 } from '../lib/subscription/upgrade-welcome';
 import type { PlanCode } from '../hooks/useSubscription';
-import { CreatorHomeView, type HomePortfolioGroup } from './home/CreatorHomeView';
+import { CreatorHomeView, type HomePortfolioGroup, type HomeSavedPortfolio } from './home/CreatorHomeView';
 import {
   friendlyMatchLabel, resolveHomeActivityHref,
   type HomeActivityEvent,
@@ -85,6 +86,7 @@ export function DashboardPage() {
   const [portfolioHeadline, setPortfolioHeadline] = useState('');
   const [portfolioAbout, setPortfolioAbout] = useState('');
   const [portfolioLocation, setPortfolioLocation] = useState('');
+  const [savedPortfolio, setSavedPortfolio] = useState<HomeSavedPortfolio | null>(null);
   const [profileEvents, setProfileEvents] = useState<HomeActivityEvent[]>([]);
   const [activityFilter, setActivityFilter] = useState('all');
   const [activityQuery, setActivityQuery] = useState('');
@@ -159,13 +161,14 @@ export function DashboardPage() {
           headline?: string;
           about?: string;
           location?: string;
+          slug?: string;
           project_groups?: unknown;
           projects?: unknown;
           identity?: { headline?: string; about?: string; location?: string };
         };
         const p = (payload.portfolio && typeof payload.portfolio === 'object')
           ? payload.portfolio as Record<string, unknown>
-          : payload;
+          : payload as Record<string, unknown>;
         const rawGroups = Array.isArray(p.project_groups)
           ? p.project_groups
           : Array.isArray(p.projects)
@@ -181,9 +184,33 @@ export function DashboardPage() {
         setPortfolioHeadline(String(p.headline || payload.identity?.headline || payload.headline || ''));
         setPortfolioAbout(String(p.about || payload.identity?.about || payload.about || ''));
         setPortfolioLocation(String(p.location || payload.identity?.location || payload.location || ''));
+        const publicUrl = String((payload as { public_url?: string }).public_url || '');
+        const previewUrl = String((payload as { preview_url?: string }).preview_url || '');
+        const published = String((payload as { publish_state?: string }).publish_state || '') === 'PUBLISHED';
+        const publishedVersion = Number((payload as { published_version?: number }).published_version || 0);
+        const title = String(p.headline || payload.identity?.headline || payload.headline || '').trim()
+          || String((payload as { hub_identity?: { name?: string } }).hub_identity?.name || '').trim()
+          || 'Your portfolio';
+        const photoUrl = String(
+          (payload as { hub_identity?: { photo_url?: string } }).hub_identity?.photo_url
+          || (p.identity as { photo_url?: string } | undefined)?.photo_url
+          || '',
+        );
+        const slug = String(p.slug || payload.slug || '');
+        const viewUrl = published
+          ? hubPortfolioHref(publicUrl, slug)
+          : hubPortfolioHref(previewUrl || publicUrl, slug);
+        const saved = published || publishedVersion > 0 || groups.length > 0 || Boolean(String(p.headline || payload.headline || '').trim());
+        setSavedPortfolio(saved && viewUrl ? {
+          title,
+          status: published ? 'Saved · Published' : 'Saved',
+          viewUrl,
+          photoUrl: photoUrl || undefined,
+        } : null);
       })
       .catch(() => {
         setPortfolioGroups([]);
+        setSavedPortfolio(null);
       });
   };
 
@@ -474,6 +501,7 @@ export function DashboardPage() {
         activityQuery={activityQuery}
         onActivityQuery={setActivityQuery}
         portfolioGroups={portfolioGroups}
+        savedPortfolio={savedPortfolio}
         portfolioHeadline={portfolioHeadline}
         portfolioAbout={portfolioAbout}
         portfolioLocation={portfolioLocation}

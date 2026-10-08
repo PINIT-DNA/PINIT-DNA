@@ -114,7 +114,7 @@ export function OpenPinitPage() {
         <input
           ref={inputRef}
           type="file"
-          accept=".pinit"
+          accept=".pinit,.txt"
           className="sr-only"
           aria-label="Choose .pinit file"
           disabled={busy}

@@ -372,7 +372,7 @@ async function readBlobApiError(err: unknown): Promise<string> {
 export async function protectedDownloadFromVault(
   vaultId: string,
   options?: { recipientLabel?: string; purpose?: string; expiryDays?: number },
-): Promise<{ blob: Blob; tepCode?: string; downloadEventId?: string; tracking?: string }> {
+): Promise<{ blob: Blob; tepCode?: string; downloadEventId?: string; tracking?: string; filename: string }> {
   try {
     const response = await api.post<Blob>(
       `${API_BASE_URL}/vault/${vaultId}/protected-download`,
@@ -384,11 +384,14 @@ export async function protectedDownloadFromVault(
       { responseType: 'blob' },
     );
     const headers = response.headers as Record<string, string | undefined>;
+    const disposition = headers['content-disposition'] ?? '';
+    const named = /filename="([^"]+)"/i.exec(disposition)?.[1]?.trim();
     return {
       blob: response.data,
       tepCode: headers['x-tep-code'],
       downloadEventId: headers['x-pinit-download-event-id'],
       tracking: headers['x-pinit-tep-tracking'],
+      filename: named || 'file',
     };
   } catch (err) {
     throw new Error(await readBlobApiError(err));
@@ -577,6 +580,34 @@ export async function createFileShare(vaultId: string, opts?: { requestLocation?
     vaultId,
     requestLocation: opts?.requestLocation ?? true,
   });
+  return data;
+}
+
+export async function createLivingShare(vaultId: string) {
+  const { data } = await api.post<{
+    success: boolean;
+    shareUrl: string;
+    token: string;
+    linkType: string;
+    reused: boolean;
+    filename: string;
+  }>(`${API_BASE_URL}/share/living`, { vaultId });
+  return data;
+}
+
+export async function getPublicLivingStory(token: string) {
+  const { data } = await axios.get<{
+    success: boolean;
+    token: string;
+    record: VaultRecord;
+    tracking: VaultTrackingDashboard | null;
+    shareLinkCount: number;
+    intel: {
+      provenance?: { capturedAt?: string | null };
+      integrity?: { dnaStatus?: string };
+      distribution?: { totalShareLinks?: number };
+    };
+  }>(`${API_BASE_URL}/share/${encodeURIComponent(token)}/living`);
   return data;
 }
 

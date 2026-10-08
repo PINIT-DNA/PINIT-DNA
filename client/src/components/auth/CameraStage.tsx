@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Camera, Check } from 'lucide-react';
+import { openCameraStream, preferContinuousFocus, preferNaturalExposure } from '../../lib/camera-stream';
 
 interface CameraStageProps {
   /** Start the camera when true. */
@@ -59,15 +60,17 @@ export function CameraStage({ active, progress = 0, done = false, onReady, onCap
     async function start() {
       if (!active) return;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 640 } },
-          audio: false,
-        });
+        const stream = await openCameraStream({ facingMode: 'user' });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
         streamRef.current = stream;
+        const track = stream.getVideoTracks()[0];
+        if (track) {
+          await preferNaturalExposure(track);
+          await preferContinuousFocus(track);
+        }
         const video = videoRef.current;
         if (video) {
           video.srcObject = stream;

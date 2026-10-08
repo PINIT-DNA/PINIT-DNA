@@ -5,7 +5,7 @@ import {
   Dna, Archive, Share2, Award, Eye, Radio, Trash2,
   Sun, Moon, Monitor, ShieldCheck, Download, Briefcase,
 } from 'lucide-react';
-import { api, listVaultRecords, retrieveFromVault } from '../services/dashboard.api';
+import { api, listVaultRecords, protectedDownloadFromVault } from '../services/dashboard.api';
 import { API_BASE_URL } from '../config/api.config';
 import { PortfolioEditor } from './profile/PortfolioEditor';
 import { ProfilePhotoPicker } from './profile/ProfilePhotoPicker';
@@ -15,6 +15,7 @@ import { BusinessProfileHub } from './business/BusinessProfileHub';
 import { formatDistanceToNow, format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { notifyProfileUpdated, PROFILE_UPDATED_EVENT, useUserProfile } from '../hooks/useUserProfile';
+import { SignInMethodSettings } from '../components/settings/SignInMethodSettings';
 import { formatBytes } from '../hooks/useApi';
 import type { VaultRecord } from '../types/dashboard.types';
 import {
@@ -646,14 +647,14 @@ function SettingsTab() {
   const downloadOwnerBackup = async (record: VaultRecord) => {
     setDownloadingId(record.id);
     try {
-      const blob = await retrieveFromVault(record.id);
+      const { blob, filename } = await protectedDownloadFromVault(record.id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = record.originalFileName;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Owner backup downloaded (not tracked)');
+      toast.success('File downloaded');
     } catch {
       toast.error('Failed to download owner backup');
     } finally {
@@ -667,6 +668,12 @@ function SettingsTab() {
         <h2 className="text-sm font-semibold text-slate-900 dark:text-white flex items-center gap-2 mb-4"><Activity size={14} className="text-dna-400" /> App Settings</h2>
 
         <div className="space-y-3">
+          <div className="bg-slate-50 dark:bg-bg-elevated rounded-lg px-4 py-3 border border-slate-200 dark:border-bg-border">
+            <p className="text-xs font-medium text-slate-900 dark:text-white mb-1">Authentication / Sign-in Preferences</p>
+            <p className="text-2xs text-slate-600 dark:text-gray-400 mb-3">Sign-in method</p>
+            <SignInMethodSettings />
+          </div>
+
           {/* Theme toggle */}
           <div className="flex items-center justify-between bg-slate-50 dark:bg-bg-elevated rounded-lg px-4 py-3 border border-slate-200 dark:border-bg-border">
             <div className="flex items-center gap-3">

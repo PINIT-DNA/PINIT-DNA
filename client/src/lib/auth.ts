@@ -56,6 +56,7 @@ export interface AuthUser {
   name: string;
   role: string;
   accountType?: 'INDIVIDUAL' | 'BUSINESS';
+  lastActiveShell?: 'PERSONAL' | 'BUSINESS';
   capabilities?: {
     buyer_enabled?: boolean;
     can_purchase?: boolean;
@@ -166,6 +167,7 @@ export function parseJwt(token: string): AuthUser | null {
       name: p.name,
       role: p.role,
       accountType: p.accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL',
+      lastActiveShell: p.lastActiveShell === 'BUSINESS' ? 'BUSINESS' : 'PERSONAL',
     };
   } catch {
     return null;
@@ -208,6 +210,7 @@ export async function apiFetchMe(): Promise<AuthUser | null> {
     name: data.name,
     role: String(data.role || 'USER'),
     accountType: data.accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL',
+    lastActiveShell: data.lastActiveShell === 'BUSINESS' ? 'BUSINESS' : 'PERSONAL',
     capabilities: data.capabilities,
   };
 }

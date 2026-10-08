@@ -214,7 +214,7 @@ function DropZone({ label, file, onFile, onClear }: {
           <div className="flex flex-col items-center py-8 px-4 text-center">
             <Upload size={20} className="text-gray-600 mb-2" />
             <p className="text-sm text-gray-400">{isDragActive ? 'Drop here' : 'Drop or click to upload'}</p>
-            <p className="text-2xs text-gray-600 mt-1">Any file type</p>
+            <p className="text-2xs text-gray-600 mt-1">Any asset type</p>
           </div>
         )}
       </div>
@@ -271,12 +271,12 @@ export function ForensicDiffPage() {
         <div className="card">
           <div className="flex items-center gap-2 mb-5">
             <Search size={18} className="text-dna-400" />
-            <h2 className="text-sm font-semibold text-white">Upload Files to Analyse</h2>
+            <h2 className="text-sm font-semibold text-white">Upload assets to analyse</h2>
           </div>
           <div className="flex gap-4 mb-5">
-            <DropZone label="File A — Original" file={fileA} onFile={setFileA} onClear={() => setFileA(null)} />
+            <DropZone label="Asset A — Original" file={fileA} onFile={setFileA} onClear={() => setFileA(null)} />
             <div className="flex items-center text-gray-600"><Search size={18} /></div>
-            <DropZone label="File B — Modified" file={fileB} onFile={setFileB} onClear={() => setFileB(null)} />
+            <DropZone label="Asset B — Modified" file={fileB} onFile={setFileB} onClear={() => setFileB(null)} />
           </div>
           <button onClick={handleAnalyze} disabled={!canAnalyze} className="btn btn-primary w-full btn-lg">
             {loading

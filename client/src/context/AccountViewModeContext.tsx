@@ -73,7 +73,7 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
     getAccountViewMode(user?.sub, 'INDIVIDUAL', {
       hasPersonalWorkspace: true,
       hasBusinessWorkspace: hasBusinessAccess,
-    }),
+    }, user?.lastActiveShell),
   );
   const [switching, setSwitching] = useState(false);
 
@@ -106,19 +106,24 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    // Fresh login / new tab: Personal first. Do not infer Business from URL or last visit.
+    // Fresh login / new tab: prefer lastActiveShell from /me, not Personal-first.
     if (sessionMode === 'INDIVIDUAL') {
       setMode('INDIVIDUAL');
       return;
     }
 
-    const loginDefault = resolveLoginWorkspaceMode({
-      hasPersonalWorkspace: true,
-      hasBusinessWorkspace: hasBusinessAccess,
-    });
-    setAccountViewMode(user.sub, loginDefault);
-    setMode(loginDefault);
-  }, [user?.sub, hasBusinessAccess, accessResolved, subscriptionReady]);
+    const sticky =
+      user.lastActiveShell === 'BUSINESS' && hasBusinessAccess
+        ? 'BUSINESS'
+        : user.lastActiveShell === 'PERSONAL'
+          ? 'INDIVIDUAL'
+          : resolveLoginWorkspaceMode({
+              hasPersonalWorkspace: true,
+              hasBusinessWorkspace: hasBusinessAccess,
+            });
+    setAccountViewMode(user.sub, sticky);
+    setMode(sticky);
+  }, [user?.sub, user?.lastActiveShell, hasBusinessAccess, accessResolved, subscriptionReady]);
 
   // Keep URL and shell aligned — never mix Individual nav with Business pages
   useEffect(() => {
@@ -173,6 +178,11 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
       if (hasBusinessAccess) {
         setAccountViewMode(user.sub, next);
         setMode(next);
+        void api
+          .post(`${API_BASE_URL}/auth/active-shell`, {
+            shell: next === 'BUSINESS' ? 'BUSINESS' : 'PERSONAL',
+          })
+          .catch(() => {});
         if (next === 'BUSINESS') {
           navigate(BUSINESS_DASHBOARD_PATH, { replace: true });
           toast.success('Switched to business workspace');
@@ -219,6 +229,9 @@ export function AccountViewModeProvider({ children }: { children: ReactNode }) {
           await refresh();
           setAccountViewMode(user.sub, 'BUSINESS');
           setMode('BUSINESS');
+          void api
+            .post(`${API_BASE_URL}/auth/active-shell`, { shell: 'BUSINESS' })
+            .catch(() => {});
           navigate(BUSINESS_DASHBOARD_PATH, { replace: true });
           toast.success('Business mode enabled on your existing PINIT ID');
         } catch (err) {

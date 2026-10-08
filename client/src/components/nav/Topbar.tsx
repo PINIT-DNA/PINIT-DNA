@@ -9,27 +9,27 @@ import { useAccountViewMode } from '../../hooks/useAccountViewMode';
 const PAGE_META: Record<string, { title: string; subtitle: string }> = {
   '/':                    { title: 'Home', subtitle: 'Protect, store, share, track, and prove' },
   '/business':            { title: 'Home', subtitle: 'Protect, store, share, track, and prove' },
-  '/generate':            { title: 'Protect New', subtitle: 'Upload a file to give it identity, protection, and evidence' },
-  '/vault':               { title: 'My Assets', subtitle: 'Your protected files — share and track' },
-  '/vault-integrity':     { title: 'Security Check', subtitle: 'Confirm your files are stored safely' },
-  '/dna-records':         { title: 'Protected Files', subtitle: 'Files you have protected in Pinit HUB' },
-  '/timeline':            { title: 'Asset Activity', subtitle: 'What happened to your protected assets' },
+  '/generate':            { title: 'Protect New', subtitle: 'Capture what matters. Keep it yours.' },
+  '/vault':               { title: 'My Assets', subtitle: 'Your protected assets — share and track' },
+  '/vault-integrity':     { title: 'Security Check', subtitle: 'Confirm your assets are stored safely' },
+  '/dna-records':         { title: 'Protected Assets', subtitle: 'Assets you have protected in Pinit HUB' },
+  '/timeline':            { title: 'Asset Activity', subtitle: 'Life of each file — from protect until it leaves Hub' },
   '/reports':             { title: 'Evidence', subtitle: 'Investigation findings and comparison reports' },
-  '/certificates':        { title: 'Credentials', subtitle: 'Certificates, awards, licenses and achievements' },
+  '/certificates':        { title: 'Credentials', subtitle: 'Certificates you can preview, download and share' },
   '/verify-certificate':  { title: 'Verify certificate', subtitle: 'Check if a certificate is still valid' },
-  '/search':              { title: 'Search', subtitle: 'Find files and activity' },
-  '/forensic-diff':       { title: 'Compare files', subtitle: 'See what changed between two files' },
-  '/monitoring':          { title: 'Monitoring', subtitle: 'Watch for copies of your files online' },
-  '/protected-posts':     { title: 'My Assets', subtitle: 'Your protected files' },
-  '/assets':              { title: 'My Assets', subtitle: 'Your protected files' },
-  '/tracking':            { title: 'Tracking', subtitle: 'Every asset and everywhere it has been' },
-  '/access-intelligence': { title: 'Sharing', subtitle: 'Who opened your links and what they did' },
+  '/search':              { title: 'Search', subtitle: 'Find assets and activity' },
+  '/forensic-diff':       { title: 'Compare assets', subtitle: 'See what changed between two assets' },
+  '/monitoring':          { title: 'Monitoring', subtitle: 'Watch for copies of your assets online' },
+  '/protected-posts':     { title: 'My Assets', subtitle: 'Your protected assets' },
+  '/assets':              { title: 'My Assets', subtitle: 'Your protected assets' },
+  '/tracking':            { title: 'Tracking', subtitle: 'Totals per file — links, living pages, certificates, sales' },
+  '/access-intelligence': { title: 'Sharing', subtitle: 'Links you sent — who opened them' },
   '/unmask-requests':     { title: 'Access Requests', subtitle: 'Approve sensitive data reveal requests' },
-  '/duplicate-attempts':  { title: 'Duplicate Checks', subtitle: 'When someone tried to re-upload your file' },
+  '/duplicate-attempts':  { title: 'Duplicate Checks', subtitle: 'When someone tried to re-upload your asset' },
   '/profile':             { title: 'Profile', subtitle: 'Your account, portfolio, and preferences' },
   '/upgrade':             { title: 'Plans', subtitle: 'Choose the plan that fits you' },
   '/subscription':        { title: 'Billing', subtitle: 'Billing and plan details' },
-  [BRAND.investigationPath]: { title: 'Intelligence', subtitle: 'Find out whether a file is connected to protected work' },
+  [BRAND.investigationPath]: { title: 'Intelligence', subtitle: 'Find out whether an asset is connected to protected work' },
 };
 
 interface TopbarProps {
@@ -50,13 +50,17 @@ export function Topbar({ onMenu }: TopbarProps) {
     ?? (/^\/vault\/assets\/[^/]+\/shares\//.test(location.pathname)
       ? { title: 'Manage share', subtitle: 'Secure link details and actions' }
       : /^\/vault\/assets\/[^/]+\/share$/.test(location.pathname)
-        ? { title: 'Share secure link', subtitle: 'Control how this protected file can be accessed' }
-        : location.pathname.startsWith('/tracking/')
+        ? { title: 'Share secure link', subtitle: 'Control how this protected asset can be accessed' }
+        : /^\/vault\/[^/]+$/.test(location.pathname)
+          ? { title: 'Living asset', subtitle: 'This asset can tell you its story' }
+          : location.pathname.startsWith('/intelligence/')
+          ? { title: 'Intelligence Report', subtitle: 'Everything PinIT knows about this asset' }
+          : location.pathname.startsWith('/tracking/')
           ? { title: 'Asset tracking', subtitle: 'Every share, check and sale for this asset' }
           : location.pathname.startsWith('/access-intelligence/')
-          ? { title: 'Asset Activity', subtitle: 'See who accessed this asset and what happened' }
+          ? { title: 'Sharing', subtitle: 'Who opened this shared link' }
           : location.pathname.startsWith('/protected-posts/') || location.pathname.startsWith('/assets/')
-            ? { title: 'My Assets', subtitle: 'Your protected files' }
+            ? { title: 'My Assets', subtitle: 'Your protected assets' }
             : location.pathname.startsWith('/business/clients')
               ? { title: 'Clients', subtitle: 'Campaigns, reviews and deliveries' }
               : location.pathname.startsWith('/business/campaigns')
@@ -83,9 +87,19 @@ export function Topbar({ onMenu }: TopbarProps) {
           <WorkspaceSwitcher compact />
         </div>
         <div className="hidden lg:block min-w-0">
-          <p className="text-sm font-semibold text-slate-900 truncate">{meta.title}</p>
+          <p className="hub-page-title text-[18px] text-slate-900 truncate">{meta.title}</p>
           {meta.subtitle && (
-            <p className="hidden xl:block text-xs text-slate-500 truncate">{meta.subtitle}</p>
+            <p
+              className={
+                meta.subtitle === 'This asset can tell you its story'
+                  ? 'hub-voice-editorial hidden xl:block text-[14px] text-slate-600 truncate'
+                  : meta.subtitle === 'Capture what matters. Keep it yours.'
+                    ? 'hub-voice hidden xl:block text-[13px] text-slate-500 truncate'
+                    : 'hidden xl:block text-[13px] font-normal leading-snug text-slate-500 truncate'
+              }
+            >
+              {meta.subtitle}
+            </p>
           )}
         </div>
       </div>

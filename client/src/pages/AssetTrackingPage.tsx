@@ -9,34 +9,46 @@
 import { useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
-import { ArrowLeft, BadgeCheck, ShoppingBag, Globe, Radar, FileSearch, CornerDownRight } from 'lucide-react';
+import { ArrowLeft, ClipboardList, ShoppingBag, Globe, Radar, FileSearch, CornerDownRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { getAssetTracking, groupSharesByThread, type AssetTracking, type TrackedShare } from '../services/tracking.api';
+import { listForensicReports } from '../lib/forensic-reports-storage';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { Badge } from '../components/ui/Badge';
 
-type Tab = 'shares' | 'certificate' | 'exchange' | 'elsewhere';
+type Tab = 'shares' | 'reports' | 'exchange' | 'elsewhere';
 
 function Tile({
   icon: Icon,
   label,
   value,
   detail,
+  onClick,
 }: {
-  icon: typeof BadgeCheck;
+  icon: typeof FileSearch;
   label: string;
   value: string;
   detail: string;
+  onClick?: () => void;
 }) {
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3.5 dark:border-gray-800 dark:bg-gray-900">
+  const className = 'rounded-xl border border-gray-200 bg-white p-3.5 text-left dark:border-gray-800 dark:bg-gray-900';
+  const inner = (
+    <>
       <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
         <Icon size={12} aria-hidden /> {label}
       </div>
       <div className="mt-1 font-mono text-xl tabular-nums text-gray-900 dark:text-white">{value}</div>
       <div className="text-xs text-gray-500">{detail}</div>
-    </div>
+    </>
   );
+  if (onClick) {
+    return (
+      <button type="button" onClick={onClick} className={`${className} hover:border-brand-400`}>
+        {inner}
+      </button>
+    );
+  }
+  return <div className={className}>{inner}</div>;
 }
 
 function ShareRow({ share, child = false }: { share: TrackedShare; child?: boolean }) {
@@ -66,6 +78,16 @@ function ShareRow({ share, child = false }: { share: TrackedShare; child?: boole
           {share.fromExchange && !child && (
             <span className="rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
               From a sale
+            </span>
+          )}
+          {share.linkType === 'LIVING' && !child && (
+            <span className="rounded-full bg-violet-50 px-2 py-0.5 text-[10px] font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300">
+              Living page
+            </span>
+          )}
+          {share.linkType === 'FILE' && !child && (
+            <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[10px] font-semibold text-sky-700 dark:bg-sky-900/30 dark:text-sky-300">
+              File share
             </span>
           )}
         </div>
@@ -114,14 +136,29 @@ export function AssetTrackingPage() {
 
   if (!data) return <SkeletonCard />;
 
-  const { asset, certificate, shares, purchases, portfolio, monitoring, evidence } = data;
+  const { asset, certificate, shares, purchases, portfolio, monitoring, reports = [] } = data;
   const threads = groupSharesByThread(shares);
   const totalViews = shares.reduce((sum, s) => sum + s.views, 0);
   const reshareCount = shares.filter((s) => s.parentLinkId).length;
 
+  const name = asset.filename.toLowerCase();
+  const certId = certificate?.certificateId?.toLowerCase() ?? '';
+  const localReports = listForensicReports().filter((r) => {
+    if (r.kind === 'investigation') {
+      const ownerName = String(r.data.owner?.originalFilename ?? r.filename ?? '').toLowerCase();
+      const ownerCert = String(r.data.owner?.certificateId ?? '').toLowerCase();
+      return ownerName === name || (certId && ownerCert === certId);
+    }
+    const comparison = r.data as { fileA?: { filename?: string }; fileB?: { filename?: string } };
+    return [comparison.fileA?.filename, comparison.fileB?.filename]
+      .some((fn) => String(fn ?? '').toLowerCase() === name);
+  });
+
+  const reportCount = reports.length + localReports.length;
+
   const tabs: Array<[Tab, string]> = [
     ['shares', `Shares · ${threads.length}`],
-    ['certificate', 'Certificate'],
+    ['reports', `Reports · ${reportCount}`],
     ['exchange', `Exchange · ${purchases.length}`],
     ['elsewhere', 'Portfolio & monitoring'],
   ];
@@ -157,17 +194,20 @@ export function AssetTrackingPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <Tile icon={FileSearch} label="Shares" value={String(threads.length)}
-          detail={`${totalViews} views · ${reshareCount} reshares`} />
-        <Tile icon={BadgeCheck} label="Certificate" value={certificate?.checks === null ? '—' : String(certificate?.checks ?? 0)}
-          detail={certificate?.lastCheckedAt
-            ? `last ${format(new Date(certificate.lastCheckedAt), 'd MMM')}`
-            : certificate ? 'not checked yet' : 'none issued'} />
+          detail={`${totalViews} views · ${reshareCount} reshares`}
+          onClick={() => setTab('shares')} />
+        <Tile icon={ClipboardList} label="Reports" value={String(reportCount)}
+          detail={reportCount ? 'investigations & evidence' : 'none yet'}
+          onClick={() => setTab('reports')} />
         <Tile icon={Globe} label="Portfolio" value={portfolio.shown ? 'Shown' : 'No'}
-          detail={portfolio.views === null ? 'views unavailable' : `${portfolio.views} portfolio views`} />
+          detail={portfolio.views === null ? 'views unavailable' : `${portfolio.views} portfolio views`}
+          onClick={() => setTab('elsewhere')} />
         <Tile icon={ShoppingBag} label="Exchange" value={String(purchases.length)}
-          detail={purchases.length ? 'purchases' : 'not sold yet'} />
+          detail={purchases.length ? 'purchases' : 'not sold yet'}
+          onClick={() => setTab('exchange')} />
         <Tile icon={Radar} label="Found online" value={String(monitoring.foundOnline)}
-          detail={`monitoring ${monitoring.status.toLowerCase()}`} />
+          detail={`monitoring ${monitoring.status.toLowerCase()}`}
+          onClick={() => setTab('elsewhere')} />
       </div>
 
       {data.unavailable.length > 0 && (
@@ -214,47 +254,65 @@ export function AssetTrackingPage() {
         </section>
       )}
 
-      {tab === 'certificate' && (
-        <section className="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-800 dark:bg-gray-900">
-          {certificate ? (
-            <>
-              <dl className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <dt className="text-[11px] uppercase tracking-wide text-gray-500">Certificate ID</dt>
-                  <dd className="mt-0.5 break-all font-mono text-xs">{certificate.certificateId}</dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] uppercase tracking-wide text-gray-500">Status</dt>
-                  <dd className="mt-0.5 text-sm">
-                    {certificate.status} · issued {format(new Date(certificate.issuedAt), 'd MMM yyyy')}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] uppercase tracking-wide text-gray-500">Checks</dt>
-                  <dd className="mt-0.5 text-sm">
-                    {certificate.checks === null ? 'Not counted yet' : `${certificate.checks} times`}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-[11px] uppercase tracking-wide text-gray-500">Last checked</dt>
-                  <dd className="mt-0.5 text-sm">
-                    {certificate.lastCheckedAt ? format(new Date(certificate.lastCheckedAt), 'PPp') : '—'}
-                  </dd>
-                </div>
-              </dl>
-              <p className="mt-3 text-xs text-gray-500">
-                Anyone holding the link can check this certificate without an account. Who checked it is
-                never recorded, so this counts checks and nothing more.
-              </p>
-              <Link
-                to={`/verify-certificate?id=${encodeURIComponent(certificate.certificateId)}`}
-                className="mt-3 inline-flex text-sm text-brand-600 hover:underline"
-              >
-                Open verification
-              </Link>
-            </>
+      {tab === 'reports' && (
+        <section className="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+          <div className="flex items-center justify-between gap-3 bg-gray-50 px-4 py-2.5 text-sm font-semibold dark:bg-gray-800">
+            <span>Investigation reports for this asset</span>
+            <Link to="/reports" className="font-mono text-xs font-normal text-brand-600 hover:underline">
+              All reports
+            </Link>
+          </div>
+          {reportCount === 0 ? (
+            <p className="px-4 py-6 text-sm text-gray-500">
+              No investigations or evidence packs yet. Comparisons you run in Intelligence are saved here too.
+            </p>
           ) : (
-            <p className="text-sm text-gray-500">No certificate has been issued for this asset.</p>
+            <>
+              {reports.map((r) => (
+                <div key={r.id} className="border-t border-gray-100 px-4 py-3 dark:border-gray-800">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">{r.title}</p>
+                      <p className="mt-0.5 text-xs text-gray-500">{r.detail}</p>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant={r.kind === 'investigation' ? 'warning' : 'info'}>
+                        {r.kind === 'investigation' ? 'Investigation' : 'Evidence'}
+                      </Badge>
+                      {r.status && <Badge variant={r.status.toLowerCase() === 'open' ? 'warning' : 'muted'}>{r.status}</Badge>}
+                    </div>
+                  </div>
+                  <p className="mt-1 font-mono text-[11px] text-gray-500">
+                    {r.code} · {format(new Date(r.at), 'd MMM yyyy')}
+                    {r.severity ? ` · ${r.severity}` : ''}
+                  </p>
+                </div>
+              ))}
+              {localReports.map((r) => (
+                <Link
+                  key={r.id}
+                  to="/reports"
+                  className="block border-t border-gray-100 px-4 py-3 hover:bg-brand-50 dark:border-gray-800 dark:hover:bg-gray-800"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-gray-900 dark:text-white">
+                      {r.kind === 'investigation'
+                        ? r.filename || 'Investigation'
+                        : r.data.fileA?.filename || r.data.fileB?.filename || 'DNA comparison'}
+                    </p>
+                    <Badge variant={r.kind === 'investigation' ? 'warning' : 'info'}>
+                      {r.kind === 'investigation' ? 'Investigation' : 'Comparison'}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 font-mono text-[11px] text-gray-500">
+                    saved {format(new Date(r.savedAt), 'd MMM yyyy')}
+                    {r.kind === 'investigation' && r.data.summary?.forensicVerdict
+                      ? ` · ${r.data.summary.forensicVerdict}`
+                      : ''}
+                  </p>
+                </Link>
+              ))}
+            </>
           )}
         </section>
       )}
@@ -309,8 +367,8 @@ export function AssetTrackingPage() {
                 : 'Nothing found online so far.'}
             </p>
             <p className="mt-1 text-xs text-gray-500">
-              Monitoring {monitoring.status.toLowerCase()} · {evidence.records} evidence records ·{' '}
-              {evidence.investigations} investigations
+              Monitoring {monitoring.status.toLowerCase()} · {reports.filter((r) => r.kind === 'evidence').length} evidence records ·{' '}
+              {reports.filter((r) => r.kind === 'investigation').length} investigations
             </p>
           </div>
         </section>

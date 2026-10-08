@@ -4,7 +4,6 @@ import { format } from 'date-fns';
 import { Link } from 'react-router-dom';
 import { BRAND } from '../config/brand.config';
 import { Badge, ClassificationBadge } from '../components/ui/Badge';
-import { EmptyState } from '../components/ui/EmptyState';
 import { Modal } from '../components/ui/Modal';
 import { cn } from '../components/ui/utils';
 import type { ComparisonResult } from '../types/dashboard.types';
@@ -36,6 +35,7 @@ import {
 } from '../lib/forensic-report-display';
 import { downloadInvestigationReportPdf, buildInvestigationReportPdf, archiveInvestigationForensicExports, type InvestigationReportExport } from '../services/investigation-report-export';
 import { InvestigationProbeThumbnail } from '../components/InvestigationProbeThumbnail';
+import { EvidenceEmptyVisual } from '../components/evidence/EvidenceEmptyVisual';
 import toast from 'react-hot-toast';
 
 function matchesFilter(entry: StoredForensicReport, filter: string): boolean {
@@ -494,7 +494,10 @@ export function ReportsPage() {
           {comparisonCount > 0 && (
             <Badge variant="cyan">{comparisonCount} comparisons</Badge>
           )}
-          <Badge variant="purple">{reports.length} total</Badge>
+          <span className="evi-count-pill">
+            <span className="evi-count-pill-dot" />
+            {reports.length} total
+          </span>
         </div>
       </div>
 
@@ -517,22 +520,20 @@ export function ReportsPage() {
       )}
 
       {reports.length === 0 ? (
-        <div className="card">
-          <EmptyState
-            icon={Shield}
-            title="No evidence yet"
-            description="Evidence will appear as your asset lifecycle develops."
-            action={
-              <div className="flex gap-2">
-                <Link to={BRAND.investigationPath} className="btn btn-primary btn-sm">
-                  <Shield size={14} /> Open Intelligence
-                </Link>
-                <Link to="/compare" className="btn btn-secondary btn-sm">
-                  <GitCompare size={14} /> Compare files
-                </Link>
-              </div>
-            }
-          />
+        <div className="evi-empty-card">
+          <EvidenceEmptyVisual />
+          <div className="evi-empty-content">
+            <h3 className="evi-empty-title">No evidence yet</h3>
+            <p className="evi-empty-desc">Evidence will appear as your asset lifecycle develops.</p>
+            <div className="flex gap-2">
+              <Link to={BRAND.investigationPath} className="btn btn-primary btn-sm evi-empty-btn">
+                <Shield size={14} /> Open Intelligence
+              </Link>
+              <Link to="/compare" className="btn btn-secondary btn-sm evi-empty-btn">
+                <GitCompare size={14} /> Compare files
+              </Link>
+            </div>
+          </div>
         </div>
       ) : (
         <>

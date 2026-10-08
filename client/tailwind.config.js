@@ -55,11 +55,14 @@ export default {
         orange:  { DEFAULT: '#f59e0b', light: '#fffbeb', dark: '#78350f' },
       },
       fontFamily: {
-        sans: ['Inter', 'system-ui', 'sans-serif'],
-        mono: ['JetBrains Mono', 'Fira Code', 'Consolas', 'monospace'],
+        sans: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        display: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        label: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
+        editorial: ['DM Serif Display', 'Georgia', 'serif'],
+        mono: ['Plus Jakarta Sans', 'system-ui', 'sans-serif'],
       },
       fontSize: {
-        '2xs': ['0.65rem', { lineHeight: '1rem' }],
+        '2xs': ['0.7rem', { lineHeight: '1rem' }],
       },
       animation: {
         'pulse-slow':    'pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite',
@@ -77,6 +80,11 @@ export default {
         'glow-purple': '0 0 20px rgba(47,124,246,0.28), 0 0 40px rgba(47,124,246,0.1)',
         'glow-green':  '0 0 20px rgba(34,197,94,0.22)',
         'glow-red':    '0 0 20px rgba(239,68,68,0.18)',
+        // Layered ambient elevation for the premium light UI
+        'elev-1': 'inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(15,23,42,0.04)',
+        'elev-2': 'inset 0 1px 0 rgba(255,255,255,0.8), 0 1px 2px rgba(15,23,42,0.04), 0 8px 20px -10px rgba(15,23,42,0.1)',
+        'elev-3': 'inset 0 1px 0 rgba(255,255,255,0.9), 0 2px 4px rgba(15,23,42,0.05), 0 16px 30px -12px rgba(15,23,42,0.18)',
+        'btn-primary': 'inset 0 1px 0 rgba(255,255,255,0.3), 0 1px 2px rgba(23,58,120,0.35), 0 6px 14px -4px rgba(37,99,235,0.45)',
       },
     },
   },

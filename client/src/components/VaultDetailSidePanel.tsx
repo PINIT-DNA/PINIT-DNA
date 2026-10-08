@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -21,6 +21,7 @@ import {
   Pencil,
   Store,
   Plus,
+  LayoutGrid,
   FileDown,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -33,7 +34,8 @@ import {
   getVaultFileTypeDisplay,
   resolveVaultFileMime,
 } from '../lib/file-type-utils';
-import { createPinitFile, downloadPinitCarrier, sharePinitFile } from '../lib/download-pinit';
+import { createPinitFile, downloadPinitCarrier } from '../lib/download-pinit';
+import { pinitShareSheetFilename } from '../../../src/lib/pinit-file';
 import { API_BASE_URL } from '../config/api.config';
 import { api, getVaultTracking, protectedDownloadFromVault, createFileShare, analyzeVaultContent, renameVaultRecord, createExchangeListIntent, getExchangeRole, getExchangeConfig, getPortfolioContainsVault, getVaultContentAnalysis, type VaultTrackingDashboard,
   getAssetGraph, type AssetGraph,
@@ -76,6 +78,8 @@ interface VaultDetailSidePanelProps {
   onDelete: () => void;
   onRenamed?: (vaultId: string, originalFileName: string) => void;
   deleting?: boolean;
+  /** Drawer is the My Assets slide-over. Embedded is the action grid on the living-asset page. */
+  layout?: 'drawer' | 'embedded';
 }
 
 const TABS: { id: PanelTab; label: string }[] = [
@@ -92,6 +96,8 @@ function QuickAction({
   onClick,
   disabled = false,
   emphasis = false,
+  appearance = 'card',
+  className,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -99,24 +105,33 @@ function QuickAction({
   onClick: () => void;
   disabled?: boolean;
   emphasis?: boolean;
+  appearance?: 'card' | 'plain';
+  className?: string;
 }) {
+  const plain = appearance === 'plain';
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
       className={cn(
-        'flex flex-col items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl border text-center transition-colors min-h-[72px] max-h-[84px]',
+        'flex w-full flex-col items-center justify-center text-center transition-colors touch-manipulation',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-dna-500 focus-visible:ring-offset-2 focus-visible:ring-offset-bg-card',
         'disabled:opacity-60 disabled:pointer-events-none',
-        emphasis
-          ? 'border-dna-500/35 bg-dna-500/10 text-white hover:border-dna-400/50 hover:bg-dna-500/15'
-          : 'border-bg-border bg-bg-elevated text-gray-300 hover:border-dna-500/30 hover:bg-dna-500/5 hover:text-white',
+        plain
+          ? 'min-h-[88px] gap-2 px-1 py-2 rounded-xl hover:bg-white/60 dark:hover:bg-white/5'
+          : 'min-h-[52px] sm:min-h-[64px] gap-1 px-2 py-2.5 rounded-xl border',
+        !plain && emphasis
+          ? 'border-dna-500/35 bg-dna-500/10 text-slate-800 hover:border-dna-400/50 hover:bg-dna-500/15'
+          : !plain
+            ? 'border-bg-border bg-white dark:bg-bg-elevated text-slate-700 hover:border-dna-500/30 hover:bg-dna-500/5 hover:text-slate-900'
+            : '',
+        className,
       )}
     >
-      <span className="text-dna-400">{icon}</span>
-      <span className="text-2xs font-medium leading-tight">{label}</span>
-      {hint ? <span className="text-[10px] leading-tight text-gray-500">{hint}</span> : null}
+      <span className={plain ? 'text-dna-500' : 'text-dna-400'}>{icon}</span>
+      <span className={`font-medium leading-tight break-words px-0.5 ${plain ? 'text-xs text-slate-700' : 'text-[11px] sm:text-2xs'}`}>{label}</span>
+      {hint ? <span className="text-[10px] leading-tight text-slate-500">{hint}</span> : null}
     </button>
   );
 }
@@ -130,7 +145,9 @@ export function VaultDetailSidePanel({
   onDelete,
   onRenamed,
   deleting = false,
+  layout = 'drawer',
 }: VaultDetailSidePanelProps) {
+  const embedded = layout === 'embedded';
   const navigate = useNavigate();
   const { user } = useAuth();
   const [tab, setTab] = useState<PanelTab>('overview');
@@ -148,8 +165,10 @@ export function VaultDetailSidePanel({
   const [protectDownloading, setProtectDownloading] = useState(false);
   const [sharingFile, setSharingFile] = useState(false);
   const [downloadingPinit, setDownloadingPinit] = useState(false);
-  /** Prepared .pinit carrier for WhatsApp / Email. Not a link and not a QR. */
+  /** Prepared .pinit carrier for the device share sheet. Not a link and not a QR. */
   const [pinitShare, setPinitShare] = useState<{ filename: string; file: File } | null>(null);
+  /** Ready before the click so the app list can open in the same tap. */
+  const pinitReadyRef = useRef<File | null>(null);
   const [listingOnExchange, setListingOnExchange] = useState(false);
   const [canListOnExchange, setCanListOnExchange] = useState(false);
   const [inPortfolio, setInPortfolio] = useState(false);
@@ -247,6 +266,7 @@ export function VaultDetailSidePanel({
     setSharingFile(false);
     setDownloadingPinit(false);
     setPinitShare(null);
+    pinitReadyRef.current = null;
     void (async () => {
       try {
         const r = await api.get(`${API_BASE_URL}/share/vault/${record.id}`);
@@ -269,6 +289,10 @@ export function VaultDetailSidePanel({
       }
     })();
   }, [record.id]);
+
+  useEffect(() => {
+    setDisplayName(record.originalFileName);
+  }, [record.originalFileName]);
 
   useEffect(() => {
     if (!isImageRecord) {
@@ -373,11 +397,11 @@ export function VaultDetailSidePanel({
   const handleProtectedDownload = async () => {
     setProtectDownloading(true);
     try {
-      const { blob, tepCode } = await protectedDownloadFromVault(record.id);
+      const { blob, tepCode, filename } = await protectedDownloadFromVault(record.id);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = displayName;
+      a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
       await refreshTracking();
@@ -393,65 +417,109 @@ export function VaultDetailSidePanel({
     }
   };
 
+  const shareablePinitFile = (file: File) => new File(
+    [file],
+    pinitShareSheetFilename(file.name),
+    { type: 'text/plain' },
+  );
+
+  const isShareAbort = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    return /AbortError|canceled|cancelled/i.test(msg) || (err as { name?: string })?.name === 'AbortError';
+  };
+
+  /** Opens the device app list with the .pinit file. Must run in the click, before any await. */
+  const openPinitShareSheet = async (file: File): Promise<'shared' | 'aborted' | 'unavailable'> => {
+    if (typeof navigator.share !== 'function') return 'unavailable';
+    const payloads: ShareData[] = [
+      { files: [file], title: file.name },
+      { files: [file] },
+    ];
+    for (const data of payloads) {
+      if (typeof navigator.canShare === 'function') {
+        try {
+          if (!navigator.canShare(data)) continue;
+        } catch {
+          continue;
+        }
+      }
+      try {
+        await navigator.share(data);
+        return 'shared';
+      } catch (err) {
+        if (isShareAbort(err)) return 'aborted';
+      }
+    }
+    return 'unavailable';
+  };
+
+  const preparePinitFile = async (): Promise<File | null> => {
+    if (pinitReadyRef.current) return pinitReadyRef.current;
+    const created = await createFileShare(record.id, { requestLocation: true });
+    const built = createPinitFile({
+      token: created.token,
+      name: created.filename || displayName,
+    });
+    if (!built.ok) return null;
+    const shareable = shareablePinitFile(built.file);
+    pinitReadyRef.current = shareable;
+    setPinitShare({ filename: built.filename, file: shareable });
+    return shareable;
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void preparePinitFile().then((file) => {
+      if (cancelled && file && pinitReadyRef.current === file) {
+        pinitReadyRef.current = null;
+      }
+    });
+    return () => { cancelled = true; };
+    // Prepare once per asset so Share File can open the app list on the first tap.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [record.id]);
+
   /**
-   * Share File prepares filename.pinit. WhatsApp and Email send that file,
-   * not a link and not a QR. The recipient opens it on /open.
+   * Share File exports a .pinit carrier, not the raw asset.
+   * The recipient opens that file at /open.
    */
   const handleShareFile = async () => {
     if (sharingFile) return;
-    if (pinitShare) return;
     setSharingFile(true);
     try {
-      const created = await createFileShare(record.id, { requestLocation: true });
-      const built = createPinitFile({
-        token: created.token,
-        name: created.filename || displayName,
-      });
-      if (!built.ok) {
+      const file = pinitReadyRef.current ?? await preparePinitFile();
+      if (!file) {
         toast.error('Could not create the .pinit file');
         return;
       }
-      setPinitShare({ filename: built.filename, file: built.file });
+      const opened = await openPinitShareSheet(file);
+      if (opened === 'shared') {
+        void refreshTracking();
+        return;
+      }
+      if (opened === 'aborted') return;
+      const url = URL.createObjectURL(file);
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = file.name;
+      anchor.rel = 'noopener';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+      toast.success(`Saved ${file.name}. Attach that file in any app.`);
+      void refreshTracking();
     } catch (err) {
+      if (isShareAbort(err)) return;
       const msg = err instanceof Error ? err.message : String(err);
-      toast.error(msg || 'Could not prepare file share');
+      toast.error(msg || 'Could not share file');
     } finally {
       setSharingFile(false);
     }
   };
 
-  const handleSharePinitChannel = (channel: 'whatsapp' | 'email') => {
-    if (!pinitShare) return;
-    sharePinitFile(pinitShare.file, channel);
-    const where = channel === 'whatsapp' ? 'WhatsApp' : 'Gmail';
-    toast.success(
-      `${where} is open. Attach the saved ${pinitShare.filename}.`,
-      { duration: 7000 },
-    );
-  };
-
   const handleDownloadPinit = async () => {
     if (downloadingPinit || loadingLinks) return;
-
-    const now = Date.now();
-    const active = links
-      .filter((link) => {
-        if (!link.isActive || !link.token) return false;
-        if (link.expiresAt && new Date(link.expiresAt).getTime() <= now) return false;
-        if (link.maxViews != null && link.viewCount >= link.maxViews) return false;
-        return true;
-      })
-      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
-    const chosen = active[0];
-    if (chosen) {
-      const saved = downloadPinitCarrier({ token: chosen.token, name: displayName });
-      if (!saved.ok) {
-        toast.error('Could not create the .pinit file');
-        return;
-      }
-      toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
-      return;
-    }
 
     setDownloadingPinit(true);
     try {
@@ -464,6 +532,11 @@ export function VaultDetailSidePanel({
         toast.error('Could not create the .pinit file');
         return;
       }
+      const built = createPinitFile({
+        token: created.token,
+        name: created.filename || displayName,
+      });
+      if (built.ok) setPinitShare({ filename: built.filename, file: built.file });
       toast.success(`Saved ${saved.filename}. Send that file — it does not contain the asset.`);
     } catch (err) {
       const msg = err instanceof Error ? err.message : '';
@@ -557,6 +630,7 @@ export function VaultDetailSidePanel({
   };
 
   useEffect(() => {
+    if (embedded) return;
     const main = document.querySelector('main.mobile-main') as HTMLElement | null;
     const isMobile = () => window.matchMedia('(max-width: 1023px)').matches;
     if (!main || !isMobile()) return;
@@ -565,24 +639,28 @@ export function VaultDetailSidePanel({
     return () => {
       main.style.overflow = prev;
     };
-  }, []);
+  }, [embedded]);
 
   return (
     <>
+      {!embedded && (
       <button
         type="button"
         className="fixed inset-0 bg-black/40 z-[90] animate-fade-in"
         onClick={onClose}
         aria-label="Close file details"
       />
+      )}
       <aside
         className={cn(
-          'flex flex-col bg-bg-card z-[95] shadow-2xl border-bg-border',
-          'fixed inset-x-0 bottom-0 w-full max-h-[min(92dvh,900px)] rounded-t-2xl border-t',
-          'lg:inset-y-0 lg:top-14 lg:right-0 lg:left-auto lg:bottom-0 lg:w-[400px] xl:w-[420px]',
-          'lg:max-h-none lg:rounded-none lg:border-t-0 lg:border-l',
+          'flex flex-col bg-bg-card border-bg-border',
+          embedded
+            ? 'relative w-full border-0 bg-transparent shadow-none'
+            : 'z-[95] shadow-2xl fixed inset-x-0 bottom-0 w-full max-h-[min(92dvh,900px)] rounded-t-2xl border-t lg:inset-y-0 lg:top-14 lg:right-0 lg:left-auto lg:bottom-0 lg:w-[400px] xl:w-[420px] lg:max-h-none lg:rounded-none lg:border-t-0 lg:border-l',
         )}
       >
+      {!embedded && (
+        <>
         <div className="lg:hidden flex justify-center pt-2 pb-1 shrink-0" aria-hidden>
           <div className="w-10 h-1 rounded-full bg-gray-600" />
         </div>
@@ -868,7 +946,7 @@ export function VaultDetailSidePanel({
                 ) : tepPackages.length === 0 ? (
                   <div className="rounded-lg border border-bg-border bg-bg-elevated p-3 space-y-2">
                     <p className="text-xs text-gray-400">
-                      No tracked download yet. Use Download Protected to create a tracking code for sharing.
+                      No tracked download yet. Download Protected saves the file to this device’s Files so other apps can pick it. Protection stays on the copy.
                     </p>
                     <button
                       type="button"
@@ -1200,37 +1278,24 @@ export function VaultDetailSidePanel({
             </div>
           )}
         </div>
+        </div>
+        </>
+      )}
 
-        <div className="p-3 border-t border-bg-border space-y-2.5">
-          <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>
-          {pinitShare && (
+        <div className={`${embedded ? 'p-0' : 'p-3 border-t border-bg-border'} space-y-2.5`}>
+          {!embedded && <h3 className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">Quick Actions</h3>}
+          {pinitShare && !embedded && (
             <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
               <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider">
                 Share file
               </p>
               <p className="text-xs text-white truncate">{pinitShare.filename}</p>
               <p className="text-2xs text-gray-500">
-                Attach the saved .pinit file. The filename by itself is not the file.
+                Opens your device apps. Choose any app and send the file.
               </p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleSharePinitChannel('whatsapp')}
-                  className="btn btn-secondary btn-sm text-xs justify-center"
-                >
-                  WhatsApp
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleSharePinitChannel('email')}
-                  className="btn btn-secondary btn-sm text-xs justify-center"
-                >
-                  Email
-                </button>
-              </div>
             </div>
           )}
-          {(latestTep?.tepCode || links[0]) && (
+          {(latestTep?.tepCode || links[0]) && !embedded && (
           <div className="rounded-xl border border-bg-border bg-bg-elevated p-3 space-y-2">
             {latestTep?.tepCode && (
               <p className="text-2xs text-gray-500 mono">
@@ -1245,6 +1310,81 @@ export function VaultDetailSidePanel({
           </div>
           )}
 
+          {embedded ? (
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-sky-100 bg-sky-50 dark:bg-sky-950/20 dark:border-sky-900/40 px-3 py-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
+                  <span className="h-2 w-2 rounded-full bg-sky-500" />
+                  Share & Publish
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  <QuickAction appearance="plain" icon={<Share2 size={22} />} label="Share Secure Link" onClick={onShare} />
+                  <QuickAction
+                    appearance="plain"
+                    icon={sharingFile ? <RefreshCw size={22} className="animate-spin" /> : <LayoutGrid size={22} />}
+                    label={sharingFile ? 'Preparing…' : 'Share File'}
+                    disabled={sharingFile}
+                    onClick={() => { if (!sharingFile) void handleShareFile(); }}
+                  />
+                  <QuickAction
+                    appearance="plain"
+                    icon={listingOnExchange ? <RefreshCw size={22} className="animate-spin" /> : <Store size={22} />}
+                    label={
+                      listingOnExchange
+                        ? (listedOnExchange ? 'Opening…' : 'Listing…')
+                        : listedOnExchange
+                          ? 'View on Exchange'
+                          : 'List on Exchange'
+                    }
+                    disabled={listingOnExchange}
+                    onClick={() => { if (!listingOnExchange) void handleListOnExchange(); }}
+                  />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-emerald-100 bg-emerald-50 dark:bg-emerald-950/20 dark:border-emerald-900/40 px-3 py-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
+                  <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                  Use & Export
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  <QuickAction
+                    appearance="plain"
+                    icon={<Plus size={22} />}
+                    label={inPortfolio ? 'In Portfolio' : 'Add to Portfolio'}
+                    onClick={handleAddToPortfolio}
+                  />
+                  <QuickAction
+                    appearance="plain"
+                    icon={protectDownloading ? <RefreshCw size={22} className="animate-spin" /> : <Download size={22} />}
+                    label={protectDownloading ? 'Preparing…' : 'Download Protected'}
+                    disabled={protectDownloading}
+                    onClick={() => { if (!protectDownloading) void handleProtectedDownload(); }}
+                  />
+                  <QuickAction
+                    appearance="plain"
+                    icon={<FileSearch size={22} />}
+                    label="Intelligence Report"
+                    onClick={() => gatePremium(`/intelligence/${record.id}`)}
+                  />
+                </div>
+              </div>
+              <div className="rounded-2xl border border-violet-100 bg-violet-50 dark:bg-violet-950/20 dark:border-violet-900/40 px-3 py-4">
+                <p className="flex items-center gap-2 text-sm font-semibold text-slate-800 mb-3">
+                  <span className="h-2 w-2 rounded-full bg-violet-500" />
+                  Understand & Track
+                </p>
+                <div className="grid grid-cols-3 gap-1">
+                  <QuickAction appearance="plain" icon={<Activity size={22} />} label="Tracking" onClick={handleAccessIntelligence} />
+                  <QuickAction
+                    appearance="plain"
+                    icon={<Eye size={22} />}
+                    label="View Timeline"
+                    onClick={() => gatePremium(`/timeline?vaultId=${encodeURIComponent(record.id)}`)}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
           <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2.5">
             <QuickAction
               emphasis
@@ -1298,17 +1438,17 @@ export function VaultDetailSidePanel({
               onClick={() => gatePremium(`/timeline?vaultId=${encodeURIComponent(record.id)}`)}
             />
           </div>
+          )}
           <button
             type="button"
             onClick={onDelete}
             disabled={deleting}
-            className="w-full flex items-center justify-center gap-2 text-xs text-red-400 hover:text-red-300 py-2 disabled:opacity-60"
+            className="w-full flex items-center justify-center gap-2 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl py-2.5 disabled:opacity-60 dark:bg-red-950/30 dark:border-red-900/50 dark:text-red-400"
           >
             {deleting ? <Loader2 size={14} className="animate-spin" /> : <Trash2 size={14} />}
             {deleting ? 'Removing…' : 'Remove from My Assets'}
           </button>
         </div>
-      </div>
     </aside>
     </>
   );

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Check, Copy, Eye, FileText, Globe, Loader2, Lock, Plus, Save, Trash2, X,
+  Check, Eye, FileText, Globe, Loader2, Lock, Plus, Save, Share2, Trash2, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api, listVaultRecords, previewVaultFile } from '../../services/dashboard.api';
@@ -9,6 +9,7 @@ import { API_BASE_URL } from '../../config/api.config';
 import type { VaultRecord } from '../../types/dashboard.types';
 import { ProfilePhotoPicker } from './ProfilePhotoPicker';
 import { addVaultToNamedCollection, planAddVaultToPortfolio } from '../../lib/portfolio-add-vault';
+import { hubPortfolioHref } from '../../lib/hub-portfolio-url';
 
 /**
  * The portfolio builder. One builder, in HUB.
@@ -16,7 +17,7 @@ import { addVaultToNamedCollection, planAddVaultToPortfolio } from '../../lib/po
  * There used to be two — a form in Exchange and a second one here — for a
  * single portfolio, which is why editing never seemed to change anything.
  * HUB owns this because HUB owns the identity and the vault the work is picked
- * from; Exchange stores the profile and serves the public page.
+ * from. The saved page is viewed and shared from Hub — Exchange is not required.
  *
  * The sections below are the six headings of the public site, in the order they
  * appear on it, so building the page and reading it are the same mental model.
@@ -176,6 +177,54 @@ function formFromApi(p: Record<string, any>): Form {
     contact_email: p.contact_email || p.contact?.email || '',
     contact_note: p.contact_note || p.contact?.note || '',
   };
+}
+
+function formLooksBlank(f: Form): boolean {
+  return !(
+    f.headline.trim()
+    || f.about.trim()
+    || f.location.trim()
+    || f.contact_email.trim()
+    || f.contact_note.trim()
+    || f.skills.length
+    || f.services.length
+    || f.clients.length
+    || f.experience.some((e) => e.title || e.org || e.note)
+    || f.awards.some((a) => a.title)
+    || f.certifications.some((c) => c.title || c.vault_id)
+    || f.project_groups.some((g) => g.title || g.vault_ids.length)
+    || f.collaborations.length
+  );
+}
+
+function keepFilled(current: Form, incoming: Form): Form {
+  const str = (a: string, b: string) => (b.trim() ? b : a);
+  const arr = <T,>(a: T[], b: T[]) => (b.length ? b : a);
+  return {
+    ...incoming,
+    slug: incoming.slug || current.slug,
+    headline: str(current.headline, incoming.headline),
+    about: str(current.about, incoming.about),
+    location: str(current.location, incoming.location),
+    contact_email: str(current.contact_email, incoming.contact_email),
+    contact_note: str(current.contact_note, incoming.contact_note),
+    skills: arr(current.skills, incoming.skills),
+    services: arr(current.services, incoming.services),
+    clients: arr(current.clients, incoming.clients),
+    available_for: arr(current.available_for, incoming.available_for),
+    experience: arr(current.experience, incoming.experience),
+    awards: arr(current.awards, incoming.awards),
+    certifications: arr(current.certifications, incoming.certifications),
+    project_groups: arr(current.project_groups, incoming.project_groups),
+    collaborations: arr(current.collaborations, incoming.collaborations),
+    languages: arr(current.languages, incoming.languages),
+    client_count: incoming.client_count || current.client_count,
+  };
+}
+
+function formFromSavedPayload(data: Record<string, any> | undefined, current: Form): Form {
+  const p = data?.portfolio && typeof data.portfolio === 'object' ? data.portfolio : data;
+  return keepFilled(current, formFromApi(p || {}));
 }
 
 function buildPayload(form: Form) {
@@ -422,7 +471,6 @@ export function PortfolioEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [publicUrl, setPublicUrl] = useState('');
-  const [exchangeUrl, setExchangeUrl] = useState('');
   const [copied, setCopied] = useState(false);
   const [photoUrl, setPhotoUrl] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -434,9 +482,14 @@ export function PortfolioEditor() {
   const formRef = useRef(form);
   formRef.current = form;
   const savingRef = useRef(false);
+  const loadedRef = useRef(false);
 
   const set = <K extends keyof Form>(key: K, value: Form[K]) =>
-    setForm((f) => ({ ...f, [key]: value }));
+    setForm((f) => {
+      const next = { ...f, [key]: value };
+      formRef.current = next;
+      return next;
+    });
 
   useEffect(() => {
     (async () => {
@@ -446,9 +499,8 @@ export function PortfolioEditor() {
         const { data } = await api.get<BridgeResponse>(`${API_BASE_URL}/portfolio/me`);
         const p = data?.portfolio || data || {};
         nextForm = formFromApi(p);
-        if (data?.public_url) setPublicUrl(data.public_url);
-        if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
-        if (data?.preview_url) setPreviewUrl(String(data.preview_url));
+        if (data?.public_url) setPublicUrl(hubPortfolioHref(String(data.public_url), nextForm.slug));
+        if (data?.preview_url) setPreviewUrl(hubPortfolioHref(String(data.preview_url), nextForm.slug));
         if (data?.publish_state === 'PUBLISHED') setPublishState('PUBLISHED');
         else setPublishState('DRAFT');
         if (typeof data?.published_version === 'number') setPublishedVersion(data.published_version);
@@ -495,6 +547,7 @@ export function PortfolioEditor() {
 
       setForm(nextForm);
       formRef.current = nextForm;
+      loadedRef.current = true;
       setLoading(false);
     })();
     // consume addVault once on mount
@@ -502,13 +555,14 @@ export function PortfolioEditor() {
   }, []);
 
   const applyMeta = (data: BridgeResponse) => {
-    if (data?.public_url) setPublicUrl(data.public_url);
-    if (data?.exchange_app_url) setExchangeUrl(String(data.exchange_app_url).replace(/\/$/, ''));
-    if (data?.preview_url) setPreviewUrl(String(data.preview_url));
-    if (data?.slug) setForm((f) => (data.slug && data.slug !== f.slug ? { ...f, slug: data.slug } : f));
+    if (data?.public_url) setPublicUrl(hubPortfolioHref(String(data.public_url), String(data.slug || formRef.current.slug)));
+    if (data?.preview_url) setPreviewUrl(hubPortfolioHref(String(data.preview_url), String(data.slug || formRef.current.slug)));
     if (data?.publish_state === 'PUBLISHED' || data?.published) setPublishState('PUBLISHED');
     if (data?.unpublished) setPublishState('DRAFT');
     if (typeof data?.published_version === 'number') setPublishedVersion(data.published_version);
+    const next = formFromSavedPayload(data, formRef.current);
+    setForm(next);
+    formRef.current = next;
   };
 
   const saveDraft = useCallback(async (opts?: { silent?: boolean }) => {
@@ -536,6 +590,8 @@ export function PortfolioEditor() {
   }, []);
 
   useEffect(() => () => {
+    if (!loadedRef.current) return;
+    if (formLooksBlank(formRef.current)) return;
     void api.put(`${API_BASE_URL}/portfolio/me`, buildPayload(formRef.current)).catch(() => { /* leaving the tab */ });
   }, []);
 
@@ -543,7 +599,10 @@ export function PortfolioEditor() {
     if (typeof document !== 'undefined') (document.activeElement as HTMLElement | null)?.blur?.();
     setSection(id);
     setOpenCollection(null);
-    window.setTimeout(() => { void saveDraft({ silent: true }); }, 80);
+    window.setTimeout(() => {
+      if (!loadedRef.current || formLooksBlank(formRef.current)) return;
+      void saveDraft({ silent: true });
+    }, 80);
   };
 
   const publish = useCallback(async () => {
@@ -562,34 +621,42 @@ export function PortfolioEditor() {
     setSaving(false);
   }, []);
 
-  const copy = async () => {
-    const url = publishState === 'PUBLISHED' ? liveUrl : (previewUrl || liveUrl);
-    if (!url) return;
+  /**
+   * Hub origin. Saved and published pages both live here so a recipient
+   * does not need an Exchange account.
+   */
+  const liveUrl = publicUrl || (form.slug ? hubPortfolioHref('', form.slug) : '');
+
+  const sharePortfolio = async () => {
+    const saved = await saveDraft({ silent: true });
+    let url = '';
     try {
-      await navigator.clipboard.writeText(url);
+      if (publishState !== 'PUBLISHED') {
+        const { data } = await api.post<BridgeResponse>(`${API_BASE_URL}/portfolio/me/publish`, buildPayload(formRef.current));
+        applyMeta(data);
+        url = hubPortfolioHref(String(data?.public_url || ''), formRef.current.slug);
+        toast.success('Shared on Hub. Anyone with the link can view it — no Exchange account.');
+      } else {
+        url = hubPortfolioHref(String(saved?.public_url || liveUrl), formRef.current.slug);
+      }
+      const absolute = url.startsWith('http') ? url : `${window.location.origin}${url}`;
+      await navigator.clipboard.writeText(absolute);
       setCopied(true);
       setTimeout(() => setCopied(false), 1600);
-      if (publishState !== 'PUBLISHED') {
-        toast('Copied a private preview. Publish so anyone can open the public link.');
-      }
-    } catch { setCopied(false); }
+    } catch (err: any) {
+      const d = err?.response?.data;
+      toast.error(d?.error || d?.message || 'Could not share.');
+    }
   };
-
-  /**
-   * Prefer whatever the server told us, but fall back to building the link from
-   * the slug. The buttons used to hang off public_url alone, so a portfolio that
-   * had not been saved yet showed no way to look at it.
-   */
-  const liveUrl = publicUrl || (form.slug && exchangeUrl ? `${exchangeUrl}/p/${form.slug}` : '');
 
   const openFullPreview = async () => {
     const saved = await saveDraft({ silent: true });
-    const url = String(saved?.preview_url || previewUrl || liveUrl || '').trim();
+    const url = hubPortfolioHref(String(saved?.preview_url || previewUrl || liveUrl || ''), formRef.current.slug);
     if (!url) {
       toast.error('Save the portfolio first, then preview.');
       return;
     }
-    window.open(url, '_blank', 'noopener,noreferrer');
+    window.open(url.startsWith('http') ? url : url, '_blank', 'noopener,noreferrer');
   };
 
   const collection = useMemo(
@@ -620,17 +687,15 @@ export function PortfolioEditor() {
           </p>
           {liveUrl ? (
             <code className="pe-toolbar__url">
-              {liveUrl.replace(/^https?:\/\//, '')}
+              {(liveUrl.startsWith('http') ? liveUrl : `${typeof window !== 'undefined' ? window.location.host : ''}${liveUrl}`).replace(/^https?:\/\//, '')}
               {publishState !== 'PUBLISHED' ? ' · unpublished' : ''}
             </code>
           ) : null}
         </div>
         <div className="pe-toolbar__act">
-          {liveUrl ? (
-            <button type="button" className="pe-btn" onClick={copy}>
-              {copied ? <><Check size={13} /> Copied</> : <><Copy size={13} /> Copy link</>}
+            <button type="button" className="pe-btn" onClick={() => void sharePortfolio()} disabled={saving}>
+              {copied ? <><Check size={13} /> Copied</> : <><Share2 size={13} /> Share</>}
             </button>
-          ) : null}
           <button
             type="button"
             className="pe-btn"

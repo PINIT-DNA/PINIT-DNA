@@ -283,7 +283,7 @@ export function InvestigationCompositionPanel({ composition, previewUrl }: Props
             />
           </div>
           <p className="text-2xs text-gray-500 mt-1">
-            Share of the original protected file that appears in this upload — not retrieval confidence.
+            Share of the original protected asset that appears in this upload — not retrieval confidence.
           </p>
         </div>
       )}

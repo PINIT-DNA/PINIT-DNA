@@ -62,7 +62,7 @@ export function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
   const label = isBusinessShell
     ? (activeWorkspace?.name || organization?.name || 'Business')
     : 'Personal';
-  const sublabel = isBusinessShell ? 'Business workspace' : 'Your protected files';
+  const sublabel = isBusinessShell ? 'Business workspace' : 'Your protected assets';
 
   const goPersonal = async () => {
     setOpen(false);
@@ -164,7 +164,7 @@ export function WorkspaceSwitcher({ compact = false }: { compact?: boolean }) {
           <SwitcherRow
             icon={<User size={14} />}
             title="Personal"
-            subtitle="Your protected files"
+            subtitle="Your protected assets"
             active={mode === 'INDIVIDUAL'}
             onClick={() => void goPersonal()}
           />

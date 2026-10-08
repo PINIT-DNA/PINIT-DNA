@@ -5,7 +5,8 @@ import { BUSINESS_DASHBOARD_PATH } from '../../lib/subscription/post-upgrade-red
 import { useAccountViewMode } from '../../context/AccountViewModeContext';
 
 /**
- * Home `/` — personal forensic dashboard unless the user is in Business shell this session.
+ * Home `/` — personal forensic dashboard unless lastActiveShell / this session is Business.
+ * Super-admins are not auto-sent to `/admin` so they can still use Hub.
  */
 export function HomeRedirect() {
   const { loading: authLoading } = useAuth();

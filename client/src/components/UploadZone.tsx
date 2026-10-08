@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useDropzone } from 'react-dropzone';
 import { motion } from 'framer-motion';
-import { Upload, ScanLine, Video, Mic, FileUp, Pencil, Check, X, Camera } from 'lucide-react';
+import { Pencil, Check, X } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useSubscription } from '../hooks/useSubscription';
-import { DocumentScanner } from './DocumentScanner';
-import { MediaRecorderPanel } from './MediaRecorderPanel';
+import { ProtectCaptureStudio } from './ProtectCaptureStudio';
+import { readProtectMethod, tagProtectFile } from '../lib/protect-capture-context';
 import {
-  ACCEPT_MAP,
   formatBytes,
   getFileIcon,
   getFileTypeLabel,
@@ -24,14 +22,6 @@ interface Props {
   onGenerate: () => void;
   selectedFile: File | null;
 }
-
-const CAPTURE_MODES: { id: CaptureMode; label: string; icon: typeof Upload }[] = [
-  { id: 'upload', label: 'Upload', icon: Upload },
-  { id: 'photo', label: 'Photo', icon: Camera },
-  { id: 'scan', label: 'Scan', icon: ScanLine },
-  { id: 'video', label: 'Video', icon: Video },
-  { id: 'audio', label: 'Audio', icon: Mic },
-];
 
 function splitName(filename: string): { base: string; ext: string } {
   const i = filename.lastIndexOf('.');
@@ -53,7 +43,8 @@ function renameFile(file: File, nextBase: string): File | null {
   if (!base) return null;
   const name = `${base}${ext}`;
   if (name === file.name) return file;
-  return new File([file], name, { type: file.type, lastModified: file.lastModified });
+  const next = new File([file], name, { type: file.type, lastModified: file.lastModified });
+  return tagProtectFile(next, readProtectMethod(file));
 }
 
 function FilePreview({ file }: { file: File }) {
@@ -100,7 +91,6 @@ function FilePreview({ file }: { file: File }) {
 }
 
 export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) {
-  const [captureMode, setCaptureMode] = useState<CaptureMode>('upload');
   const [renaming, setRenaming] = useState(false);
   const [renameDraft, setRenameDraft] = useState('');
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -108,7 +98,6 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
   const handleFileReady = useCallback(
     (file: File) => {
       onFileSelected(file);
-      setCaptureMode('upload');
       setRenaming(false);
       setRenameError(null);
     },
@@ -139,16 +128,6 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
     setRenameError(null);
   }, [selectedFile, renameDraft, onFileSelected]);
 
-  const onDrop = useCallback(
-    (files: File[]) => {
-      const file = files[0];
-      if (file) handleFileReady(file);
-    },
-    [handleFileReady],
-  );
-
-  // No fixed size limit: what decides whether a file can be protected is the
-  // owner's remaining Vault storage. The backend re-checks; this only explains.
   const { subscription } = useSubscription();
   const storageLimit = subscription?.enforcementEnabled ? subscription.storageLimitBytes : null;
   const storageRemaining = storageLimit == null
@@ -158,117 +137,14 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
     selectedFile && storageRemaining != null && selectedFile.size > storageRemaining,
   );
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: ACCEPT_MAP,
-    maxFiles: 1,
-  });
-
   const fileLabel = selectedFile ? getFileTypeLabel(selectedFile) : '';
   const selectedExt = selectedFile ? splitName(selectedFile.name).ext : '';
 
   return (
-    <div className="max-w-3xl mx-auto w-full">
-      <motion.div
-        initial={{ opacity: 0, y: -12 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="text-center mb-8"
-      >
-        <h2 className="text-3xl font-bold text-white">Protect New Asset</h2>
-        <p className="text-sm text-gray-500 mt-2 max-w-md mx-auto">
-          Upload your file and we’ll create its protected identity.
-        </p>
-      </motion.div>
-
+    <div className="mx-auto w-full px-3 sm:px-0">
       {!selectedFile && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-5"
-        >
-          {CAPTURE_MODES.map(({ id, label, icon: Icon }) => (
-            <button
-              key={id}
-              type="button"
-              onClick={() => setCaptureMode(id)}
-              className={`rounded-xl border p-3 text-left transition-all ${
-                captureMode === id
-                  ? 'bg-dna-500/12 border-dna-500/40 shadow-sm'
-                  : 'bg-bg-card border-bg-border hover:border-dna-500/25'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Icon size={15} className={captureMode === id ? 'text-dna-500' : 'text-gray-400'} />
-                <span className={`text-sm font-semibold ${captureMode === id ? 'text-dna-500' : 'text-white'}`}>
-                  {label}
-                </span>
-              </div>
-            </button>
-          ))}
-        </motion.div>
-      )}
-
-      {!selectedFile && captureMode === 'photo' && (
-        <DocumentScanner
-          subtitle="Take a photo — it goes straight into Protect → Vault"
-          captureMode="single"
-          quickCapture
-          onScanComplete={handleFileReady}
-          onCancel={() => setCaptureMode('upload')}
-        />
-      )}
-
-      {!selectedFile && captureMode === 'scan' && (
-        <DocumentScanner
-          subtitle="Scan pages into a protected PDF"
-          captureMode="multi"
-          onScanComplete={handleFileReady}
-          onCancel={() => setCaptureMode('upload')}
-        />
-      )}
-
-      {!selectedFile && captureMode === 'video' && (
-        <MediaRecorderPanel mode="video" onComplete={handleFileReady} onCancel={() => setCaptureMode('upload')} />
-      )}
-
-      {!selectedFile && captureMode === 'audio' && (
-        <MediaRecorderPanel mode="audio" onComplete={handleFileReady} onCancel={() => setCaptureMode('upload')} />
-      )}
-
-      {!selectedFile && captureMode === 'upload' && (
-        <motion.div initial={{ opacity: 0, scale: 0.98 }} animate={{ opacity: 1, scale: 1 }}>
-          <div
-            {...getRootProps()}
-            className={`
-              relative rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-300 overflow-hidden
-              ${isDragActive
-                ? 'border-dna-500 bg-dna-500/10 glow-purple'
-                : 'border-bg-border bg-bg-card hover:border-dna-500/50 hover:bg-bg-card/80'
-              }
-            `}
-          >
-            <input {...getInputProps()} />
-            <div className="flex flex-col items-center justify-center py-14 px-6">
-              {isDragActive ? (
-                <>
-                  <FileUp size={48} className="text-dna-400 mb-3" />
-                  <p className="text-dna-400 font-semibold">Drop file here</p>
-                </>
-              ) : (
-                <>
-                  <div className="w-16 h-16 rounded-2xl bg-dna-500/10 flex items-center justify-center mb-4">
-                    <Upload size={28} className="text-dna-400" />
-                  </div>
-                  <p className="text-white font-semibold text-lg mb-1">Drag & drop any asset</p>
-                  <p className="text-gray-500 text-sm">or click here to browse</p>
-                  <p className="text-gray-500 text-xs mt-3 text-center max-w-sm">
-                    Any file size. Protection uses your Vault storage
-                    {storageRemaining != null ? ` — ${formatBytes(storageRemaining)} available` : ''}.
-                  </p>
-                </>
-              )}
-            </div>
-          </div>
+        <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="mx-auto max-w-[440px]">
+          <ProtectCaptureStudio onFileReady={handleFileReady} />
         </motion.div>
       )}
 
@@ -288,6 +164,11 @@ export function UploadZone({ onFileSelected, onGenerate, selectedFile }: Props) 
               <div className="flex items-center gap-2 mb-1">
                 <p className="text-dna-400 font-semibold text-sm">Ready to Generate</p>
                 <span className="mono text-xs bg-dna-500/20 text-dna-400 px-2 py-0.5 rounded">{fileLabel}</span>
+                <span className="mono text-xs bg-white/10 text-white/80 px-2 py-0.5 rounded">
+                  {readProtectMethod(selectedFile) === 'Upload'
+                    ? 'Will be recorded as uploaded'
+                    : 'Will be recorded as PINIT camera capture'}
+                </span>
               </div>
 
               {renaming ? (

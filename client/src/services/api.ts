@@ -75,7 +75,19 @@ async function postMultipart<T>(url: string, form: FormData, timeoutMs: number):
  */
 export async function generateDna(
   file: File,
-  options?: { locationShared?: boolean; latitude?: number; longitude?: number },
+  options?: {
+    locationShared?: boolean;
+    latitude?: number;
+    longitude?: number;
+    gpsAccuracy?: number;
+    timezone?: string;
+    captureMethod?: string;
+    deviceModel?: string;
+    software?: string;
+    capturedAt?: string;
+    width?: number;
+    height?: number;
+  },
 ): Promise<GenerateDnaResponse> {
   const form = new FormData();
   form.append('image', file);
@@ -83,7 +95,15 @@ export async function generateDna(
     form.append('locationShared', 'true');
     form.append('gpsLat', String(options.latitude));
     form.append('gpsLng', String(options.longitude));
+    if (options.gpsAccuracy != null) form.append('gpsAccuracy', String(options.gpsAccuracy));
   }
+  if (options?.timezone) form.append('timezone', options.timezone);
+  if (options?.captureMethod) form.append('captureMethod', options.captureMethod);
+  if (options?.deviceModel) form.append('deviceModel', options.deviceModel);
+  if (options?.software) form.append('software', options.software);
+  if (options?.capturedAt) form.append('capturedAt', options.capturedAt);
+  if (options?.width) form.append('imageWidth', String(options.width));
+  if (options?.height) form.append('imageHeight', String(options.height));
 
   try {
     return await postMultipart<GenerateDnaResponse>(

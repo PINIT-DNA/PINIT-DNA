@@ -57,11 +57,16 @@ function htmlShareFileName(originalName: string): string {
   return `${base}.html`;
 }
 
-/**
- * Prepare the attachment for Share File:
- * - HTML → same filename, redirect injected so open → Pinit page
- * - Other → HTML launcher file (still a file, not a chat link) that opens Pinit
- */
+/** Original bytes + type so the OS share sheet lists gallery-style apps. */
+export function fileFromVaultBlob(
+  source: Blob,
+  originalFileName: string,
+  originalMimeType?: string | null,
+): File {
+  const type = originalMimeType || source.type || 'application/octet-stream';
+  return new File([source], originalFileName, { type });
+}
+
 export async function buildShareFileAttachment(params: {
   source: Blob;
   originalFileName: string;

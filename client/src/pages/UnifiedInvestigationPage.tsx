@@ -13,6 +13,7 @@ import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
 import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
 import { InvestigationCompositionPanel } from '../components/InvestigationCompositionPanel';
 import { VideoCompositionPanel } from '../components/VideoCompositionPanel';
+import { IntelligenceCoreVisual } from '../components/intelligence/IntelligenceCoreVisual';
 import type { SpatialInvestigationViewModel, SpatialHierarchyViewModel } from '../components/SpatialAuthInvestigationPanel';
 import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
 import {
@@ -247,6 +248,14 @@ interface InvestigationReport {
       dnaC: { present: boolean; role: string };
     };
   };
+  cameraForensics?: {
+    fingerprintId: string | null;
+    correlation: number | null;
+    quality: number;
+    qualityStatus: string;
+    sameCameraCandidates: Array<{ dnaRecordId: string; fingerprintId: string; correlation: number }>;
+    disclaimer: string;
+  } | null;
   timeline: Array<{ stage: string; timestamp?: string; detail?: string }>;
   evidenceTimeline?: Array<{
     id: string;
@@ -529,8 +538,8 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   ];
 
   const validateInvestigationFile = (f: File): string | null => {
-    if (!f.size) return 'Selected file is empty.';
-    if (f.size > MAX_UPLOAD_BYTES) return 'File is too large (max 100 MB).';
+    if (!f.size) return 'Selected asset is empty.';
+    if (f.size > MAX_UPLOAD_BYTES) return 'Asset is too large (max 100 MB).';
     const okPrefix = f.type.startsWith('image/')
       || f.type.startsWith('video/')
       || f.type.startsWith('audio/')
@@ -547,7 +556,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
     const ext = f.name.split('.').pop()?.toLowerCase() ?? '';
     const okExt = INVESTIGATION_EXTS.includes(ext);
     if (!okPrefix && !okExt) {
-      return 'Unsupported file type. Upload image, PDF, DOCX, PPTX, XLSX, TXT, CSV, video, audio, or ZIP.';
+      return 'Unsupported asset type. Upload image, PDF, DOCX, PPTX, XLSX, TXT, CSV, video, audio, or ZIP.';
     }
     return null;
   };
@@ -689,7 +698,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   const totalSteps = pipeline.length || 16;
 
   return (
-    <div className="page-shell w-full max-w-5xl space-y-6 min-w-0">
+    <div className="page-shell w-full max-w-6xl space-y-6 min-w-0">
       {contextVaultId && (
         <div className="rounded-xl border border-dna-500/30 bg-dna-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -724,30 +733,20 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
       )}
 
       {!report && !investigating && (
-        <div className="flex gap-2">
+        <div className="aiw-tabs aiw-fade-up">
           <button
             type="button"
             onClick={() => { setMode('upload'); }}
-            className={cn(
-              'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2',
-              mode === 'upload'
-                ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
-                : 'bg-bg-elevated text-gray-400 border border-bg-border',
-            )}
+            className={cn('aiw-tab', mode === 'upload' && 'aiw-tab--active')}
           >
-            <Upload size={14} /> Upload File
+            <Upload size={14} /> Upload Asset
           </button>
           <button
             type="button"
             onClick={() => { setMode('scan'); setFile(null); setError(null); setScannerKey((k) => k + 1); }}
-            className={cn(
-              'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2',
-              mode === 'scan'
-                ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
-                : 'bg-bg-elevated text-gray-400 border border-bg-border',
-            )}
+            className={cn('aiw-tab', mode === 'scan' && 'aiw-tab--active')}
           >
-            <ScanLine size={14} /> Scan Document
+            <ScanLine size={14} /> Asset Scan
           </button>
         </div>
       )}
@@ -757,7 +756,8 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className="card border-2 border-dashed text-center py-12 cursor-pointer hover:border-dna-500/50 border-bg-border transition-colors"
+          className="aiw-dropzone aiw-fade-up"
+          style={{ animationDelay: '60ms' }}
         >
           <input
             ref={inputRef}
@@ -770,9 +770,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               e.target.value = '';
             }}
           />
-          <Upload size={32} className="text-gray-500 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">Drop a suspected file here or click to upload</p>
-          <p className="text-2xs text-gray-600 mt-1">
+          <div className="aiw-dropzone-icon"><Upload size={22} /></div>
+          <p className="text-sm font-semibold text-slate-600">Drop a suspected asset here or click to upload</p>
+          <p className="text-2xs text-gray-500 mt-1.5">
             Image · PDF · DOCX · PPTX · XLSX · TXT/CSV · Video · Audio · ZIP — runs automatically
           </p>
         </div>
@@ -786,6 +786,47 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           onCaptureError={handleScanCaptureError}
           onCancel={() => { setMode('upload'); handleReset(); }}
         />
+      )}
+
+      {!report && !investigating && (
+        <div className="aiw-panel aiw-fade-up" style={{ animationDelay: '120ms' }}>
+          <div className="aiw-panel-grid">
+            <IntelligenceCoreVisual />
+            <div>
+              <p className="text-xs font-bold text-dna-500 uppercase tracking-wider mb-1">AI asset intelligence</p>
+              <h2 className="text-lg font-bold text-slate-800 mb-1">AI intelligence ready</h2>
+              <p className="text-sm text-gray-500 max-w-md leading-relaxed mb-4">
+                Upload an asset above to begin analysis — Pinit AI inspects, compares, and reports back
+                through the stages below.
+              </p>
+              <div className="aiw-pipeline mb-5">
+                {['Upload', 'Inspect', 'Compare', 'Intelligence'].map((step, i, arr) => (
+                  <div key={step} className="flex items-center">
+                    <span className="aiw-pipeline-step">
+                      <span className="aiw-pipeline-dot" />
+                      {step}
+                    </span>
+                    {i < arr.length - 1 && <span className="aiw-pipeline-arrow" aria-hidden="true" />}
+                  </div>
+                ))}
+              </div>
+              <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">What this checks</p>
+              <div className="aiw-checks">
+                {[
+                  { label: 'Ownership confidence', color: '#2f7cf6' },
+                  { label: 'DNA match', color: '#8b5cf6' },
+                  { label: 'Tamper analysis', color: '#f59e0b' },
+                  { label: 'History & leaks', color: '#16a34a' },
+                ].map((c) => (
+                  <span key={c.label} className="aiw-check">
+                    <span className="aiw-check-dot" style={{ background: c.color }} />
+                    {c.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {error && !investigating && (
@@ -890,7 +931,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               // Same honesty rule as the NO_SIGNATURE case above: don't let a coincidental
               // visual-similarity score read as "this is a protected asset".
               <p className="text-xs text-slate-600 mt-2 max-w-prose">
-                No valid protection signature was found in this file — only a weak visual
+                No valid protection signature was found in this asset — only a weak visual
                 similarity to something in your vault, which can happen by coincidence.
                 Treat this as unverified, not as a confirmed protected asset.
               </p>
@@ -998,7 +1039,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
             </div>
             {resolvedOwner.vaultId && (
               <p className="text-2xs text-gray-500 mt-3">
-                Vault and DNA IDs are stored with the matched asset. If this file was licensed on Exchange,
+                Vault and DNA IDs are stored with the matched asset. If this asset was licensed on Exchange,
                 order and license IDs are on the Hub share row (`sourceContext = exchange_license`) and appear
                 in owner Asset Activity — not on the public viewer.
                 {' '}
@@ -1100,8 +1141,8 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   'Vault ID': resolvedOwner.vaultId,
                   'DNA Record ID': resolvedOwner.dnaRecordId,
                   'Certificate ID': resolvedOwner.certificateId,
-                  'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
-                  'Original Assetname': resolvedOwner.originalFilename,
+                  'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this asset',
+                  'Original asset name': resolvedOwner.originalFilename,
                   'Created': report.owner.createdAt
                     ?? report.identityRecoveryReport?.registrationTimestamp
                     ?? null,
@@ -1117,7 +1158,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               <Section title="Vault Match" icon={User}>
                 <p className="text-sm text-red-400">Not found under your account — no vault owner details to display.</p>
                 <p className="text-xs text-gray-500 mt-1">
-                  This only checks your own protected files. It does not confirm the file is free to use.
+                  This only checks your own protected assets. It does not confirm the asset is free to use.
                 </p>
                 {report.summary.decisionReason && (
                   <p className="text-xs text-gray-500 mt-2">{report.summary.decisionReason}</p>
@@ -1390,7 +1431,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                   )}
                   {(report.relatedLineage?.edges?.length ?? 0) > 0 && (
                     <div className="space-y-1.5 mt-2">
-                      <p className="text-2xs font-semibold text-gray-400 uppercase">Related files ({report.relatedLineage!.edges.length})</p>
+                      <p className="text-2xs font-semibold text-gray-400 uppercase">Related assets ({report.relatedLineage!.edges.length})</p>
                       {report.relatedLineage!.edges.slice(0, 8).map((e) => {
                         const otherId = e.fromId === resolvedOwner.dnaRecordId ? e.toId : e.fromId;
                         const otherNode = report.relatedLineage!.nodes.find((n) => n.dnaRecordId === otherId);
@@ -1648,13 +1689,13 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                     'Vault ID': resolvedOwner.vaultId,
                     'DNA ID': resolvedOwner.dnaRecordId,
                     'Certificate ID': resolvedOwner.certificateId,
-                    'Original Assetname': resolvedOwner.originalFilename,
+                    'Original asset name': resolvedOwner.originalFilename,
                     'Original Hash': report.identityRecoveryReport?.originalHash,
                     'Current Hash': report.identityRecoveryReport?.currentHash ?? report.currentFileHash,
                     'Evidence Confidence': report.identityRecoveryReport?.evidenceConfidence != null
                       ? `${report.identityRecoveryReport.evidenceConfidence}%`
                       : `${displayMatchScore}%`,
-                    'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this file',
+                    'TEP Code': report.identityRecoveryReport?.tepCode ?? 'Not embedded on this asset',
                     'Protected Download': report.identityRecoveryReport?.protectedDownloadDate
                       ? new Date(report.identityRecoveryReport.protectedDownloadDate).toLocaleString()
                       : report.identityRecoveryReport?.tepCode
@@ -1701,10 +1742,10 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 // that, rather than implying a step was missed.
                 <p className="text-xs text-gray-500">
                   {report.matchMethod
-                    ? `Not needed — this file was identified by its embedded Pinit identity (${report.matchMethod}), `
-                      + 'which proves origin without comparing layers. Layer analysis runs when a file has to be '
+                    ? `Not needed — this asset was identified by its embedded Pinit identity (${report.matchMethod}), `
+                      + 'which proves origin without comparing layers. Layer analysis runs when an asset has to be '
                       + 'matched against the vault original by content.'
-                    : 'No layer comparison ran — this file was not matched against a vault original.'}
+                    : 'No layer comparison ran — this asset was not matched against a vault original.'}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -1739,6 +1780,33 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
                 </div>
               )}
             </Section>
+
+            {report.cameraForensics && (
+              <Section title="Camera Forensics (PRNU)" icon={Fingerprint} defaultOpen={false}>
+                <p className="text-xs text-gray-400 mb-3 leading-relaxed">
+                  {report.cameraForensics.qualityStatus === 'INSUFFICIENT'
+                    ? 'Insufficient PRNU quality — inconclusive, not treated as a different camera.'
+                    : report.cameraForensics.correlation != null && report.cameraForensics.correlation >= 0.32
+                      ? `Camera relationship: consistent with enrolled profile ${report.cameraForensics.fingerprintId ?? 'CAM-'}. This does not identify a PINIT user.`
+                      : 'Camera-sensor estimate recorded as supporting evidence only. Same PRNU without a content/ownership match does not mean the same asset or user.'}
+                </p>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                  <div>
+                    <dt className="text-gray-500">Camera fingerprint</dt>
+                    <dd className="text-white mono break-all">{report.cameraForensics.fingerprintId || 'Not recorded'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">PRNU correlation</dt>
+                    <dd className="text-white mono">{report.cameraForensics.correlation ?? '—'}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-gray-500">Quality</dt>
+                    <dd className="text-white">{report.cameraForensics.qualityStatus} · {report.cameraForensics.quality}</dd>
+                  </div>
+                </dl>
+                <p className="text-2xs text-gray-500 mt-3 leading-relaxed">{report.cameraForensics.disclaimer}</p>
+              </Section>
+            )}
 
             <Section title="Identity Proof" icon={Fingerprint} defaultOpen={false}>
               {hasVaultMatch && (

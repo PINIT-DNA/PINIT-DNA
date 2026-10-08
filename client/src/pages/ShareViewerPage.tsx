@@ -25,7 +25,8 @@ import {
   type GpsCapture,
 } from '../lib/precise-gps';
 import * as docxPreview from 'docx-preview';
-import { formatTextAsDocument, DOCUMENT_STYLES } from '../utils/document-formatter';
+import { attachShareCaptureGuards } from '../lib/share-capture-guards';
+import { DOCUMENT_STYLES, formatTextAsDocument } from '../utils/document-formatter';
 import { createPinitFile, downloadPinitCarrier, sharePinitFile } from '../lib/download-pinit';
 
 interface LinkInfo {
@@ -57,6 +58,8 @@ interface LinkInfo {
   locationAlreadyShared?: boolean;
   sourceContext?:         string | null;
   licenseTier?:           string | null;
+  linkType?:              string | null;
+  livingPage?:            boolean;
 }
 
 // Generate a session ID for grouping events
@@ -219,6 +222,8 @@ export function ShareViewerPage() {
   const nameRef = useRef('');
   useEffect(() => { nameRef.current = name; }, [name]);
   const viewedSentRef = useRef(false);
+  const locationDoneRef = useRef(false);
+  useEffect(() => { locationDoneRef.current = locationDone; }, [locationDone]);
 
   // ── OTP / email-verification gate state ───────────────────────────────────
   const [otp, setOtp]               = useState('');
@@ -257,7 +262,14 @@ export function ShareViewerPage() {
       },
     })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .then(({ data }) => setInfo((data as any).link))
+      .then(({ data }) => {
+        const link = (data as { link?: LinkInfo }).link;
+        if (link?.livingPage && token && !window.location.pathname.endsWith('/live')) {
+          window.location.replace(`/s/${encodeURIComponent(token)}/live`);
+          return;
+        }
+        setInfo(link ?? null);
+      })
       .catch((err) => {
         const status = (err as { response?: { status?: number; data?: { error?: string; code?: string } } })?.response?.status;
         const apiErr = (err as { response?: { data?: { error?: string; code?: string } } })?.response?.data;
@@ -266,7 +278,7 @@ export function ShareViewerPage() {
         } else if (status === 403) {
           setError('NO_ACCESS');
         } else if (status === 404) {
-          setError('UNAVAILABLE');
+          setError('NOT_FOUND');
         } else {
           const raw = apiErr?.error || '';
           setError(/bridge token|expired Exchange/i.test(raw) ? 'NO_ACCESS' : 'UNAVAILABLE');
@@ -337,9 +349,8 @@ export function ShareViewerPage() {
     if (info.requireName && !nameSubmitted) return;
     if (info.requireOtp && !info.otpVerified && !otpVerifiedLocal) return;
     if (!info.isActive) return;
-    if (info.requestLocation && !locationDone) return;
     setTrackingReady(true);
-  }, [info, nameSubmitted, otpVerifiedLocal, trackingReady, locationDone]);
+  }, [info, nameSubmitted, otpVerifiedLocal, trackingReady]);
 
   // ── Attach all behavioral tracking listeners (runs exactly once) ──────────
   useEffect(() => {
@@ -390,7 +401,7 @@ export function ShareViewerPage() {
           sessionStorage.setItem('pinit_hop_from', token);
           sessionStorage.setItem('pinit_hop_to', next);
         } catch { /* ignore */ }
-        window.location.replace(`/s/${next}`);
+        window.location.replace(info?.livingPage ? `/s/${next}/live` : `/s/${next}`);
       }
     };
 
@@ -463,12 +474,6 @@ export function ShareViewerPage() {
       });
     };
 
-    // Wait for the best GPS we can get before VIEWED so Access Intelligence shows
-    // village-level fix — shorter wait after hop redirect so forwards still register.
-    const sendViewed = () => {
-      viewedSentRef.current = true;
-      void track('VIEWED');
-    };
     try {
       const hopTo = sessionStorage.getItem('pinit_hop_to');
       if (hopTo && token && hopTo === token) {
@@ -476,7 +481,27 @@ export function ShareViewerPage() {
         sessionStorage.removeItem('pinit_hop_from');
       }
     } catch { /* ignore */ }
-    sendViewed();
+
+    // VIEWED still waits for GPS when the owner asked for it. Copy/screenshot
+    // listeners are already attached so a phone screenshot is not lost behind
+    // the location prompt.
+    let viewedWait: ReturnType<typeof setInterval> | null = null;
+    const sendViewed = () => {
+      if (viewedSentRef.current) return;
+      viewedSentRef.current = true;
+      if (viewedWait) {
+        clearInterval(viewedWait);
+        viewedWait = null;
+      }
+      void track('VIEWED');
+    };
+    if (!info?.requestLocation || locationDoneRef.current) {
+      sendViewed();
+    } else {
+      viewedWait = setInterval(() => {
+        if (locationDoneRef.current) sendViewed();
+      }, 250);
+    }
 
     // ── Mouse activity / idle detection ───────────────────────────────────
     // Fires IDLE once after 60s of no mouse/keyboard/scroll activity, and
@@ -524,77 +549,12 @@ export function ShareViewerPage() {
     };
     window.addEventListener('scroll', onScroll, { passive: true });
 
-    // ── Copy attempt detection ─────────────────────────────────────────────
-    // Desktop: Ctrl/Cmd+C. Mobile: long-press Copy / cut (capture phase so
-    // select-none on the overlay does not swallow the event).
-    const copyCooldown = { last: 0 };
-    const screenshotCooldown = { last: 0 };
-    const onCopy = () => {
-      const now = Date.now();
-      if (now - copyCooldown.last < 1000) return;
-      copyCooldown.last = now;
-      track('COPY_ATTEMPT');
-    };
-    document.addEventListener('copy', onCopy, true);
-    document.addEventListener('cut', onCopy, true);
+    const detachCaptureGuards = attachShareCaptureGuards((action) => {
+      void track(action);
+    });
 
-    // ── Keyboard-based detection: copy, screenshot, devtools ──────────────
-    const onKeyDown = (e: KeyboardEvent) => {
-      const now = Date.now();
-      const key = e.key?.toLowerCase?.() ?? '';
-
-      // Ctrl+C / Cmd+C — copy shortcut
-      const isCopyShortcut = (e.ctrlKey || e.metaKey) && key === 'c';
-      if (isCopyShortcut && now - copyCooldown.last > 1000) {
-        copyCooldown.last = now;
-        track('COPY_ATTEMPT');
-      }
-
-      // Screenshot shortcuts ONLY — an actual screen-capture key combination.
-      //
-      // Deliberately NOT treated as screenshots (they were, and produced false
-      // "screenshot attempt" entries against viewers who never took one):
-      //   F12 / Ctrl+Shift+I  → DevTools, a different action entirely
-      //   Ctrl+Shift+S        → not a Windows capture shortcut (that is Win+Shift+S,
-      //                         which arrives as metaKey+shift+s and is matched below)
-      const isScreenshot =
-        e.key === 'PrintScreen' ||
-        (e.metaKey && e.shiftKey && ['3', '4', '5', 's'].includes(key)) || // Mac Cmd+Shift+3/4/5, Win+Shift+S
-        (e.metaKey && key === 'printscreen');                              // Win+PrtScn
-      if (isScreenshot && now - screenshotCooldown.last > 1000) {
-        screenshotCooldown.last = now;
-        track('SCREENSHOT_ATTEMPT');
-        // Cmd/Win+Shift+5 is also the OS screen-recording picker on macOS/Windows.
-        if (e.metaKey && e.shiftKey && key === '5') track('SCREEN_RECORDING_ATTEMPT');
-      }
-
-      // Win+Alt+R (Xbox Game Bar) / Alt+R with Windows key
-      const isRecordingShortcut =
-        (e.altKey && (e.metaKey || e.ctrlKey) && key === 'r')
-        || (e.altKey && e.shiftKey && key === 'r');
-      if (isRecordingShortcut && now - screenshotCooldown.last > 1000) {
-        screenshotCooldown.last = now;
-        track('SCREEN_RECORDING_ATTEMPT');
-      }
-    };
-    document.addEventListener('keydown', onKeyDown);
-
-    // PrintScreen frequently only emits a `keyup` event (no keydown) on
-    // Windows — listen there too as a fallback.
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'PrintScreen') {
-        const now = Date.now();
-        if (now - screenshotCooldown.last > 1000) {
-          screenshotCooldown.last = now;
-          track('SCREENSHOT_ATTEMPT');
-        }
-      }
-    };
-    document.addEventListener('keyup', onKeyUp);
-
-    // ── Tab switch / visibility change ────────────────────────────────────
-    // Mobile hardware screenshots do not emit PrintScreen. iOS/Android often
-    // flash `hidden` for a few hundred ms; a longer hide is an app switch.
+    // Tab switch only — never treat a hide as a screenshot on desktop/Android.
+    // iOS hardware screenshots are handled inside attachShareCaptureGuards.
     let hiddenAt = 0;
     const onVisibility = () => {
       if (document.hidden) {
@@ -604,15 +564,7 @@ export function ShareViewerPage() {
       }
       const dur = hiddenAt ? Date.now() - hiddenAt : 0;
       hiddenAt = 0;
-      if (isMobile && dur > 40 && dur < 800) {
-        const now = Date.now();
-        if (now - screenshotCooldown.last > 1000) {
-          screenshotCooldown.last = now;
-          track('SCREENSHOT_ATTEMPT');
-        }
-      } else if (isMobile && dur >= 800) {
-        track('TAB_SWITCH');
-      }
+      if (isMobile && dur >= 800) track('TAB_SWITCH');
       flushQueued();
     };
     document.addEventListener('visibilitychange', onVisibility);
@@ -629,58 +581,13 @@ export function ShareViewerPage() {
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('online', flushQueued);
 
-    // ── Removed: the "brief window blur = OS screenshot" heuristic.
-    //
-    // A sub-100ms blur/focus cycle is produced by far more than screen capture:
-    // alt-tabbing, a notification toast stealing focus, clicking browser chrome,
-    // an OS dialog, even normal focus churn. It cannot distinguish those from a
-    // screenshot, so it reported SCREENSHOT_ATTEMPT against viewers who never
-    // took one — and those false hits then fed "multiple suspicious attempts"
-    // and "high event velocity", inflating the risk score off a single bad signal.
-    //
-    // Only real capture keystrokes are recorded now (see isScreenshot above).
-    // Genuine OS-level captures that emit no key event are simply not detectable
-    // from a web page; claiming otherwise is worse than not reporting it.
-
-    // ── Print detection ───────────────────────────────────────────────────
-    // `beforeprint` doesn't fire reliably in every browser for Ctrl+P —
-    // also hook matchMedia('print') as a cross-browser fallback.
-    const onPrint = () => track('PRINT_ATTEMPT');
-    window.addEventListener('beforeprint', onPrint);
-
-    let mql: MediaQueryList | null = null;
-    const onPrintMql = (e: MediaQueryListEvent) => { if (e.matches) track('PRINT_ATTEMPT'); };
-    try {
-      mql = window.matchMedia('print');
-      mql.addEventListener?.('change', onPrintMql);
-    } catch { /* not supported — ignore */ }
-
-    // Best-effort: this origin started a display capture (cannot see OS-level
-    // recording of other apps). Still useful when a viewer records via browser APIs.
-    let displayPerm: PermissionStatus | null = null;
-    const onDisplayCapture = () => {
-      if (displayPerm?.state === 'granted') track('SCREEN_RECORDING_ATTEMPT');
-    };
-    try {
-      void navigator.permissions?.query({ name: 'display-capture' as PermissionName }).then((status) => {
-        displayPerm = status;
-        status.addEventListener('change', onDisplayCapture);
-        if (status.state === 'granted') onDisplayCapture();
-      }).catch(() => {});
-    } catch { /* PermissionName not supported */ }
-
     return () => {
+      if (viewedWait) clearInterval(viewedWait);
       window.removeEventListener('scroll', onScroll);
-      document.removeEventListener('copy', onCopy, true);
-      document.removeEventListener('cut', onCopy, true);
-      document.removeEventListener('keydown', onKeyDown);
-      document.removeEventListener('keyup', onKeyUp);
+      detachCaptureGuards();
       document.removeEventListener('visibilitychange', onVisibility);
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('online', flushQueued);
-      window.removeEventListener('beforeprint', onPrint);
-      mql?.removeEventListener?.('change', onPrintMql);
-      displayPerm?.removeEventListener?.('change', onDisplayCapture);
       if (idleTimer) clearTimeout(idleTimer);
       for (const evt of activityEvents) document.removeEventListener(evt, resetIdle);
     };
@@ -970,23 +877,35 @@ export function ShareViewerPage() {
   // ── Error ──────────────────────────────────────────────────────────────────
   if (error || !info) {
     const noAccess = error === 'NO_ACCESS';
+    const notFound = error === 'NOT_FOUND' || !error;
+    const backendWait = Boolean(error && error !== 'NO_ACCESS' && error !== 'NOT_FOUND' && error !== 'UNAVAILABLE');
+    const title = noAccess
+      ? 'You don\'t have access to this file.'
+      : notFound
+        ? 'This share is not on this Hub'
+        : backendWait
+          ? 'Hub is starting'
+          : 'Link unavailable';
+    const detail = noAccess
+      ? 'You don\'t have access to this file.'
+      : notFound
+        ? 'A .pinit file only points at a share token. That token is not registered here. Use Share File on this same Hub, then drop the new .pinit on /open.'
+        : backendWait
+          ? error
+          : 'This sharing link has expired or is no longer available.';
     return (
     <div className="min-h-screen bg-bg-base flex items-center justify-center">
       <div className="text-center max-w-sm mx-auto p-6">
-        <div className="w-16 h-16 bg-danger/10 rounded-full flex items-center justify-center mx-auto mb-4">
-          <AlertTriangle size={28} className="text-danger" />
-        </div>
-        <h1 className="text-white font-bold text-lg mb-2">
-          {noAccess ? 'You don\'t have access to this file.' : 'Link unavailable'}
-        </h1>
-        <p className="text-gray-400 text-sm">
+        <div className={`w-16 h-16 ${noAccess ? 'bg-danger/10' : 'bg-warning/10'} rounded-full flex items-center justify-center mx-auto mb-4`}>
           {noAccess
-            ? 'You don\'t have access to this file.'
-            : 'This sharing link has expired or is no longer available.'}
-        </p>
-        <button type="button" className="btn btn-secondary btn-sm mt-4" onClick={() => window.close()}>
-          Close
-        </button>
+            ? <AlertTriangle size={28} className="text-danger" />
+            : <Ban size={28} className="text-warning" />}
+        </div>
+        <h1 className="text-white font-bold text-lg mb-2">{title}</h1>
+        <p className="text-gray-400 text-sm">{detail}</p>
+        <a href="/open" className="btn btn-secondary btn-sm mt-4 inline-flex">
+          Open another .pinit
+        </a>
       </div>
     </div>
     );
@@ -1158,63 +1077,48 @@ export function ShareViewerPage() {
       );
     };
 
+    const host = window.location.host;
     return (
-      <div className="min-h-screen bg-[#f1f3f4] relative overflow-hidden">
-        {/* Soft page behind prompt (like a blank tab) */}
-        <div className="absolute inset-0 flex flex-col items-center pt-28 px-4 opacity-40 pointer-events-none select-none">
-          <div className="w-10 h-10 rounded-xl bg-violet-600/20 mb-3" />
-          <div className="h-3 w-40 bg-slate-300 rounded mb-2" />
-          <div className="h-2 w-56 bg-slate-200 rounded" />
-        </div>
-
-        {/* Chrome-like permission bubble — top center */}
-        <div className="relative z-10 flex justify-center pt-3 px-3 sm:pt-4 sm:justify-start sm:pl-4">
+      <div className="min-h-screen bg-[#f1f3f4]">
+        <div className="flex justify-start pt-3 px-3 sm:pt-4 sm:pl-4">
           <div
-            className="w-full max-w-[360px] rounded-lg bg-white shadow-[0_1px_3px_rgba(60,64,67,0.3),0_4px_8px_3px_rgba(60,64,67,0.15)] border border-black/[0.08]"
+            className="w-[min(100%,360px)] rounded-lg bg-white shadow-[0_1px_3px_rgba(60,64,67,0.3),0_4px_8px_3px_rgba(60,64,67,0.15)] border border-black/[0.08]"
             role="dialog"
             aria-labelledby="loc-perm-title"
-            aria-describedby="loc-perm-desc"
           >
-            <div className="px-4 pt-3.5 pb-1">
-              <p id="loc-perm-title" className="text-[14px] text-[#202124] font-medium">
-                This file needs your location to open
+            <div className="px-4 pt-3.5">
+              <p id="loc-perm-title" className="text-[14px] text-[#202124] font-normal leading-snug">
+                <span className="font-medium">{host}</span> wants to
+                <br />
+                Know your location
               </p>
-              <p id="loc-perm-desc" className="text-[13px] text-[#5f6368] mt-1 leading-snug">
-                The owner made location a condition of access. Your approximate
-                coordinates are recorded once, with the time and device, and are
-                visible only to them.
-              </p>
-
               {locationUnsupported ? (
-                <p className="text-[12px] text-[#d93025] mt-2 leading-snug">
-                  This browser cannot provide a location, so the link cannot be opened
-                  here. Try another browser or device.
-                </p>
+                <p className="text-[12px] text-[#d93025] mt-2">Location isn’t available in this browser.</p>
               ) : locationDenied ? (
-                <p className="text-[12px] text-[#d93025] mt-2 leading-snug">
-                  Location is blocked for this site. Allow it from the icon in your
-                  address bar, then choose Share location again.
-                </p>
+                <p className="text-[12px] text-[#d93025] mt-2">Location was blocked. Allow it in the address bar to continue.</p>
               ) : locationFailed ? (
-                <p className="text-[12px] text-[#b06000] mt-2 leading-snug">
-                  Your location did not come through. Check that location services are
-                  on, then try again.
-                </p>
+                <p className="text-[12px] text-[#b06000] mt-2">Couldn’t get location. Try again.</p>
               ) : null}
             </div>
-
-            <div className="flex items-center justify-end px-2 pb-2 pt-1.5">
+            <div className="flex items-center justify-end gap-1 px-2 pb-2 pt-2">
+              <button
+                type="button"
+                disabled={locationAsked || locationUnsupported}
+                onClick={() => {
+                  setLocationAsked(false);
+                  setLocationDenied(true);
+                }}
+                className="h-9 px-3.5 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
+              >
+                Block
+              </button>
               <button
                 type="button"
                 disabled={locationAsked || locationUnsupported}
                 onClick={handleAllow}
                 className="h-9 px-3.5 rounded text-[13px] font-medium text-[#1a73e8] hover:bg-[#f1f3f4] disabled:opacity-50"
               >
-                {locationAsked
-                  ? 'Getting location…'
-                  : locationDenied || locationFailed
-                    ? 'Try again'
-                    : 'Share location and open'}
+                {locationAsked ? '…' : 'Allow'}
               </button>
             </div>
           </div>
@@ -1453,7 +1357,8 @@ export function ShareViewerPage() {
         ) : isImage ? (
           <img
             src={fileUrl} alt={info.filename}
-            className="max-w-full max-h-[80vh] object-contain rounded-xl shadow-2xl"
+            className="max-w-full max-h-[80vh] w-auto h-auto object-contain rounded-xl shadow-2xl"
+            style={{ imageRendering: 'auto' }}
             draggable={false}
             onDragStart={e => e.preventDefault()}
           />

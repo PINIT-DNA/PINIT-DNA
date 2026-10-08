@@ -872,7 +872,7 @@ export async function downloadEvidencePackageZip(
 
   zip.file(
     'Screenshots/README.txt',
-    'Screenshot artifacts are captured client-side during Scan Document mode.\n',
+    'Screenshot artifacts are captured client-side during Asset Scan mode.\n',
   );
 
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });

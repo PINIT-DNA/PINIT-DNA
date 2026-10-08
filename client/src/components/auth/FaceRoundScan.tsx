@@ -9,21 +9,31 @@ import type { FacePadEvidence } from '../../lib/face-api-client';
 interface FaceRoundScanProps {
   title?: string;
   mode?: 'register' | 'login';
+  claimedShortId?: string;
+  scanAttempts?: number;
+  identityError?: string;
+  onClearIdentity?: () => void;
   onEmbedding: (emb: number[]) => void;
   onPadEvidence?: (evidence: FacePadEvidence) => void;
+  onLightingSample?: (status: string, average: number) => void;
   onCapture?: (img: string | null) => void;
   onNext: () => void;
   onError: (msg: string) => void;
+  onScanStart?: () => void;
 }
 
 /** Round-camera face scan with server-issued liveness challenge. */
 export function FaceRoundScan({
   title = 'Face Enrollment',
+  mode = 'register',
+  identityError,
+  onClearIdentity,
   onEmbedding,
   onPadEvidence,
   onCapture,
   onNext,
   onError,
+  onScanStart,
 }: FaceRoundScanProps) {
   const [scanning, setScanning] = useState(false);
   const [camReady, setCamReady] = useState(false);
@@ -38,6 +48,7 @@ export function FaceRoundScan({
   async function runCapture(video: HTMLVideoElement) {
     if (scanningRef.current) return;
     scanningRef.current = true;
+    onScanStart?.();
     setScanning(true);
     setProgress(0);
     try {
@@ -61,6 +72,11 @@ export function FaceRoundScan({
     videoRef.current = el;
     setCamReady(Boolean(el && el.videoWidth > 0));
   }
+
+  useEffect(() => {
+    if (mode !== 'login' || !camReady || !videoRef.current || scanningRef.current || done) return;
+    void runCapture(videoRef.current);
+  }, [mode, camReady, done]);
 
   function start() {
     if (!camReady || !videoRef.current) {
@@ -89,6 +105,14 @@ export function FaceRoundScan({
         onCapture={onCapture}
         onVideoReady={onVideoReady}
       />
+      {identityError && (
+        <p style={{ color: '#fca5a5', fontSize: 13, marginTop: 12, textAlign: 'center' }}>{identityError}</p>
+      )}
+      {mode === 'login' && onClearIdentity && (
+        <button type="button" className="pa-btn pa-btn-ghost" style={{ marginTop: 8, textDecoration: 'underline' }} onClick={onClearIdentity}>
+          Not you? Switch account or enter a different Pinit ID
+        </button>
+      )}
       {scanning && !done && (
         <p className="pa-accent" style={{ textAlign: 'center', fontSize: 13, marginTop: 14 }}>
           Scanning · {Math.round(progress)}%
