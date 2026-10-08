@@ -17,6 +17,7 @@ const STMTS = [
      WHEN duplicate_object THEN NULL;
    END $$`,
   `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "lastActiveShell" "WorkspaceShell" NOT NULL DEFAULT 'PERSONAL'`,
+  `ALTER TABLE "users" ADD COLUMN IF NOT EXISTS "address" TEXT`,
   `ALTER TABLE "login_history" ADD COLUMN IF NOT EXISTS "ambientBrightness" INTEGER`,
   `ALTER TABLE "login_history" ADD COLUMN IF NOT EXISTS "lightingStatus" TEXT`,
   `ALTER TABLE "login_history" ADD COLUMN IF NOT EXISTS "euclideanDistance" DOUBLE PRECISION`,

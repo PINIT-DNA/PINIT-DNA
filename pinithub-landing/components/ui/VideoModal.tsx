@@ -11,7 +11,7 @@ type ParsedVideo =
 
 /** Recognizes YouTube, Vimeo, and ScreenPal links; video files play natively;
  *  anything else falls back to a generic iframe embed. */
-function parseVideoUrl(raw: string): ParsedVideo | null {
+export function parseVideoUrl(raw: string): ParsedVideo | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
 

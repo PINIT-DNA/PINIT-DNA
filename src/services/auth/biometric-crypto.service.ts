@@ -41,6 +41,40 @@ export function encryptTemplate(values: number[]): { cipher: string; hash: strin
   return { cipher: packed, hash: hashTemplate(values) };
 }
 
+/** Encrypt an opaque document. The plaintext is not retained. */
+export function encryptBytes(plain: Buffer): { cipher: Buffer; hash: string } {
+  const key = deriveKey();
+  const iv = crypto.randomBytes(IV_LEN);
+  const cipher = crypto.createCipheriv(ALGO, key, iv);
+  const encrypted = Buffer.concat([cipher.update(plain), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const packed = Buffer.concat([iv, tag, encrypted]);
+  const hash = crypto.createHash('sha256').update(packed).digest('hex');
+  return { cipher: packed, hash };
+}
+
+/** Reverses encryptBytes. Throws if the data was altered (GCM tag mismatch). */
+export function decryptBytes(packed: Buffer): Buffer {
+  const key = deriveKey();
+  const iv = packed.subarray(0, IV_LEN);
+  const tag = packed.subarray(IV_LEN, IV_LEN + TAG_LEN);
+  const encrypted = packed.subarray(IV_LEN + TAG_LEN);
+  const decipher = crypto.createDecipheriv(ALGO, key, iv);
+  decipher.setAuthTag(tag);
+  return Buffer.concat([decipher.update(encrypted), decipher.final()]);
+}
+
+/**
+ * Keyed fingerprint of an identifier (e.g. a document number) for duplicate
+ * detection. HMAC with a purpose-separated key: equal inputs give equal
+ * fingerprints, but the number cannot be recovered or brute-forced offline
+ * without the server key.
+ */
+export function keyedFingerprint(purpose: string, value: string): string {
+  const key = crypto.createHmac('sha256', deriveKey()).update(`fingerprint:${purpose}`).digest();
+  return crypto.createHmac('sha256', key).update(value).digest('hex');
+}
+
 export function decryptTemplate(cipherB64: string): number[] {
   const key = deriveKey();
   const packed = Buffer.from(cipherB64, 'base64');

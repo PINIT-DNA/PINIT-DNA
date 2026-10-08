@@ -6,6 +6,7 @@ import EmptyState from '../../components/EmptyState.jsx';
 import useSellerDesk from '../../hooks/useSellerDesk.js';
 import { apiFetch } from '../../lib/api.js';
 import { formatMoney } from '../../lib/money.js';
+import { downloadPdf } from '../../lib/download-pdf.js';
 import { resolveHubAppUrl } from '../../lib/exchange-routes.js';
 import {
   SALES_SECTIONS,
@@ -376,8 +377,30 @@ export default function SalesCenter({
   } else if (section === 'invoices') {
     body = (
       <>
-        {hubNote('Invoices are Hub Transactions', 'This is a filtered view of sales invoices. The invoice system of record is Hub → Transactions → Invoices.')}
+        {hubNote('Sale invoices', 'Each sealed sale has one invoice. Download uses the same receipt as the buyer, with the seller net.')}
         {saleTable(sales.filter((r) => r.invoice_number), 'full')}
+        <div className="studio-section">
+          {sales.filter((r) => r.invoice_number).map((row) => (
+            <p key={row.seal_id}>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                onClick={() => downloadPdf(`/api/orders/invoice/${encodeURIComponent(row.seal_id)}?audience=seller&format=pdf`, `${row.invoice_number}.pdf`)}
+              >
+                {row.invoice_number} PDF
+              </button>
+              {String(row.status || row.payment_status || '').toLowerCase().includes('refund') && (
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  onClick={() => downloadPdf(`/api/orders/credit-note/${encodeURIComponent(row.seal_id)}?format=pdf`, `CN-${row.invoice_number}.pdf`)}
+                >
+                  Credit note
+                </button>
+              )}
+            </p>
+          ))}
+        </div>
       </>
     );
   } else if (section === 'transfers') {

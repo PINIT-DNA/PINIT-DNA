@@ -1,58 +1,63 @@
+import { DemoBooking } from '@/components/DemoBooking';
 import {
-  AssetEvidenceFlow,
-  DNASection,
-  EnterpriseCTA,
+  Business,
+  DemoProvider,
+  Exchange,
+  FileTypes,
+  Final,
   Footer,
   Hero,
-  InvestigationSection,
-  MonitoringSection,
-  Navbar,
-  PlatformLoop,
-  ProductStatus,
-  SecuritySection,
-  SmartShareSection,
-  UseCases,
-  VaultSection,
-  Workflow,
-} from '@/components/landing';
-import { DemoBooking } from '@/components/DemoBooking';
-import { ScrollProgress } from '@/components/ui/ScrollProgress';
+  Nav,
+  Problem,
+  Product,
+  Security,
+  Ticker,
+  Tracking,
+  Verify,
+  Who,
+} from '@/components/lp';
 import { getSiteContent } from '@/lib/content';
+import './landing.css';
 
-/** Public marketing page — enterprise IA. Demo form still uses CMS settings + API. */
+/**
+ * Public landing page. Story: what PINIT does (hero) → the problem → live
+ * tracking → verifying ownership → the product → file types → security →
+ * business → exchange → use cases → book a demo → close.
+ * The demo-request form is still the CMS-driven component.
+ */
 export const dynamic = 'force-dynamic';
 
 export default async function Home() {
   const c = await getSiteContent();
-  const demoOn = c.sections.demo?.visible !== false;
+  const demoOn = c.sections.demo?.visible !== false && Boolean(c.sections.demo);
 
   return (
-    <>
-      <ScrollProgress />
-      <Navbar />
-      <main id="main">
-        <Hero />
-        <PlatformLoop />
-        <Workflow />
-        <AssetEvidenceFlow />
-        <DNASection />
-        <VaultSection />
-        <SmartShareSection />
-        <MonitoringSection />
-        <InvestigationSection />
-        <SecuritySection />
-        <UseCases />
-        <ProductStatus />
-        <EnterpriseCTA />
-        {demoOn && c.sections.demo ? (
-          <DemoBooking
-            section={c.sections.demo}
-            settings={c.settings}
-            enabled={c.settings.demoFormEnabled}
-          />
-        ) : null}
-      </main>
-      <Footer />
-    </>
+    <div className="lp">
+      <DemoProvider>
+        <a className="skip" href="#main">Skip to content</a>
+        <Nav />
+        <main id="top">
+          <div id="main" />
+          <Hero />
+          <Ticker />
+          <Problem />
+          <Tracking />
+          <Verify />
+          <Product />
+          <FileTypes />
+          <Security />
+          <Business />
+          <Exchange />
+          <Who />
+          {demoOn && c.sections.demo ? (
+            <div className="lp-booking">
+              <DemoBooking section={c.sections.demo} settings={c.settings} enabled={c.settings.demoFormEnabled} />
+            </div>
+          ) : null}
+          <Final />
+        </main>
+        <Footer contact={demoOn} />
+      </DemoProvider>
+    </div>
   );
 }

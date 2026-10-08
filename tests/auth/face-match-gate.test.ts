@@ -57,6 +57,15 @@ describe('face match confidence gate', () => {
 
   it('identify accepts a lone enrolled face under the identify threshold', () => {
     expect(isIdentifyAccept(0.1, Infinity, THRESHOLDS.faceIdentify)).toBe(true);
-    expect(isIdentifyAccept(0.4, Infinity, THRESHOLDS.faceIdentify)).toBe(false);
+    expect(isIdentifyAccept(0.5, Infinity, THRESHOLDS.faceIdentify)).toBe(false);
+  });
+
+  it('identify accepts the enrolled face when it leads the other members', () => {
+    expect(isIdentifyAccept(0.346, 0.391)).toBe(true);
+    expect(isIdentifyAccept(0.32, 0.363)).toBe(true);
+  });
+
+  it('identify refuses when two enrolled faces are too close', () => {
+    expect(isIdentifyAccept(0.337, 0.341)).toBe(false);
   });
 });

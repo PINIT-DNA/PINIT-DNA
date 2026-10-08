@@ -30,6 +30,7 @@ import {
   rankFaceMatches,
   rankVoiceMatches,
   isFaceProbeQualityOk,
+  isFaceVerified1to1,
   isIdentifyAccept,
   verifyClaimedFace,
   THRESHOLDS as MATCH_THRESHOLDS,
@@ -39,21 +40,21 @@ import { logSecurityEvent, logLoginHistory, sanitizeLoginLighting } from './biom
 import { loginThrottle } from './login-throttle.service';
 import { toRootPinitId } from '../../lib/pinit-identity';
 import { BIOMETRIC_DECISION, decisionFromClaimedVerify, publicBiometricMessage } from './biometric-decision';
-import { activeRecognitionEngineId } from './recognition-engine';
+import { acceptProbeForActiveEngine } from './recognition-engine';
+import { mayIssueSession } from './face-auth-machine';
+import { issueEnrollmentClaim, readEnrollmentClaim } from './enrollment-claim';
+import { searchFaceGallery } from './face-gallery';
 import {
-  consumePadEvidence,
   padDenyMessage,
   type PadEvidence,
 } from './face-liveness.service';
+import { traceBiometric, verifyPassivePad } from './passive-pad-engine';
 import {
   attachPendingPasskey,
   assertPendingPasskey,
-  consumeWebAuthnSession,
-  peekWebAuthnSession,
   isSimulatedCredentialId,
 } from './webauthn.service';
-import { decideLoginPasskeyPath } from './webauthn-evaluate';
-import { countWebAuthnByUserId, findWebAuthnByCredentialId } from './webauthn-store';
+import { findWebAuthnByCredentialId } from './webauthn-store';
 
 const JWT_SECRET = config.jwt.secret;
 
@@ -113,8 +114,17 @@ function isShortIdCollision(e: unknown): boolean {
   );
 }
 
+export interface FaceEnrollmentSample {
+  embedding: number[];
+  padEvidence?: PadEvidence;
+}
+
 export interface BiometricRegisterInput {
   faceEmbedding: number[];
+  /** Live samples. When present, each one is checked before they are combined. */
+  faceSamples?: FaceEnrollmentSample[];
+  /** Reserved Pinit ID from beginEnrollment. The face binds to this id. */
+  enrollmentToken?: string;
   padEvidence?: PadEvidence;
   voiceFingerprint?: number[];
   webauthnCredentialId?: string;
@@ -176,6 +186,42 @@ function generateShortId(): string {
   const bytes = crypto.randomBytes(8);
   for (let i = 0; i < 8; i++) id += chars[bytes[i]! % chars.length];
   return `PINIT-${id}`;
+}
+
+async function fuseEnrollmentSamples(
+  samples: FaceEnrollmentSample[],
+): Promise<{ faceNorm: number[]; sharpness: number | null }> {
+  if (samples.length < 1 || samples.length > 5) {
+    throw new AppError(400, 'Enrollment needs between 1 and 5 live face samples.');
+  }
+  const accepted: number[][] = [];
+  let sharpness: number | null = null;
+  for (const sample of samples) {
+    if (!acceptProbeForActiveEngine(sample.embedding) || !isValidTemplate(sample.embedding) || !isFaceProbeQualityOk(sample.embedding)) {
+      throw new AppError(400, 'A face sample was not clear enough. Recapture and try again.');
+    }
+    const pad = await verifyPassivePad(sample.padEvidence);
+    if (pad.verdict !== 'LIVE') {
+      throw new AppError(403, padDenyMessage(pad.verdict, pad.reasons), { pad: pad.verdict });
+    }
+    if (Number.isFinite(pad.scores.sharpness)) sharpness = pad.scores.sharpness;
+    accepted.push(normalizeEmbedding(sample.embedding));
+  }
+  for (let i = 0; i < accepted.length; i += 1) {
+    for (let j = i + 1; j < accepted.length; j += 1) {
+      const distance = euclideanDistance(accepted[i]!, accepted[j]!);
+      if (!isFaceVerified1to1(distance)) {
+        throw new AppError(400, 'Those face samples do not look like the same person. Recapture and try again.');
+      }
+    }
+  }
+  const dim = accepted[0]!.length;
+  const mean = new Array<number>(dim).fill(0);
+  for (const row of accepted) {
+    for (let i = 0; i < dim; i += 1) mean[i] = (mean[i] ?? 0) + (row[i] ?? 0);
+  }
+  for (let i = 0; i < dim; i += 1) mean[i] = (mean[i] ?? 0) / accepted.length;
+  return { faceNorm: normalizeEmbedding(mean), sharpness };
 }
 
 async function mintUniqueShortId(): Promise<string> {
@@ -434,6 +480,22 @@ async function loadFaceTemplateForUser(userId: string): Promise<number[] | null>
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * 1:N search with the same acceptance rule as face identify: the nearest
+ * enrolled face must be inside faceIdentify and clearly ahead of the next one.
+ * Used only after liveness has passed. Returns the account to verify 1:1, or null.
+ */
+async function findConfidentFaceMatch(probe: number[]): Promise<{ id: string; shortId: string } | null> {
+  const gallery = await loadAllFaceTemplates(prisma, { activeOnly: true });
+  const { best, secondDistance } = searchFaceGallery(probe, gallery);
+  if (!best || !isIdentifyAccept(best.distance, secondDistance, MATCH_THRESHOLDS.faceIdentify)) return null;
+  const user = await prisma.user.findFirst({
+    where: { id: best.userId, isActive: true, faceRegistered: true },
+    select: { id: true, shortId: true },
+  });
+  return user ?? null;
+}
+
 async function resolveClaimedUser(input: {
   claimedShortId?: string;
   claimedUserId?: string;
@@ -605,12 +667,75 @@ async function createSession(userId: string, refreshToken: string, ip?: string, 
 }
 
 export const biometricAuthService = {
+  /** Reserve a Pinit ID. No face is stored and no session is issued. */
+  async beginEnrollment(): Promise<{ shortId: string; enrollmentToken: string }> {
+    const shortId = await mintUniqueShortId();
+    return { shortId, enrollmentToken: issueEnrollmentClaim(shortId) };
+  },
+
+  /**
+   * Replace the enrolled face only when the signed-in user still matches the current template.
+   * A stolen session without that face cannot swap the identity.
+   */
+  async reenrollFace(input: {
+    userId: string;
+    faceEmbedding: number[];
+    padEvidence?: PadEvidence;
+    ip?: string;
+    userAgent?: string;
+  }): Promise<{ ok: true } | { ok: false; status: number; message: string }> {
+    const { userId, faceEmbedding, padEvidence, ip, userAgent } = input;
+    if (!acceptProbeForActiveEngine(faceEmbedding) || !isValidTemplate(faceEmbedding) || !isFaceProbeQualityOk(faceEmbedding)) {
+      return { ok: false, status: 400, message: 'That face sample was not clear enough.' };
+    }
+    const pad = await verifyPassivePad(padEvidence);
+    if (pad.verdict !== 'LIVE') {
+      return { ok: false, status: 403, message: padDenyMessage(pad.verdict, pad.reasons) };
+    }
+    const enrolled = await loadFaceTemplateForUser(userId);
+    const verified = verifyClaimedFace({
+      claimedUserId: userId,
+      probe: normalizeEmbedding(faceEmbedding),
+      enrolled,
+      threshold: THRESHOLDS.faceLogin,
+    });
+    if (!verified.ok) {
+      await logSecurityEvent('FACE_LOGIN_FAILED', {
+        ip, userAgent, success: false, userId,
+        detail: { reason: 'reenroll_rejected' },
+      });
+      return { ok: false, status: 403, message: 'The current face did not match this account.' };
+    }
+    const faceNorm = normalizeEmbedding(faceEmbedding);
+    const faceEnc = encryptTemplate(faceNorm);
+    const identity = await prisma.biometricIdentity.findUnique({
+      where: { userId },
+      select: { id: true },
+    });
+    if (!identity) return { ok: false, status: 404, message: 'No enrolled face on this account.' };
+    await prisma.faceTemplate.updateMany({
+      where: { biometricIdentityId: identity.id },
+      data: {
+        templateCipher: faceEnc.cipher,
+        templateHash: faceEnc.hash,
+        qualityScore: Number.isFinite(pad.scores.sharpness) ? pad.scores.sharpness : null,
+      },
+    });
+    await logSecurityEvent('FACE_LOGIN_SUCCESS', {
+      userId, ip, userAgent,
+      detail: { reason: 'reenroll' },
+    });
+    return { ok: true };
+  },
+
   async register(input: BiometricRegisterInput): Promise<
     | { ok: true; user: AuthUser; tokens: AuthTokens; linked?: boolean; message?: string }
     | { ok: false; status: 409; message: string }
   > {
     const {
       faceEmbedding,
+      faceSamples,
+      enrollmentToken,
       padEvidence,
       voiceFingerprint,
       webauthnCredentialId,
@@ -623,26 +748,41 @@ export const biometricAuthService = {
     } = input;
 
     const resolvedAccountType = accountType === 'BUSINESS' ? 'BUSINESS' : 'INDIVIDUAL';
+    const reserved = readEnrollmentClaim(enrollmentToken);
 
-    if (!isValidTemplate(faceEmbedding) || !isFaceProbeQualityOk(faceEmbedding)) {
-      throw new AppError(400, 'Invalid or low-quality face embedding. Recapture and try again.');
+    const samples = (faceSamples ?? []).filter((sample) => Array.isArray(sample.embedding) && sample.embedding.length > 0);
+    if (samples.length > 0 && !reserved) {
+      throw new AppError(400, 'Reserve a Pinit ID before storing this face.');
     }
-
-    const pad = await consumePadEvidence(padEvidence);
-    logger.info('[Auth:Register] PAD', { verdict: pad.verdict, reasons: pad.reasons, scores: pad.scores });
-    if (pad.verdict !== 'LIVE') {
-      await logSecurityEvent('BIOMETRIC_FAILURE', {
-        ip, userAgent, success: false,
-        detail: { reason: 'pad_failed', verdict: pad.verdict, reasons: pad.reasons },
-      });
-      throw new AppError(403, padDenyMessage(pad.verdict, pad.reasons), { pad: pad.verdict });
+    let faceNorm: number[];
+    let enrollmentSharpness: number | null = null;
+    if (samples.length > 0) {
+      const fused = await fuseEnrollmentSamples(samples);
+      faceNorm = fused.faceNorm;
+      enrollmentSharpness = fused.sharpness;
+      logger.info('[Auth:Register] Combined live samples', { count: samples.length });
+    } else {
+      if (!isValidTemplate(faceEmbedding) || !isFaceProbeQualityOk(faceEmbedding)) {
+        throw new AppError(400, 'Invalid or low-quality face embedding. Recapture and try again.');
+      }
+      const pad = await verifyPassivePad(padEvidence);
+      logger.info('[Auth:Register] PAD', { verdict: pad.verdict, reasons: pad.reasons, scores: pad.scores });
+      if (pad.verdict !== 'LIVE') {
+        await logSecurityEvent('BIOMETRIC_FAILURE', {
+          ip, userAgent, success: false,
+          detail: { reason: 'pad_failed', verdict: pad.verdict, reasons: pad.reasons },
+        });
+        throw new AppError(403, padDenyMessage(pad.verdict, pad.reasons), { pad: pad.verdict });
+      }
+      if (Number.isFinite(pad.scores.sharpness)) enrollmentSharpness = pad.scores.sharpness;
+      faceNorm = normalizeEmbedding(faceEmbedding);
     }
 
     // Passkey (the "fingerprint" step) is a placeholder unless explicitly required.
     // See config.webauthn.requirePasskey — with it off, no credential is demanded
     // or enrolled, and identity rests on face (+ optional voice) alone.
     const passkeyRequired = config.webauthn.requirePasskey;
-    if (passkeyRequired) {
+    if (passkeyRequired || passkeyPendingToken) {
       const pendingOk = assertPendingPasskey(passkeyPendingToken);
       if (!pendingOk.ok) {
         throw new AppError(403, pendingOk.message, { reason: pendingOk.reason });
@@ -653,7 +793,6 @@ export const biometricAuthService = {
       });
     }
 
-    const faceNorm = normalizeEmbedding(faceEmbedding);
     const voiceNorm = voiceFingerprint && isValidTemplate(voiceFingerprint)
       ? normalizeEmbedding(voiceFingerprint)
       : null;
@@ -763,7 +902,7 @@ export const biometricAuthService = {
           algorithmVersion: ALGORITHM_VERSION,
           // Real signal from the PAD evaluation that already ran above, not a
           // fabricated score. Null only if PAD reported no usable sharpness.
-          qualityScore: Number.isFinite(pad.scores.sharpness) ? pad.scores.sharpness : null,
+          qualityScore: enrollmentSharpness,
           encryptionKeyVersion: CURRENT_ENCRYPTION_KEY_VERSION,
         },
       });
@@ -807,7 +946,7 @@ export const biometricAuthService = {
       // Skipped entirely when the passkey step is a placeholder — nothing fake is
       // ever written to webauthn_credentials.
       let attachedCredentialId: string | undefined;
-      if (passkeyRequired) {
+      if (passkeyRequired || passkeyPendingToken) {
         const attached = await attachPendingPasskey(passkeyPendingToken, u.id, tx);
         if (!attached.ok) {
           throw new PasskeyAttachError(attached.message, attached.reason);
@@ -820,9 +959,10 @@ export const biometricAuthService = {
 
     let result: Awaited<ReturnType<typeof attempt>> | undefined;
     let lastError: unknown;
+    let reservedId = reserved?.shortId ?? null;
     for (let n = 0; n < 2 && !result; n++) {
       try {
-        const shortId = await mintUniqueShortId();
+        const shortId = reservedId ?? await mintUniqueShortId();
         result = await attempt(shortId);
       } catch (e) {
         lastError = e;
@@ -830,6 +970,7 @@ export const biometricAuthService = {
         // already pre-checks) but the @unique constraint is the real guarantee —
         // retry once with a freshly minted id before giving up.
         if (isShortIdCollision(e) && n === 0) {
+          reservedId = null;
           logger.warn('[Auth:Register] shortId collision on insert — retrying once');
           continue;
         }
@@ -938,7 +1079,7 @@ export const biometricAuthService = {
    * face vector cannot be guessed or iterated indefinitely.
    */
   async login(input: BiometricLoginInput): Promise<
-    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult; perf: FaceLoginPerf }
+    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult; perf: FaceLoginPerf; claimReplaced: boolean }
     | { ok: false; matched: false; message: string; perf?: FaceLoginPerf }
   > {
     const claim = (input.claimedShortId || input.claimedUserId || '').trim();
@@ -970,12 +1111,12 @@ export const biometricAuthService = {
   },
 
   async loginUnthrottled(input: BiometricLoginInput): Promise<
-    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult; perf: FaceLoginPerf }
+    | { ok: true; user: AuthUser; tokens: AuthTokens; confidence: number; fusion: FusionResult; perf: FaceLoginPerf; claimReplaced: boolean }
     | { ok: false; matched: false; message: string; perf?: FaceLoginPerf }
   > {
     const {
       faceEmbedding, voiceFingerprint, deviceFingerprint, ip, userAgent,
-      claimedShortId, claimedUserId, padEvidence, webauthnSession, passkeyPendingToken,
+      claimedShortId, claimedUserId, padEvidence,
     } = input;
     const lighting = sanitizeLoginLighting(input.lightingTelemetry);
     const t0 = performance.now();
@@ -1025,7 +1166,7 @@ export const biometricAuthService = {
     });
     const denyMsg = 'Could not verify this face for the claimed account.';
 
-    if (activeRecognitionEngineId() !== 'face-api-v1') {
+    if (!acceptProbeForActiveEngine(faceEmbedding)) {
       await logSecurityEvent('FACE_LOGIN_FAILED', {
         ip, userAgent, success: false,
         detail: { reason: 'MODEL_UNAVAILABLE', decisionCode: BIOMETRIC_DECISION.MODEL_UNAVAILABLE },
@@ -1042,7 +1183,7 @@ export const biometricAuthService = {
     }
 
     const tPad = performance.now();
-    const pad = await consumePadEvidence(padEvidence);
+    const pad = await verifyPassivePad(padEvidence);
     padMs = performance.now() - tPad;
     logger.info('[Auth:Login] PAD', { verdict: pad.verdict, reasons: pad.reasons, scores: pad.scores, padMs });
     if (pad.verdict !== 'LIVE') {
@@ -1059,27 +1200,34 @@ export const biometricAuthService = {
     }
 
     const tClaim = performance.now();
-    const claimed = await resolveClaimedUser({ claimedShortId, claimedUserId });
-    let boundUser = claimed;
-    if (!boundUser && webauthnSession) {
-      const peek = peekWebAuthnSession(webauthnSession);
-      if (peek.ok) {
-        boundUser = await resolveClaimedUser({ claimedUserId: peek.userId });
-      }
-    }
-    claimMs = performance.now() - tClaim;
+    let boundUser = await resolveClaimedUser({ claimedShortId, claimedUserId });
+    // True when the claimed account does not exist (e.g. a Pinit ID this browser
+    // remembers from an account that was deleted) and the account was found by
+    // face instead. Liveness has already passed in this request, and a liveness
+    // challenge cannot be reused, so the search must happen here, not in a retry.
+    let claimReplaced = false;
     if (!boundUser) {
-      logger.warn('[Auth:Login] ✗ DENY — missing or unknown claimed account', {
+      const found = await findConfidentFaceMatch(normalizeEmbedding(faceEmbedding));
+      logger.warn('[Auth:Login] claimed account not found — searched enrolled faces instead', {
         hasShortId: Boolean(claimedShortId?.trim()),
         hasUserId: Boolean(claimedUserId?.trim()),
-        hasPasskeySession: Boolean(webauthnSession),
+        found: Boolean(found),
       });
       await logSecurityEvent('FACE_LOGIN_FAILED', {
         ip, userAgent, success: false,
-        detail: { reason: claimedShortId || claimedUserId ? 'unknown_claim' : 'no_claim' },
+        detail: {
+          reason: claimedShortId || claimedUserId ? 'unknown_claim' : 'no_claim',
+          fallback: found ? 'face_search_found' : 'face_search_no_match',
+        },
       });
-      return deny(denyMsg);
+      if (!found) {
+        claimMs = performance.now() - tClaim;
+        return deny(denyMsg);
+      }
+      boundUser = found;
+      claimReplaced = true;
     }
+    claimMs = performance.now() - tClaim;
 
     // Identity is locked to the claim or the verified passkey. Never search the gallery.
     const verifiedUserId = boundUser.id;
@@ -1133,65 +1281,8 @@ export const biometricAuthService = {
       ? normalizeEmbedding(voiceFingerprint)
       : null;
 
-    let boundCredentialId: string | undefined;
-    const existingPasskeyCount = await countWebAuthnByUserId(verifiedUserId);
-    // Placeholder mode: no passkey is demanded. Accounts that DO hold a real
-    // credential still verify it when the client supplies one, so enabling this
-    // never silently downgrades an existing passkey login that would have worked.
-    const passkeyPath = !config.webauthn.requirePasskey && !webauthnSession
-      ? { action: 'skip' as const, reason: 'passkey_placeholder' as const }
-      : decideLoginPasskeyPath({
-          hasWebauthnSession: Boolean(webauthnSession),
-          hasPendingToken: Boolean(passkeyPendingToken),
-          existingPasskeyCount,
-        });
-
-    if (passkeyPath.action === 'skip') {
-      logger.warn('[Auth:Login] Passkey step is a placeholder — device-possession factor not enforced', {
-        claimedShortId: boundUser.shortId,
-        existingPasskeyCount,
-        hint: 'set WEBAUTHN_REQUIRE_PASSKEY=true to restore real WebAuthn',
-      });
-    } else if (passkeyPath.action === 'consume_session') {
-      const sess = consumeWebAuthnSession(webauthnSession, verifiedUserId);
-      if (!sess.ok) {
-        await logSecurityEvent('WEBAUTHN_LOGIN_FAILED', {
-          ip, userAgent, success: false,
-          detail: { reason: 'webauthn_mismatch', webauthn: sess.reason, claimedUserId: verifiedUserId },
-        });
-        return deny(sess.message);
-      }
-      boundCredentialId = sess.credentialId;
-    } else if (passkeyPath.action === 'enroll_pending') {
-      // First-time only (existingPasskeyCount === 0). Never enroll onto accounts that already have passkeys.
-      const attached = await attachPendingPasskey(passkeyPendingToken, verifiedUserId);
-      if (!attached.ok) {
-        await logSecurityEvent('WEBAUTHN_LOGIN_FAILED', {
-          ip, userAgent, success: false,
-          detail: { reason: 'webauthn_enroll_failed', webauthn: attached.reason, claimedUserId: verifiedUserId },
-        });
-        return deny(attached.message);
-      }
-      boundCredentialId = attached.credentialId;
-    } else if (passkeyPath.reason === 'existing_passkey_required') {
-      await logSecurityEvent('WEBAUTHN_LOGIN_FAILED', {
-        ip, userAgent, success: false,
-        detail: {
-          reason: 'existing_passkey_required',
-          claimedUserId: verifiedUserId,
-          existingPasskeyCount,
-        },
-      });
-      return deny(
-        'This account already has a passkey. Verify with the authenticator registered to this Pinit account.',
-      );
-    } else if (passkeyPath.reason === 'passkey_required') {
-      return deny('Verify this device with the passkey registered to this Pinit account.');
-    } else {
-      return deny('Verify this device with a passkey, then try again.');
-    }
-
-    const probeFp = deriveFingerprintTemplate(boundCredentialId, deviceFingerprint);
+    // Face match is the identity. A passkey is not consulted and cannot block the session.
+    const probeFp = deriveFingerprintTemplate(undefined, deviceFingerprint);
 
     const storedVoice = await loadVoiceForUser(verifiedUserId);
     const storedFp = await loadFingerprintForUser(verifiedUserId);
@@ -1249,7 +1340,9 @@ export const biometricAuthService = {
       return deny(denyMsg);
     }
 
-    const deviceId = await upsertDevice(user.id, deviceFingerprint, boundCredentialId);
+    if (!mayIssueSession(true, true)) return deny(denyMsg);
+
+    const deviceId = await upsertDevice(user.id, deviceFingerprint);
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
     await prisma.biometricIdentity.updateMany({
       where: { userId: user.id },
@@ -1274,14 +1367,6 @@ export const biometricAuthService = {
       userId: user.id, ip, userAgent, deviceId,
       detail: { claimedUserId: verifiedUserId, shortId: user.shortId },
     });
-    if (passkeyPath.action === 'consume_session') {
-      // Only when an already-enrolled authenticator was actually verified —
-      // not when a first passkey was just enrolled during this login.
-      await logSecurityEvent('WEBAUTHN_LOGIN_SUCCESS', {
-        userId: user.id, ip, userAgent, deviceId,
-        detail: { claimedUserId: verifiedUserId, credentialId: boundCredentialId },
-      });
-    }
     await recordHistory({
       userId: user.id,
       success: true,
@@ -1320,6 +1405,7 @@ export const biometricAuthService = {
       confidence: fusion.overallConfidence,
       fusion,
       perf,
+      claimReplaced,
     };
   },
 
@@ -1336,11 +1422,9 @@ export const biometricAuthService = {
    *   1. probe quality — same check as login
    *   2. liveness (PAD) — same single-use challenge as login, so a photo or a
    *      replayed capture is rejected before any matching happens
-   *   3. distance under faceIdentify (0.25), stricter than login's 0.33 —
-   *      strangers were measured at 0.317+ on this deployment
-   *   4. isIdentifyAccept — nearest under identify threshold. A gallery of
-   *      one is allowed when the probe is close enough. Two close candidates
-   *      still refuse.
+   *   3. distance under faceIdentify (0.33), the same ceiling as 1:1 login
+   *   4. isIdentifyAccept — nearest must beat the next face by faceIdentifyMargin.
+   *      A tie between two people still refuses.
    *
    * Failures are deliberately indistinguishable to the caller: no distance, no
    * "close but not quite", no hint that a given face is enrolled at all.
@@ -1364,7 +1448,7 @@ export const biometricAuthService = {
       message,
     });
 
-    if (!isValidTemplate(faceEmbedding) || !isFaceProbeQualityOk(faceEmbedding)) {
+    if (!acceptProbeForActiveEngine(faceEmbedding) || !isValidTemplate(faceEmbedding) || !isFaceProbeQualityOk(faceEmbedding)) {
       await logSecurityEvent('FACE_IDENTIFY_FAILED', {
         ip, userAgent, success: false,
         detail: { reason: 'probe_quality' },
@@ -1373,7 +1457,7 @@ export const biometricAuthService = {
     }
 
     // Liveness first — never match against the gallery on unproven input.
-    const pad = await consumePadEvidence(padEvidence);
+    const pad = await verifyPassivePad(padEvidence);
     logger.info('[Auth:Identify] PAD', { verdict: pad.verdict, reasons: pad.reasons });
     if (pad.verdict !== 'LIVE') {
       await logSecurityEvent('FACE_IDENTIFY_FAILED', {
@@ -1385,7 +1469,7 @@ export const biometricAuthService = {
 
     const probe = normalizeEmbedding(faceEmbedding);
     const gallery = await loadAllFaceTemplates(prisma, { activeOnly: true });
-    const { best, secondDistance } = rankFaceMatches(probe, gallery);
+    const { best, secondDistance } = searchFaceGallery(probe, gallery);
 
     const threshold = MATCH_THRESHOLDS.faceIdentify;
     const confident = Boolean(best) && isIdentifyAccept(best!.distance, secondDistance, threshold);
@@ -1395,12 +1479,13 @@ export const biometricAuthService = {
       nearestShortId: best?.shortId ?? null,
       nearestDistance: best ? Number(best.distance.toFixed(4)) : null,
       secondDistance: Number.isFinite(secondDistance) ? Number(secondDistance.toFixed(4)) : null,
-      margin: MATCH_THRESHOLDS.faceLoginMargin,
+      margin: MATCH_THRESHOLDS.faceIdentifyMargin,
       threshold,
       confident,
     });
 
     if (!best || !confident) {
+      traceBiometric('match=FAIL', { reason: !best ? 'NO_MATCH' : 'AMBIGUOUS_OR_NO_MATCH', gallerySize: gallery.length });
       await logSecurityEvent('FACE_IDENTIFY_FAILED', {
         ip, userAgent, success: false,
         detail: {
@@ -1416,6 +1501,8 @@ export const biometricAuthService = {
       select: { id: true, shortId: true, fullName: true, email: true, role: true, accountType: true, lastActiveShell: true },
     });
     if (!user) return deny();
+
+    if (!mayIssueSession(true, true)) return deny();
 
     const deviceId = await upsertDevice(user.id, deviceFingerprint);
     await prisma.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
@@ -1436,6 +1523,7 @@ export const biometricAuthService = {
 
     // No distances persisted — an audit trail must not become a way to measure
     // how close a probe was to an enrolled template.
+    traceBiometric('match=PASS', { authentication: 'SUCCESS' });
     await logSecurityEvent('FACE_IDENTIFY_SUCCESS', {
       userId: user.id, ip, userAgent, deviceId,
       detail: { shortId: user.shortId, gallerySize: gallery.length },

@@ -9,9 +9,9 @@ describe('sign-in start routing', () => {
     expect(resolveSignInEntryStep('face', 'PINIT-AB12CD')).toBe('face');
   });
 
-  it('Pinit ID preference starts at the ID screen', () => {
-    expect(resolveSignInEntryStep('pinit_id', '')).toBe('claim');
-    expect(resolveSignInEntryStep('pinit_id', 'PINIT-AB12CD')).toBe('claim');
+  it('a saved Pinit ID preference still opens the camera', () => {
+    expect(resolveSignInEntryStep('pinit_id', '')).toBe('face');
+    expect(resolveSignInEntryStep('pinit_id', 'PINIT-AB12CD')).toBe('face');
   });
 });
 

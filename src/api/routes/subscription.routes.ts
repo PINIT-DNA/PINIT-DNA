@@ -9,6 +9,7 @@ import {
   createRazorpayOrder,
   verifyRazorpayPayment,
   getBillingHistory,
+  downloadBillingDocument,
   mockCompletePayment,
 } from '../controllers/subscription.controller';
 
@@ -20,6 +21,7 @@ router.get('/billing/config', requireAuth, getBillingConfig);
 router.post('/billing/create-order', requireAuth, createRazorpayOrder);
 router.post('/billing/verify', requireAuth, verifyRazorpayPayment);
 router.get('/billing/history', requireAuth, getBillingHistory);
+router.get('/billing/:id/document', requireAuth, downloadBillingDocument);
 router.post('/billing/mock-complete', requireAuth, mockCompletePayment);
 
 /** FREE self-downgrade / admin assign / local demo when Razorpay keys missing */

@@ -135,6 +135,28 @@ export async function downloadVaultFile(
   throw new Error(`Supabase download failed: ${lastError?.message ?? 'unknown'}`);
 }
 
+/** Upload an already-encrypted private object. Refuses paths outside government-id/. */
+export async function uploadPrivateObject(storagePath: string, buffer: Buffer): Promise<void> {
+  if (!storagePath.startsWith('government-id/') || storagePath.includes('..')) {
+    throw new Error('Refused private object path');
+  }
+  if (!_bucketReady) {
+    await ensureBucket();
+    _bucketReady = true;
+  }
+  const { error } = await getClient().storage.from(BUCKET).upload(storagePath, buffer, {
+    contentType: 'application/octet-stream',
+    upsert: true,
+  });
+  if (error) throw new Error(`Supabase upload failed: ${error.message}`);
+}
+
+export async function deletePrivateObject(storagePath: string): Promise<void> {
+  if (!storagePath.startsWith('government-id/') || storagePath.includes('..')) return;
+  const { error } = await getClient().storage.from(BUCKET).remove([storagePath]);
+  if (error) logger.warn('[Storage] Private object delete failed', { storagePath, error: error.message });
+}
+
 /** Delete vault file from Supabase Storage (on vault record deletion). */
 export async function deleteVaultFile(
   vaultId: string,

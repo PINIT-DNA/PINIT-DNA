@@ -1,5 +1,12 @@
 import type { Metadata, Viewport } from 'next';
-import { IBM_Plex_Mono, Inter, Space_Grotesk } from 'next/font/google';
+import {
+  Bricolage_Grotesque,
+  IBM_Plex_Mono,
+  Inter,
+  JetBrains_Mono,
+  Plus_Jakarta_Sans,
+  Space_Grotesk,
+} from 'next/font/google';
 import { getSiteContent } from '@/lib/content';
 import './globals.css';
 
@@ -23,6 +30,28 @@ const plexMono = IBM_Plex_Mono({
   display: 'swap',
   variable: '--font-plex-mono',
   weight: ['400', '500', '600'],
+});
+
+/** Fonts for the public landing page (used inside .lp only). */
+const bricolage = Bricolage_Grotesque({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-bricolage',
+  axes: ['opsz'],
+});
+
+const jakarta = Plus_Jakarta_Sans({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-jakarta',
+  weight: ['400', '500', '600', '700'],
+});
+
+const jbMono = JetBrains_Mono({
+  subsets: ['latin'],
+  display: 'swap',
+  variable: '--font-jbmono',
+  weight: ['400', '600'],
 });
 
 /**
@@ -133,7 +162,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   return (
     <html
       lang="en"
-      className={`${spaceGrotesk.variable} ${inter.variable} ${plexMono.variable}`}
+      className={`${spaceGrotesk.variable} ${inter.variable} ${plexMono.variable} ${bricolage.variable} ${jakarta.variable} ${jbMono.variable}`}
       suppressHydrationWarning
     >
       <body className="antialiased">

@@ -105,6 +105,62 @@ export async function getBillingHistory(req: Request, res: Response, next: NextF
   }
 }
 
+function invoiceNumber(id: string, createdAt: Date): string {
+  const y = createdAt.getUTCFullYear();
+  const m = String(createdAt.getUTCMonth() + 1).padStart(2, '0');
+  const seg = id.replace(/-/g, '').slice(0, 6).toUpperCase();
+  return `INV-${y}${m}-${seg}`;
+}
+
+/** GET /subscription/billing/:id/document — the same receipt PDF as Exchange sales */
+export async function downloadBillingDocument(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = getAuthUserId(req);
+    const billingId = String(req.params.id || '');
+    const { prisma } = await import('../../lib/prisma');
+    const sub = await prisma.subscription.findUnique({ where: { userId } });
+    if (!sub) throw new AppError(404, 'Receipt not found');
+    const row = await prisma.billingHistory.findFirst({
+      where: { id: billingId, subscriptionId: sub.id },
+      include: { subscription: { include: { plan: true } } },
+    });
+    if (!row || row.status !== 'SUCCEEDED') throw new AppError(404, 'Receipt not found');
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { fullName: true, shortId: true },
+    });
+    const payload = (row.rawPayload && typeof row.rawPayload === 'object' && !Array.isArray(row.rawPayload)
+      ? row.rawPayload
+      : {}) as Record<string, unknown>;
+    const planCode = typeof payload.planCode === 'string' ? payload.planCode : '';
+    const { PLAN_DEFINITIONS } = await import('../../services/subscription/constants/plans');
+    const plan = Object.values(PLAN_DEFINITIONS).find((item) => item.code === planCode);
+    const { pathToFileURL } = await import('url');
+    const path = await import('path');
+    const href = pathToFileURL(path.resolve(process.cwd(), 'exchange/server/lib/financial-document.js')).href;
+    const mod = await import(href);
+    const number = invoiceNumber(row.id, row.createdAt);
+    const document = mod.hubSubscriptionDocument({
+      row: {
+        number,
+        createdAt: row.createdAt.toISOString(),
+        status: row.status,
+        currency: row.currency,
+        amount: row.amountCents / 100,
+        planName: plan?.name ?? row.subscription.plan.name,
+        transactionId: row.externalId,
+      },
+      payer: { name: user?.fullName, pinitId: user?.shortId },
+    });
+    const pdf = mod.renderFinancialPdf(document);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${number}.pdf"`);
+    res.send(pdf);
+  } catch (err) {
+    next(err);
+  }
+}
+
 /** POST /subscription/billing/mock-complete { planCode, paymentMethod?, coupon? } */
 export async function mockCompletePayment(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {

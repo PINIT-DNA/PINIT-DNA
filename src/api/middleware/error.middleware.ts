@@ -152,10 +152,13 @@ export function errorMiddleware(
       res.status(503).json({ success: false, error: 'Save timed out. Please try again.' });
       return;
     }
+    // A table or column the code expects is not in the database yet — usually
+    // right after a deploy, before the ensure-* scripts have run. Any feature
+    // can hit this, so the message must not name one.
     if (err.code === 'P2021' || err.code === 'P2022') {
       res.status(503).json({
         success: false,
-        error: 'Portfolio storage is still updating. Wait a minute, refresh, and try again.',
+        error: 'This part of PINIT is still updating. Wait a minute, refresh, and try again.',
       });
       return;
     }

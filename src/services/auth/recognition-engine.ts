@@ -47,3 +47,13 @@ export function acceptClientFaceApiEmbedding(values: number[]): VersionedEmbeddi
     values,
   };
 }
+
+/**
+ * Temporary matcher entry. Login and registration call only this.
+ * face-api-v1 accepts the client 128-d vector. A licensed engine returns
+ * MODEL_UNAVAILABLE until its weights are installed — the steps do not change.
+ */
+export function acceptProbeForActiveEngine(values: number[]): VersionedEmbedding | null {
+  if (activeRecognitionEngineId() !== 'face-api-v1') return null;
+  return acceptClientFaceApiEmbedding(values);
+}

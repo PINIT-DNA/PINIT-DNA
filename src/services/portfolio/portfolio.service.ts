@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
+import { logger } from '../../lib/logger';
 import { config } from '../../config';
 import { AppError } from '../../api/middleware/error.middleware';
 import { VaultService } from '../vault/vault.service';
@@ -11,7 +12,6 @@ import {
   toExchangePinitId,
   toUserPinitId,
 } from '../../lib/pinit-identity';
-import { logger } from '../../lib/logger';
 import {
   assemblePresentation,
   editorFormFromGraph,
@@ -49,7 +49,14 @@ async function loadGraph(portfolioId: string) {
 async function identityForUser(userId: string): Promise<IdentityOverlay & { shortId: string; fullName: string }> {
   const user = await prisma.user.findUnique({
     where: { id: userId },
-    select: { id: true, shortId: true, fullName: true, avatarUrl: true, bio: true, updatedAt: true },
+    select: {
+      id: true,
+      shortId: true,
+      fullName: true,
+      avatarUrl: true,
+      bio: true,
+      updatedAt: true,
+    },
   });
   if (!user) throw new AppError(404, 'User not found');
   const photo = user.avatarUrl
@@ -536,12 +543,20 @@ export const portfolioService = {
     const identitySnap = (snap.identity && typeof snap.identity === 'object')
       ? snap.identity as Record<string, unknown>
       : {};
+    const publicIdentity = { ...identitySnap };
+    delete publicIdentity.storagePath;
+    delete publicIdentity.documentType;
+    delete publicIdentity.document;
+    delete publicIdentity.idNumber;
+    delete publicIdentity.faceBinding;
+    // Identity-proof status is owner-only. Older published snapshots may still carry it.
+    delete publicIdentity.government_id_on_file;
     return stripPublicSecrets({
       ...snap,
       published_version: row.publishedVersion,
       publish_state: row.publishState,
       identity: {
-        ...identitySnap,
+        ...publicIdentity,
         name: identity.name,
         photo_url: identity.photo_url,
         pinit_id: identity.pinit_id,

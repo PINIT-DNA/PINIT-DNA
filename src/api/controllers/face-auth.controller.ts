@@ -23,13 +23,48 @@ function clientMeta(req: Request) {
   };
 }
 
+export async function faceBeginEnrollment(_req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const claim = await biometricAuthService.beginEnrollment();
+    res.status(201).json({ success: true, shortId: claim.shortId, enrollmentToken: claim.enrollmentToken });
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function faceReenroll(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const userId = (req as { user?: { sub?: string } }).user?.sub;
+    if (!userId) {
+      res.status(401).json({ success: false, message: 'Sign in again before updating your face.' });
+      return;
+    }
+    const { embedding, padEvidence } = req.body as { embedding?: number[]; padEvidence?: PadEvidence };
+    const result = await biometricAuthService.reenrollFace({
+      userId,
+      faceEmbedding: embedding ?? [],
+      padEvidence,
+      ...clientMeta(req),
+    });
+    if (!result.ok) {
+      res.status(result.status).json({ success: false, message: result.message });
+      return;
+    }
+    res.json({ success: true, message: 'Face updated for this account.' });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function faceRegister(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
     const {
-      embedding, voiceFingerprint, webauthnCredentialId, deviceFingerprint,
+      embedding, samples, enrollmentToken, voiceFingerprint, webauthnCredentialId, deviceFingerprint,
       accountType, organizationName, padEvidence, passkeyPendingToken,
     } = req.body as {
       embedding?: number[];
+      samples?: Array<{ embedding?: number[]; padEvidence?: PadEvidence }>;
+      enrollmentToken?: string;
       voiceFingerprint?: number[];
       webauthnCredentialId?: string;
       deviceFingerprint?: string;
@@ -40,8 +75,13 @@ export async function faceRegister(req: Request, res: Response, next: NextFuncti
     };
 
     const meta = clientMeta(req);
+    const faceSamples = (samples ?? [])
+      .filter((sample) => Array.isArray(sample.embedding))
+      .map((sample) => ({ embedding: sample.embedding as number[], padEvidence: sample.padEvidence }));
     const result = await biometricAuthService.register({
-      faceEmbedding: embedding ?? [],
+      faceEmbedding: embedding ?? faceSamples[0]?.embedding ?? [],
+      faceSamples,
+      enrollmentToken,
       padEvidence,
       passkeyPendingToken,
       voiceFingerprint,
@@ -154,6 +194,9 @@ export async function faceLogin(req: Request, res: Response, next: NextFunction)
       success: true,
       matched: true,
       confidence: result.confidence,
+      // The Pinit ID the browser sent does not exist; the account was found by face.
+      // The browser replaces its remembered ID instead of rejecting the result.
+      claimReplaced: result.claimReplaced,
       user: {
         id: result.user.id,
         shortId: result.user.shortId,
