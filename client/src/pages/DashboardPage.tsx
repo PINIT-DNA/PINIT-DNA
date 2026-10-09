@@ -516,7 +516,7 @@ export function DashboardPage() {
         onOpenExchange={() => void openExchangeSeller()}
       >
         <section className="hub-home-block">
-          <div className="flex flex-wrap items-end justify-between gap-2 mb-4">
+          <div className="flex flex-wrap items-end justify-between gap-2 mb-2">
             <div>
               <h2 className="hub-home-section">Marketplace</h2>
               <p className="hub-home-meta mt-1">
@@ -530,7 +530,7 @@ export function DashboardPage() {
               Open Exchange
             </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 hub-home-body">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 hub-home-body">
             <p>
               {!exchangeSelling || exchangeSelling.unavailable
                 ? 'No listings or sales to show yet.'

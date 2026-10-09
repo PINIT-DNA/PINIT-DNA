@@ -71,7 +71,7 @@ function BackendStatus() {
           className={cn(
             'w-1.5 h-1.5 rounded-full',
             isChecking && 'bg-amber-400 animate-pulse',
-            isOnline && 'bg-emerald-500',
+            isOnline && 'bg-emerald-500 hub-sidebar-status-dot',
             online === false && 'bg-red-500',
           )}
           aria-hidden
@@ -272,12 +272,14 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'hub-sidebar fixed left-0 top-0 h-screen w-60 bg-white border-r border-slate-200 flex flex-col z-[90] select-none',
+        'hub-sidebar fixed left-0 top-0 h-screen w-60 flex flex-col z-[90] select-none',
         'transform transition-transform duration-200 lg:translate-x-0',
-        open ? 'translate-x-0 shadow-2xl' : '-translate-x-full lg:shadow-none',
+        open ? 'translate-x-0 shadow-2xl' : '-translate-x-full',
       )}
     >
-      <div className="px-3 pt-3 pb-3 border-b border-slate-100 shrink-0 space-y-3">
+      <span className="hub-sidebar-glow hub-sidebar-glow--top" aria-hidden="true" />
+      <span className="hub-sidebar-glow hub-sidebar-glow--bottom" aria-hidden="true" />
+      <div className="hub-sidebar-brand px-3 pt-3 pb-3 shrink-0 space-y-3">
         <div className="flex items-center gap-2.5 px-1">
           <img
             src={BRAND.logoSrc}
@@ -296,10 +298,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             <X size={18} />
           </button>
         </div>
-        <WorkspaceSwitcher />
+        <div className="hub-sidebar-account">
+          <WorkspaceSwitcher />
+        </div>
       </div>
 
-      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-1">
+      <nav className="relative z-10 flex-1 overflow-y-auto py-3 px-3 space-y-1">
         <p className="font-label px-3 pt-1 pb-1 text-[10px] font-semibold tracking-[0.14em] uppercase text-slate-400">Core</p>
         <NavLink
           to={homeTo}
@@ -310,11 +314,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
           }}
           className={() =>
             cn(
-              'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
+              'hub-sidebar-item group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
               homeActive
                 ? 'hub-nav-active bg-dna-500 text-white border border-dna-500'
-                : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
+                : 'hub-sidebar-item--idle text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
             )
           }
         >
@@ -335,11 +339,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 aria-expanded={isOpen}
                 aria-controls={panelId}
                 className={cn(
-                  'w-full group flex items-center gap-3 px-3 py-2 rounded-xl transition-colors',
+                  'hub-sidebar-item hub-sidebar-item--idle w-full group flex items-center gap-3 px-3 py-2 rounded-xl transition-all duration-150',
                   'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
                   isOpen || childActive
                     ? 'text-slate-900 dark:text-slate-100'
-                    : 'text-slate-500 hover:text-slate-900 dark:hover:text-slate-100',
+                    : 'text-slate-500 dark:hover:text-slate-100',
                 )}
               >
                 <GroupIcon size={15} className={cn('shrink-0', isOpen || childActive ? 'text-dna-600' : 'text-slate-400')} />
@@ -347,7 +351,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                 <ChevronDown
                   size={14}
                   className={cn(
-                    'shrink-0 text-slate-400 transition-transform duration-150',
+                    'hub-sidebar-chevron shrink-0 text-slate-400 transition-transform duration-150',
                     isOpen && 'rotate-180',
                   )}
                   aria-hidden
@@ -365,11 +369,11 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                         className={() => {
                           const isActive = navActive(to, location.pathname, location.search, end);
                           return cn(
-                            'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
+                            'hub-sidebar-item group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-all duration-150',
                             'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
                             isActive
                               ? 'hub-nav-active bg-dna-500 text-white border border-dna-500'
-                              : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
+                              : 'hub-sidebar-item--idle text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
                           );
                         }}
                       >
@@ -385,7 +389,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
         })}
       </nav>
 
-      <div className="shrink-0 p-3 border-t border-slate-200/80 dark:border-white/10 space-y-2">
+      <div className="hub-sidebar-footer relative z-10 shrink-0 p-3 space-y-2">
         {user && (
           <div className="rounded-xl px-3 py-2">
             <p className="text-[12px] text-slate-500 font-medium">
@@ -396,7 +400,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
             )}
           </div>
         )}
-        <div className="rounded-xl px-3 py-2">
+        <div className="hub-sidebar-status rounded-xl px-3 py-2">
           <BackendStatus />
         </div>
       </div>

@@ -230,17 +230,21 @@ export function VaultFileThumbnail({
   };
 
   const lockBadge = (
-    <span className={`absolute z-10 ${variant === 'gallery' ? 'bottom-2 right-2 w-6 h-6' : 'bottom-0.5 right-0.5 w-3.5 h-3.5'} rounded bg-black/70 flex items-center justify-center`}>
+    <span className={`absolute z-10 ${variant === 'gallery' ? 'bottom-2 right-2 w-6 h-6' : 'bottom-0.5 right-0.5 w-3.5 h-3.5'} rounded-lg bg-black/75 ring-1 ring-white/10 shadow-[0_2px_6px_rgba(0,0,0,0.35)] flex items-center justify-center`}>
       <Lock size={variant === 'gallery' ? 11 : 8} className="text-success" />
     </span>
   );
 
   const fallback = (
     <div
-      className={`relative ${isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1.5 ${variant === 'gallery' ? 'p-4' : ''}`}
+      className={`relative ${isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName) ? documentHeroClass : frameClass} hub-media-placeholder border flex flex-col items-center justify-center gap-1.5 ${variant === 'gallery' ? 'p-4' : ''}`}
       title={fileName}
     >
-      <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
+      {variant === 'gallery' ? (
+        <span className="hub-icon-raised w-12 h-12 rounded-2xl flex items-center justify-center text-2xl" aria-hidden>{icon}</span>
+      ) : (
+        <span className="text-lg" aria-hidden>{icon}</span>
+      )}
       {variant === 'gallery' && (
         <p className="text-2xs text-gray-500 text-center px-2">
           {failed || imgError || videoError ? 'Preview unavailable' : fileName}
@@ -261,7 +265,7 @@ export function VaultFileThumbnail({
 
   if (!shouldLoad) {
     return (
-      <div ref={rootRef} className={`relative ${isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex flex-col items-center justify-center gap-1`}>
+      <div ref={rootRef} className={`relative ${isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName) ? documentHeroClass : frameClass} hub-media-placeholder border flex flex-col items-center justify-center gap-1`}>
         <span className={variant === 'gallery' ? 'text-4xl' : 'text-lg'} aria-hidden>{icon}</span>
         {lockBadge}
       </div>
@@ -276,7 +280,7 @@ export function VaultFileThumbnail({
     return (
       <div
         ref={rootRef}
-        className={`relative ${shouldLoad && (isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName)) ? documentHeroClass : frameClass} bg-bg-elevated border border-bg-border flex items-center justify-center overflow-hidden`}
+        className={`relative ${shouldLoad && (isPdfMime(mimeType, fileName) || isHtmlMime(mimeType, fileName) || isDocxMime(mimeType, fileName)) ? documentHeroClass : frameClass} hub-media-placeholder border flex items-center justify-center overflow-hidden`}
         title={fileName}
       >
         {loading ? (

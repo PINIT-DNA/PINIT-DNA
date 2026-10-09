@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Check, Eye, FileText, Globe, Loader2, Lock, Plus, Save, Share2, Trash2, X,
+  Check, Eye, FileText, Globe, Loader2, Lock, Plus, Save, Share2,
+  Trash2, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api, listVaultRecords, previewVaultFile } from '../../services/dashboard.api';
@@ -10,6 +11,7 @@ import type { VaultRecord } from '../../types/dashboard.types';
 import { ProfilePhotoPicker } from './ProfilePhotoPicker';
 import { addVaultToNamedCollection, planAddVaultToPortfolio } from '../../lib/portfolio-add-vault';
 import { hubPortfolioHref } from '../../lib/hub-portfolio-url';
+import './PortfolioEditor.css';
 
 /**
  * The portfolio builder. One builder, in HUB.
@@ -676,7 +678,7 @@ export function PortfolioEditor() {
   }
 
   return (
-    <div className="pe">
+    <div className="pe portfolio-premium-editor">
       <header className="pe-toolbar">
         <div className="pe-toolbar__id">
           <h2>Portfolio</h2>

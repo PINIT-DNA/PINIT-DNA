@@ -497,5 +497,20 @@ html.pinit-scan-lock,html.pinit-scan-lock body,html.pinit-scan-lock #root{height
 .callout ol{padding-left:18px;display:grid;gap:3px;color:#5A6583}
 .callout .os{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#1F68DD}
 .hidden-file{display:none}
+@media (max-width:720px){
+  .pinit-scan-shell{height:100svh}
+  .pinit-scan{width:100%}
+  .pinit-scan.s-open,.pinit-scan.s-block{justify-content:center;gap:28px;padding:max(28px,env(safe-area-inset-top)) 0 calc(40px + env(safe-area-inset-bottom))}
+  .pinit-scan.s-open .grow,.pinit-scan.s-block .grow{display:none}
+  .pinit-scan.s-open .pad,.pinit-scan.s-block .pad{width:100%;padding:0 20px}
+  .mid h3{font-size:20px}
+  .btn{min-height:52px;font-size:16px;border-radius:14px}
+  .topbar{top:calc(12px + env(safe-area-inset-top))}
+  .dock{padding:16px 22px calc(18px + env(safe-area-inset-bottom))}
+  .hint{bottom:calc(124px + env(safe-area-inset-bottom))}
+  .warn-hint{bottom:calc(156px + env(safe-area-inset-bottom))}
+  .steps{bottom:calc(24px + env(safe-area-inset-bottom))}
+  .sheet{padding-bottom:calc(24px + env(safe-area-inset-bottom))}
+}
 @media (prefers-reduced-motion:reduce){.sweep,.steps .now .dot{animation:none}}
 `;

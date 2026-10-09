@@ -8,7 +8,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, Shield, CheckCircle2, XCircle, AlertTriangle, Dna, Lock, Award, RefreshCw, Copy, Ban, ShieldCheck, FileText } from 'lucide-react';
+import {
+  ArrowLeft, Shield, CheckCircle2, XCircle, AlertTriangle, Dna, Lock, Award, RefreshCw,
+  Copy, Ban, ShieldCheck, FileText, Fingerprint, QrCode, Database,
+} from 'lucide-react';
 import { verifyCertificateApi } from '../services/dashboard.api';
 import { PinitCertificateDocument } from '@pinit/certificate';
 import { EVIDENCE_NOTICE } from '../shared/certificate/PinitCertificateDocument';
@@ -21,6 +24,7 @@ import { Badge } from '../components/ui/Badge';
 import { cn } from '../components/ui/utils';
 import { formatBytes } from '../hooks/useApi';
 import toast from 'react-hot-toast';
+import './VerifyCertificatePage.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -120,6 +124,35 @@ const STATUS_CFG = {
 };
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
+
+function CertificateHeroVisual() {
+  return (
+    <div className="cert-hero-visual" aria-hidden="true">
+      <span className="cert-hero-glow" />
+      <span className="cert-hero-orbit cert-hero-orbit--outer" />
+      <span className="cert-hero-orbit cert-hero-orbit--inner" />
+      <span className="cert-hero-document">
+        <span className="cert-hero-document-line cert-hero-document-line--one" />
+        <span className="cert-hero-document-line cert-hero-document-line--two" />
+        <span className="cert-hero-document-line cert-hero-document-line--three" />
+        <span className="cert-hero-document-seal"><Award size={16} /></span>
+      </span>
+      <span className="cert-hero-shield">
+        <span className="cert-hero-shield-layer cert-hero-shield-layer--outer" />
+        <span className="cert-hero-shield-layer cert-hero-shield-layer--middle" />
+        <span className="cert-hero-shield-core"><CheckCircle2 size={34} /></span>
+      </span>
+      <span className="cert-float-card cert-float-card--document"><FileText size={19} /></span>
+      <span className="cert-float-card cert-float-card--database"><Database size={18} /></span>
+      <span className="cert-float-card cert-float-card--fingerprint"><Fingerprint size={19} /></span>
+      <span className="cert-float-card cert-float-card--qr"><QrCode size={18} /></span>
+      <span className="cert-hero-particle cert-hero-particle--one" />
+      <span className="cert-hero-particle cert-hero-particle--two" />
+      <span className="cert-hero-particle cert-hero-particle--three" />
+      <span className="cert-hero-ground" />
+    </div>
+  );
+}
 
 export function VerifyCertificatePage({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
@@ -225,8 +258,12 @@ export function VerifyCertificatePage({ embedded = false }: { embedded?: boolean
       <div className={embedded ? undefined : `flex-1 flex flex-col px-4 sm:px-6 py-8 ${hasResult ? 'justify-start' : 'justify-center'}`}>
     <div className={embedded ? 'contents' : 'page-shell space-y-4 mx-auto w-full max-w-3xl animate-fade-in'}>
 
+      <div className="certificate-hero" aria-hidden="true">
+        <CertificateHeroVisual />
+      </div>
+
       {/* Input form */}
-      <div className="card space-y-5 sm:p-8">
+      <div className="card certificate-form-card space-y-5 sm:p-8">
         <div className="flex items-center gap-2 mb-2">
           <Shield size={18} className="text-dna-400" />
           <h2 className="text-sm font-semibold text-white">Enter Certificate Details</h2>
@@ -251,7 +288,7 @@ export function VerifyCertificatePage({ embedded = false }: { embedded?: boolean
           </div>
 
           {/* Divider */}
-          <div className="flex items-center gap-3 py-1">
+          <div className="certificate-id-divider flex items-center gap-3 py-1">
             <div className="flex-1 h-px bg-bg-border" />
             <span className="text-2xs text-gray-600 uppercase tracking-wider">or verify by IDs</span>
             <div className="flex-1 h-px bg-bg-border" />
@@ -293,7 +330,7 @@ export function VerifyCertificatePage({ embedded = false }: { embedded?: boolean
         <button
           onClick={handleVerify}
           disabled={loading || (!dnaId.trim() && !certId.trim())}
-          className="btn btn-primary w-full"
+          className="btn btn-primary certificate-submit w-full"
         >
           {loading
             ? <><RefreshCw size={15} className="animate-spin" /> Verifying…</>
@@ -595,7 +632,7 @@ export function VerifyCertificatePage({ embedded = false }: { embedded?: boolean
         )}
       </AnimatePresence>
 
-      <p className="text-2xs text-gray-600 text-center pt-2 pb-4">
+      <p className="certificate-footer text-2xs text-gray-600 text-center pt-2 pb-4">
         Verified against Pinit HUB records · a certificate can be checked by anyone who holds it
       </p>
     </div>

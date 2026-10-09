@@ -20,6 +20,7 @@ import { SkeletonTable } from '../components/ui/Skeleton';
 import { cn } from '../components/ui/utils';
 import { formatBytes } from '../hooks/useApi';
 import toast from 'react-hot-toast';
+import './VaultIntegrityPage.css';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -108,6 +109,31 @@ const HEALTH_CFG = {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+function IntegrityHeroVisual() {
+  return (
+    <div className="integrity-visual" aria-hidden="true">
+      <span className="integrity-visual-glow" />
+      <span className="integrity-orbit integrity-orbit--outer" />
+      <span className="integrity-orbit integrity-orbit--inner" />
+      <span className="integrity-beam integrity-beam--one" />
+      <span className="integrity-beam integrity-beam--two" />
+      <span className="integrity-shield">
+        <span className="integrity-shield-layer integrity-shield-layer--outer" />
+        <span className="integrity-shield-layer integrity-shield-layer--middle" />
+        <span className="integrity-shield-core"><Shield size={38} /></span>
+      </span>
+      <span className="integrity-float-card integrity-float-card--drive"><HardDrive size={18} /></span>
+      <span className="integrity-float-card integrity-float-card--lock"><Lock size={17} /></span>
+      <span className="integrity-float-card integrity-float-card--activity"><Activity size={17} /></span>
+      <span className="integrity-float-card integrity-float-card--database"><Shield size={17} /></span>
+      <span className="integrity-particle integrity-particle--one" />
+      <span className="integrity-particle integrity-particle--two" />
+      <span className="integrity-particle integrity-particle--three" />
+      <span className="integrity-ground" />
+    </div>
+  );
+}
+
 export function VaultIntegrityPage() {
   const [report,  setReport]  = useState<IntegrityReport | null>(null);
   const [loading, setLoading] = useState(false);
@@ -135,10 +161,11 @@ export function VaultIntegrityPage() {
   const healthCfg = report ? HEALTH_CFG[report.summary.overallHealth] : null;
 
   return (
-    <div className="page-shell space-y-6 animate-fade-in">
+    <div className="page-shell integrity-page space-y-6 animate-fade-in">
 
       {/* Header */}
-      <div className="flex items-center justify-end flex-wrap gap-3">
+      <div className="integrity-hero flex items-center justify-end flex-wrap gap-3">
+        <IntegrityHeroVisual />
         <button
           onClick={handleCheck}
           disabled={loading}
@@ -152,7 +179,7 @@ export function VaultIntegrityPage() {
 
       {/* Explanation */}
       {!report && !loading && (
-        <div className="card">
+        <div className="card integrity-explanation">
           <div className="flex gap-4 mb-4">
             <div className="w-10 h-10 rounded-xl bg-dna-500/15 flex items-center justify-center shrink-0">
               <Shield size={18} className="text-dna-400" />
@@ -169,8 +196,9 @@ export function VaultIntegrityPage() {
               { icon: <HardDrive size={14} className="text-dna-400" />, title: 'File Exists on Disk', desc: 'The .enc encrypted file is present at its stored path' },
               { icon: <Shield size={14} className="text-success" />,    title: 'Size Integrity',       desc: 'File size matches the recorded encrypted size in the database' },
               { icon: <Lock size={14} className="text-purple" />,       title: 'Database Consistency', desc: 'Vault record correctly links to its DNA record' },
-            ].map(item => (
-              <div key={item.title} className="bg-bg-elevated rounded-xl p-3 border border-bg-border">
+            ].map((item, index) => (
+              <div key={item.title} className={`integrity-check-card integrity-check-card--${index} bg-bg-elevated rounded-xl p-3 border border-bg-border`}>
+                <span className="integrity-check-card-visual" aria-hidden="true">{item.icon}</span>
                 <div className="flex items-center gap-2 mb-1.5">{item.icon} <p className="text-xs font-semibold text-white">{item.title}</p></div>
                 <p className="text-2xs text-gray-500">{item.desc}</p>
               </div>

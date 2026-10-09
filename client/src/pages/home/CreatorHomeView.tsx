@@ -207,11 +207,15 @@ export function CreatorHomeView({
   });
 
   return (
-    <div className="hub-home w-full max-w-[1400px] mx-auto animate-fade-in space-y-8 pb-10">
+    <div className="hub-home hub-home-stagger w-full max-w-[1400px] mx-auto space-y-8 pb-10">
       <section className="hub-home-hero relative overflow-hidden px-5 py-7 sm:px-8 sm:py-8">
-        <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-          <div className="flex items-start gap-5 min-w-0">
-            <div className="hub-home-avatar w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl overflow-hidden shrink-0">
+        <span className="hub-home-hero-aurora" aria-hidden="true" />
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-6">
+          <div className="hub-hero-copy flex items-start gap-5 min-w-0 flex-1">
+            <div className="hub-hero-visual" aria-hidden="true">
+              <img src="/hub-asset-dna.png" alt="" draggable={false} />
+            </div>
+            <div className="hub-home-avatar relative z-10 w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl overflow-hidden shrink-0">
               {avatar ? (
                 <img src={avatar} alt={displayName ? `${displayName} profile photo` : 'Profile photo'} className="w-full h-full object-cover" />
               ) : (
@@ -220,7 +224,7 @@ export function CreatorHomeView({
                 </div>
               )}
             </div>
-            <div className="min-w-0">
+            <div className="relative z-10 min-w-0">
               <p className="hub-home-kicker mb-2">{kicker}</p>
               <h1 className="hub-home-hero-title">
                 {hello}{displayName ? `, ${displayName}` : ''} <span aria-hidden>👋</span>
@@ -236,7 +240,7 @@ export function CreatorHomeView({
               </div>
             </div>
           </div>
-          <div className="flex flex-col items-start lg:items-end gap-4 shrink-0">
+          <div className="relative z-10 flex flex-col items-start lg:items-end gap-4 shrink-0">
             {profile?.profileStrength && profile.profileStrength.percent < 100 && (
               <ProfileCompletionCard strength={profile.profileStrength} place="dashboard" />
             )}
@@ -445,8 +449,6 @@ export function CreatorHomeView({
             )}
           </section>
 
-          {children}
-
           <section className="hub-home-block">
             <div className="flex items-center justify-between gap-3 mb-4">
               <h2 className="hub-home-section">Recent activity</h2>
@@ -548,6 +550,7 @@ export function CreatorHomeView({
               </p>
             )}
           </section>
+          {children}
       </div>
     </div>
   );

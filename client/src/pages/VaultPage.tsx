@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Archive, Search, RefreshCw, Eye, Check, Clock, ShieldCheck, MapPin, LayoutGrid, List, Cpu } from 'lucide-react';
+import {
+  Archive, Search, RefreshCw, Eye, Check, Clock, ShieldCheck, MapPin,
+  LayoutGrid, List, Cpu, Database, FileImage, FileText, Lock, Link2, Settings,
+} from 'lucide-react';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { ExchangeListedTag } from '../components/ExchangeListedTag';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -182,36 +185,69 @@ function VaultGalleryCard({
       type="button"
       onClick={onSelect}
       className={cn(
-        'card overflow-hidden p-0 text-left transition-all duration-200 hover:border-dna-500/35 hover:-translate-y-0.5',
+        'hub-home-panel hub-interactive group overflow-hidden p-0 text-left',
       )}
     >
       <div className="w-full aspect-[4/3] bg-bg-elevated relative overflow-hidden">
-        <VaultFileThumbnail
-          vaultId={record.id}
-          fileName={record.originalFileName}
-          mimeType={record.originalMimeType}
-          variant="gallery"
-        />
+        <div className="w-full h-full transition-transform duration-200 group-hover:scale-[1.01]">
+          <VaultFileThumbnail
+            vaultId={record.id}
+            fileName={record.originalFileName}
+            mimeType={record.originalMimeType}
+            variant="gallery"
+          />
+        </div>
         {source && (
           <span className="absolute top-2 left-2 text-2xs font-semibold px-1.5 py-0.5 rounded-md bg-black/65 text-white border border-white/15">
             {source}
           </span>
         )}
       </div>
-      <div className="p-3 space-y-1">
+      <div className="p-3.5 space-y-1">
         <div className="flex items-start gap-1.5 min-w-0">
-          <p className="text-sm font-semibold text-white truncate flex-1">{record.originalFileName}</p>
+          <p className="hub-home-card-title truncate flex-1">{record.originalFileName}</p>
           {listed && <ExchangeListedTag compact className="shrink-0 mt-0.5" />}
         </div>
-        <p className="text-xs text-gray-500 truncate">
+        <p className="hub-home-meta truncate">
           {getVaultFileTypeDisplay(record.originalMimeType, record.originalFileName)}
           {source ? ` · ${source}` : ''}
         </p>
-        <p className="text-xs text-gray-500">
+        <p className="hub-home-meta">
           {format(new Date(record.createdAt), 'MMM d, yyyy')}
         </p>
       </div>
     </button>
+  );
+}
+
+function VaultEmptyVisual() {
+  return (
+    <div className="vault-empty-visual" aria-hidden="true">
+      <span className="vault-empty-orbit vault-empty-orbit--one" />
+      <span className="vault-empty-orbit vault-empty-orbit--two" />
+      <span className="vault-empty-trail vault-empty-trail--one" />
+      <span className="vault-empty-trail vault-empty-trail--two" />
+
+      <span className="vault-empty-accent vault-empty-accent--protect"><ShieldCheck size={17} /></span>
+      <span className="vault-empty-accent vault-empty-accent--share"><Link2 size={17} /></span>
+      <span className="vault-empty-accent vault-empty-accent--track"><Eye size={17} /></span>
+      <span className="vault-empty-accent vault-empty-accent--control"><Settings size={17} /></span>
+
+      <span className="vault-empty-file vault-empty-file--image"><FileImage size={21} /></span>
+      <span className="vault-empty-file vault-empty-file--document"><FileText size={20} /></span>
+      <span className="vault-empty-file vault-empty-file--lock"><Lock size={17} /></span>
+      <span className="vault-empty-folder">
+        <span className="vault-empty-folder-tab" />
+        <span className="vault-empty-folder-back" />
+        <span className="vault-empty-folder-front">
+          <ShieldCheck size={24} />
+        </span>
+      </span>
+      <span className="vault-empty-particle vault-empty-particle--one" />
+      <span className="vault-empty-particle vault-empty-particle--two" />
+      <span className="vault-empty-particle vault-empty-particle--three" />
+      <span className="vault-empty-shadow" />
+    </div>
   );
 }
 
@@ -304,8 +340,10 @@ export function VaultPage() {
   );
 
   return (
-    <div className="page-shell animate-fade-in">
-      <div className="space-y-5 min-w-0">
+    <div className="page-shell vault-premium-page relative">
+      <div className="vault-atmosphere" aria-hidden="true" />
+      <div className="vault-atmosphere-sweep" aria-hidden="true" />
+      <div className="relative z-10 vault-page-stagger space-y-5 min-w-0">
       {/* Header */}
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2 shrink-0 ml-auto">
@@ -343,20 +381,37 @@ export function VaultPage() {
 
       {/* Stats row */}
       {!loading && records && records.length > 0 && (
-        <div className="stat-grid-3 gap-3">
-          <div className="card-sm text-center">
-            <p className="text-2xl font-bold text-purple tabular-nums">{records.length}</p>
-            <p className="text-xs text-gray-500 mt-1">Protected Files</p>
-          </div>
-          <div className="card-sm text-center">
-            <p className="text-2xl font-bold text-success tabular-nums">
-              {formatBytes(records.reduce((s, r) => s + r.encryptedSizeBytes, 0))}
-            </p>
-            <p className="text-xs text-gray-500 mt-1">Storage used</p>
-          </div>
-          <div className="card-sm text-center">
-            <p className="text-2xl font-bold text-dna-400">Protected</p>
-            <p className="text-xs text-gray-500 mt-1">Only you control access</p>
+        <div className="vault-hero vault-stats-surface p-4 sm:p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
+            <div className="hub-home-stat hub-interactive flex items-center gap-3 text-left">
+              <span className="hub-icon-raised w-11 h-11 rounded-xl flex items-center justify-center text-dna-600 shrink-0">
+                <Archive size={20} />
+              </span>
+              <div className="min-w-0">
+                <p className="hub-home-metric tabular-nums">{records.length}</p>
+                <p className="hub-home-meta mt-0.5">Protected Files</p>
+              </div>
+            </div>
+            <div className="hub-home-stat hub-interactive flex items-center gap-3 text-left">
+              <span className="hub-icon-raised vault-icon--success w-11 h-11 rounded-xl flex items-center justify-center text-success shrink-0">
+                <Database size={20} />
+              </span>
+              <div className="min-w-0">
+                <p className="hub-home-metric tabular-nums">
+                  {formatBytes(records.reduce((s, r) => s + r.encryptedSizeBytes, 0))}
+                </p>
+                <p className="hub-home-meta mt-0.5">Storage used</p>
+              </div>
+            </div>
+            <div className="hub-home-stat hub-interactive flex items-center gap-3 text-left">
+              <span className="hub-icon-raised w-11 h-11 rounded-xl flex items-center justify-center text-dna-600 shrink-0">
+                <ShieldCheck size={20} />
+              </span>
+              <div className="min-w-0">
+                <p className="hub-home-metric">Protected</p>
+                <p className="hub-home-meta mt-0.5">Only you control access</p>
+              </div>
+            </div>
           </div>
         </div>
       )}
@@ -367,10 +422,8 @@ export function VaultPage() {
           <button
             type="button"
             onClick={() => setTypeFilter('ALL')}
-            className={`shrink-0 px-3 py-2 rounded-lg border text-xs font-semibold transition-all min-h-[40px] ${
-              typeFilter === 'ALL'
-                ? 'bg-dna-500/15 border-dna-500/40 text-dna-400'
-                : 'bg-bg-card border-bg-border text-gray-400 hover:text-white hover:border-dna-500/25'
+            className={`hub-chip shrink-0 px-3.5 py-2 rounded-full text-xs font-semibold min-h-[40px] ${
+              typeFilter === 'ALL' ? 'hub-chip-active' : 'text-slate-600 hover:text-slate-900'
             }`}
           >
             All · {records.length}
@@ -382,10 +435,8 @@ export function VaultPage() {
                 key={label}
                 type="button"
                 onClick={() => setTypeFilter(label)}
-                className={`shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg border text-xs font-semibold transition-all min-h-[40px] ${
-                  typeFilter === label
-                    ? 'bg-dna-500/15 border-dna-500/40 text-dna-400'
-                    : 'bg-bg-card border-bg-border text-gray-400 hover:text-white hover:border-dna-500/25'
+                className={`hub-chip shrink-0 flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-semibold min-h-[40px] ${
+                  typeFilter === label ? 'hub-chip-active' : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
                 <span>{icon}</span>
@@ -398,8 +449,8 @@ export function VaultPage() {
       )}
 
       {/* Search + table */}
-      <div className="card overflow-hidden p-0">
-        <div className="toolbar-row p-4 border-b border-bg-border">
+      <div className="hub-home-panel vault-assets-panel overflow-hidden p-0">
+        <div className="toolbar-row vault-search-toolbar p-4 border-b border-bg-border">
           <div className="relative flex-1 min-w-0 w-full">
             {aiSearching
               ? <RefreshCw size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-dna-400 animate-spin" />
@@ -409,29 +460,27 @@ export function VaultPage() {
               placeholder={aiMode ? 'Search by meaning or asset name…' : 'Search by asset name or source…'}
               value={search}
               onChange={e => handleSearch(e.target.value)}
-              className="input pl-9 text-sm"
+              className="input input-recessed pl-9 text-sm"
             />
           </div>
           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto shrink-0">
             <button
               onClick={() => { setAiMode(m => !m); setSearch(''); setAiResults([]); }}
               title={aiMode ? 'Switch to keyword search' : 'Search by meaning'}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-all shrink-0 min-h-[44px] sm:min-h-0 ${
-                aiMode
-                  ? 'bg-dna-500/20 border-dna-500/40 text-dna-400'
-                  : 'border-bg-border text-gray-500 hover:text-white hover:border-gray-600'
+              className={`hub-chip flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold shrink-0 min-h-[44px] sm:min-h-0 ${
+                aiMode ? 'hub-chip-active' : 'text-slate-600 hover:text-slate-900'
               }`}
             >
               <Cpu size={13} />
               {aiMode ? 'Smart search on' : 'Smart search'}
             </button>
-            <div className="flex items-center rounded-lg border border-bg-border overflow-hidden shrink-0">
+            <div className="hub-well flex items-center rounded-lg p-0.5 gap-0.5 shrink-0">
               <button
                 onClick={() => setViewMode('gallery')}
                 title="Gallery view"
                 className={cn(
-                  'px-2.5 py-1.5 transition-colors min-h-[44px] sm:min-h-0',
-                  viewMode === 'gallery' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
+                  'px-2.5 py-1.5 rounded-md transition-all duration-150 min-h-[40px] sm:min-h-0',
+                  viewMode === 'gallery' ? 'bg-white text-dna-600 shadow-sm' : 'text-slate-500 hover:text-slate-800',
                 )}
               >
                 <LayoutGrid size={14} />
@@ -440,8 +489,8 @@ export function VaultPage() {
                 onClick={() => setViewMode('list')}
                 title="List view"
                 className={cn(
-                  'px-2.5 py-1.5 border-l border-bg-border transition-colors min-h-[44px] sm:min-h-0',
-                  viewMode === 'list' ? 'bg-dna-500/20 text-dna-400' : 'text-gray-500 hover:text-white',
+                  'px-2.5 py-1.5 rounded-md transition-all duration-150 min-h-[40px] sm:min-h-0',
+                  viewMode === 'list' ? 'bg-white text-dna-600 shadow-sm' : 'text-slate-500 hover:text-slate-800',
                 )}
               >
                 <List size={14} />
@@ -452,17 +501,20 @@ export function VaultPage() {
         </div>
 
         {viewMode === 'gallery' ? (
-          <div className="p-4">
+          <div className="p-4 animate-fade-in">
             {loading ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {Array.from({ length: 8 }).map((_, i) => <SkeletonCard key={i} />)}
               </div>
             ) : filtered.length === 0 ? (
-              <EmptyState
-                icon={Archive}
-                title="No assets yet"
-                description="Protect your first asset to start building your protected library."
-              />
+              <div className="vault-empty-stage">
+                <VaultEmptyVisual />
+                <EmptyState
+                  icon={Archive}
+                  title="No assets yet"
+                  description="Protect your first asset to start building your protected library."
+                />
+              </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
                 {filtered.map(r => (
@@ -477,7 +529,7 @@ export function VaultPage() {
             )}
           </div>
         ) : (
-        <div className="overflow-x-auto">
+        <div className="overflow-x-auto animate-fade-in">
           <table className="data-table">
             <thead>
               <tr>

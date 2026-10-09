@@ -298,7 +298,7 @@ export function AskPinitPanel() {
         <button
           type="button"
           onClick={() => setOpen(true)}
-          className="pinit-ask-fab fixed z-[80] right-4 lg:right-5 bottom-[5.5rem] lg:bottom-6 flex items-center gap-2 rounded-full bg-dna-500 text-white pl-3.5 pr-4 py-2.5 shadow-lg ring-1 ring-black/10 hover:bg-dna-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
+          className="pinit-ask-fab fixed z-[80] right-4 lg:right-5 bottom-[5.5rem] lg:bottom-6 flex items-center gap-2 rounded-full text-white pl-3.5 pr-4 py-2.5 ring-1 ring-white/15 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
           aria-label="Ask PINIT"
         >
           <Sparkles size={15} className="text-sky-300" />
