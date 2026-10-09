@@ -78,7 +78,7 @@ export function buildVerifiedIdentityData(result: VerificationResult, runId: str
   };
 }
 
-/** 5472 7945 1580 → ••••••••1580. The last four are enough to recognise a number. */
+/** 2345 6789 0124 → ••••••••0124. The last four are enough to recognise a number. */
 export function maskNumber(value: string | null): string | null {
   if (!value) return null;
   const compact = value.replace(/\s+/g, '');
@@ -86,7 +86,7 @@ export function maskNumber(value: string | null): string | null {
   return `${'•'.repeat(compact.length - 4)}${compact.slice(-4)}`;
 }
 
-/** 2005-07-28 → ••/••/2005 */
+/** 2000-01-01 → ••/••/2000 */
 export function maskDate(value: string | null): string | null {
   if (!value) return null;
   const m = value.match(/^(\d{4})-\d{2}-\d{2}$/);

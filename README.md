@@ -389,6 +389,7 @@ No existing open-source system combines all 6 of these techniques into a single 
 - **Phase 5:** Async job queue (BullMQ) for large image processing
 - **Phase 6:** Batch verification across multiple record IDs
 - **Phase 7:** Android SDK integration
+- **PINIT Scan (planned, not started):** a web page that opens the phone camera in the browser, with no app-store download. Point it at an image, tap capture, and see "Protected by PINIT" with the owner's name and the date. It can be added to the home screen as a PINIT Scan icon and opens full screen. Plan: `docs/PINIT-SCAN-PLAN.md`
 
 ---
 

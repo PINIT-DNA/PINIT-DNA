@@ -63,6 +63,12 @@ interface VerifyResult {
   };
   accessHistory?: AccessEntry[];
   message: string;
+  trace?: {
+    ownerName?: string;
+    matchStrength?: number;
+    recipientLabel?: string | null;
+    commitmentOpens?: boolean;
+  };
 }
 
 const METHOD_LABELS: Record<string, string> = {
@@ -328,10 +334,20 @@ export function VerifyLeakedFilePage() {
                 </div>
                 {result.confidence != null && (
                   <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-dna-500/15 text-dna-400">
-                    {result.confidence}% confidence
+                    {result.trace?.matchStrength ?? result.confidence}% match
                   </span>
                 )}
               </div>
+              {(result.trace?.recipientLabel || result.trace?.commitmentOpens) && (
+                <div className="bg-bg-elevated rounded-lg px-3 py-2 space-y-1">
+                  {result.trace.recipientLabel && (
+                    <p className="text-xs text-gray-300">Copy issued to {result.trace.recipientLabel}</p>
+                  )}
+                  {result.trace.commitmentOpens === true && (
+                    <p className="text-xs text-gray-300">Stored ownership record opens for this asset.</p>
+                  )}
+                </div>
+              )}
 
               {/* Detection summary */}
               <div className="grid grid-cols-2 gap-2">

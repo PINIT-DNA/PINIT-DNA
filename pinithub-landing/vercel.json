@@ -245,6 +245,30 @@
       "destination": "https://pinit-dna.vercel.app/verify-certificate"
     },
     {
+      "source": "/scan",
+      "destination": "https://pinit-dna.vercel.app/scan"
+    },
+    {
+      "source": "/scan/:path*",
+      "destination": "https://pinit-dna.vercel.app/scan/:path*"
+    },
+    {
+      "source": "/scan-manifest.webmanifest",
+      "destination": "https://pinit-dna.vercel.app/scan-manifest.webmanifest"
+    },
+    {
+      "source": "/scan-sw.js",
+      "destination": "https://pinit-dna.vercel.app/scan-sw.js"
+    },
+    {
+      "source": "/scan-icon-192.png",
+      "destination": "https://pinit-dna.vercel.app/scan-icon-192.png"
+    },
+    {
+      "source": "/scan-icon-512.png",
+      "destination": "https://pinit-dna.vercel.app/scan-icon-512.png"
+    },
+    {
       "source": "/admin-portal",
       "destination": "https://pinit-dna.vercel.app/admin-portal"
     },

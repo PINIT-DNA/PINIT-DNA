@@ -120,6 +120,13 @@ export interface LeakedFileVerifyResult {
     lastAccessAt?: string;
     knownCountries?: string[];
   };
+  /** Owner and match strength only. No technique names. */
+  trace?: {
+    ownerName?: string;
+    matchStrength?: number;
+    recipientLabel?: string | null;
+    commitmentOpens?: boolean;
+  };
   watermark?: {
     code?: string;
     extractionMethod?: string;
@@ -161,11 +168,62 @@ export class LeakedFileVerifyService {
       return { found: false, message: 'Sign in to verify files against your vault.' };
     }
 
+    if (mimeType.startsWith('image/') || fileName.match(/\.(png|jpe?g|webp)$/i)) {
+      try {
+        const marked = await this._traceMarkedCopy(buffer, mimeType, ownerUserId);
+        if (marked) return marked;
+      } catch (err) {
+        logger.warn('[LeakedVerify] Marked-copy lookup failed', { error: String(err) });
+      }
+    }
+
     const result = await this._verifyOwned(buffer, mimeType, fileName, ownerUserId, options);
     if (result.identity?.ownerUserId && result.identity.ownerUserId !== ownerUserId) {
       return { found: false, message: 'No matching document found in your vault.' };
     }
     return result;
+  }
+
+  private async _traceMarkedCopy(
+    buffer: Buffer,
+    _mimeType: string,
+    callerUserId: string,
+  ): Promise<LeakedFileVerifyResult | null> {
+    const { extractWatermarkMatch } = await import('../dna-vnext/robust-watermark');
+    const { findWatermarkCopy } = await import('../dna-vnext/watermark-index');
+    const hit = await extractWatermarkMatch(buffer);
+    if (!hit) return null;
+    const copy = await findWatermarkCopy(hit.lookupId);
+    if (!copy) return null;
+    const sameOwner = copy.ownerUserId === callerUserId;
+    let commitmentOpens: boolean | undefined;
+    if (sameOwner) {
+      const { openStoredOwnershipCommitment } = await import('../layers/ownership-commitment');
+      commitmentOpens = await openStoredOwnershipCommitment(copy.dnaRecordId, callerUserId);
+    }
+    const recipientNote = copy.recipientLabel ? ` Issued to ${copy.recipientLabel}.` : '';
+    return {
+      found: true,
+      valid: true,
+      tampered: false,
+      leakVector: 'DOWNLOAD_REUPLOAD',
+      confidence: hit.strengthPercent,
+      message: `This file matches a PINIT-protected asset.${recipientNote}`,
+      identity: {
+        dnaId: sameOwner ? copy.dnaRecordId : undefined,
+        vaultId: sameOwner ? copy.vaultId : undefined,
+        ownerUserId: sameOwner ? copy.ownerUserId : undefined,
+        ownerName: copy.ownerName ?? undefined,
+        originalFilename: sameOwner ? copy.filename ?? undefined : undefined,
+      },
+      recipient: copy.recipientLabel ? { label: copy.recipientLabel } : undefined,
+      trace: {
+        ownerName: copy.ownerName ?? undefined,
+        matchStrength: hit.strengthPercent,
+        recipientLabel: copy.recipientLabel,
+        commitmentOpens,
+      },
+    };
   }
 
   private async _verifyOwned(

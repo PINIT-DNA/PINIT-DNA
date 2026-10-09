@@ -44,6 +44,7 @@ import { useAuth } from '../context/AuthContext';
 import { AuthenticityReportCard, verdictBadgeVariant } from './AuthenticityReportCard';
 import type { VaultContentAnalysis, VaultRecord } from '../types/dashboard.types';
 import { formatSourcePlatform, vaultSourceCaption } from '../lib/source-platform';
+import { PublicScanSettings } from './vault/PublicScanSettings';
 import { formatReshareId, formatShareId, formatTrackId } from '../lib/lifecycle-ids';
 import { parseCoordsFromLabel } from '../lib/parse-location-label';
 
@@ -935,6 +936,7 @@ export function VaultDetailSidePanel({
                   </div>
                 </dl>
               </section>
+              <PublicScanSettings vaultId={record.id} />
               <section>
                 <h3 className="text-2xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider mb-2">
                   Protected Downloads

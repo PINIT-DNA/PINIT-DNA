@@ -859,8 +859,39 @@ export async function serveSharedFile(req: Request, res: Response, next: NextFun
     const mime = result.originalMimeType || fullLink.mimeType || '';
     const isImage = mime.startsWith('image/');
     if (fullLink.linkType === 'LIVING' || isImage) {
-      res.set('Content-Type', correctImageMime(mime, result.originalBuffer));
-      res.send(result.originalBuffer);
+      let body = result.originalBuffer;
+      if (isImage && fullLink.vaultId && fullLink.dnaRecordId) {
+        try {
+          const { embedRobustProvenanceWatermark } = await import('../../services/dna-vnext/robust-watermark');
+          const recipientKey = fullLink.shareRecipientId
+            || fullLink.recipientEmail
+            || fullLink.recipientLabel
+            || undefined;
+          const wm = await embedRobustProvenanceWatermark({
+            buffer: body,
+            mimeType: mime,
+            vaultId: fullLink.vaultId,
+            dnaRecordId: fullLink.dnaRecordId,
+            ownerUserId: fullLink.ownerUserId ?? undefined,
+            recipientKey,
+            recipientLabel: fullLink.recipientLabel || fullLink.recipientEmail || undefined,
+          });
+          if (wm.embedded) {
+            body = wm.buffer;
+            const { appendExportLineage } = await import('../../services/layers/lineage-log');
+            const { createHash } = await import('crypto');
+            await appendExportLineage(
+              fullLink.dnaRecordId,
+              createHash('sha256').update(body).digest('hex'),
+            );
+          }
+        } catch {
+          /* The original bytes still go out if the mark cannot be written. */
+        }
+      }
+      res.set('Content-Type', correctImageMime(mime, body));
+      res.set('Content-Length', String(body.length));
+      res.send(body);
       return;
     }
 

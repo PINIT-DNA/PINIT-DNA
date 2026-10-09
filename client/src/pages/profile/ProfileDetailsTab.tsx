@@ -22,8 +22,6 @@ import {
   LINK_KEYS,
   LINK_RULES,
   MAX_EXTRA_LINKS,
-  MIN_BIO_LENGTH,
-  STRENGTH_ITEMS,
   type LinkKey,
   type SocialLinks,
   type StrengthItemId,
@@ -60,8 +58,6 @@ const LINK_ICON: Record<LinkKey, { icon: React.ReactNode; tile: string; hint: st
   instagram: { icon: <InstagramIcon size={17} />, tile: 'bg-[#e1306c]/10 text-[#c13584] dark:bg-[#e1306c]/20 dark:text-[#f58fb5]', hint: 'Creative work and behind the scenes' },
   website: { icon: <Globe size={17} />, tile: 'bg-dna-50 text-dna-600 dark:bg-dna-500/15 dark:text-dna-400', hint: 'Your own site' },
 };
-
-const WEIGHT = Object.fromEntries(STRENGTH_ITEMS.map((i) => [i.id, i.weight])) as Record<StrengthItemId, number>;
 
 function formFrom(profile: any): FormState {
   return {
@@ -220,13 +216,13 @@ export function ProfileDetailsTab({
           </FieldGroup>
 
           <FieldGroup title="Work">
-            <TextField id="pf-organization" label="Organization" missing={!done.has('organization')} gain={WEIGHT.organization} value={form.organization} onChange={set('organization')} placeholder="Company name" autoComplete="organization" />
-            <TextField id="pf-jobTitle" label="Job title" missing={!done.has('jobTitle')} gain={WEIGHT.jobTitle} value={form.jobTitle} onChange={set('jobTitle')} placeholder="Software Engineer" autoComplete="organization-title" />
+            <TextField id="pf-organization" label="Organization" missing={!done.has('organization')} value={form.organization} onChange={set('organization')} placeholder="Company name" autoComplete="organization" />
+            <TextField id="pf-jobTitle" label="Job title" missing={!done.has('jobTitle')} value={form.jobTitle} onChange={set('jobTitle')} placeholder="Software Engineer" autoComplete="organization-title" />
           </FieldGroup>
 
           <FieldGroup title="About">
             <div className="sm:col-span-2">
-              <FieldLabel htmlFor="pf-bio" label="Bio" missing={!done.has('bio')} gain={WEIGHT.bio} />
+              <FieldLabel htmlFor="pf-bio" label="Bio" missing={!done.has('bio')} />
               <textarea
                 id="pf-bio"
                 value={form.bio}
@@ -235,11 +231,6 @@ export function ProfileDetailsTab({
                 className="w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-slate-900 dark:text-white resize-y min-h-[84px] focus:outline-none focus:border-dna-500 scroll-mt-24"
                 placeholder="Two or three sentences about what you do."
               />
-              <p className={`text-2xs mt-1 tabular-nums ${done.has('bio') ? 'text-emerald-700 dark:text-emerald-300' : 'text-slate-500 dark:text-gray-400'}`}>
-                {done.has('bio')
-                  ? 'Counts toward your profile'
-                  : `${Math.max(0, MIN_BIO_LENGTH - form.bio.trim().length)} more characters to count toward your profile`}
-              </p>
             </div>
           </FieldGroup>
         </section>
@@ -272,7 +263,6 @@ export function ProfileDetailsTab({
                         <span className="flex-1" />
                         {ok && <span className="text-2xs font-semibold text-emerald-700 dark:text-emerald-300">Added</span>}
                         {skipped && <span className="text-2xs font-semibold text-slate-500 dark:text-gray-400">Not used</span>}
-                        {!done.has(key) && <span className="text-2xs font-semibold text-slate-400 dark:text-gray-500 tabular-nums">+{WEIGHT[key]}%</span>}
                       </div>
                       {skipped ? (
                         <p className="text-xs text-slate-500 dark:text-gray-400 mt-1.5">
@@ -398,28 +388,27 @@ function FieldGroup({ title, children }: { title: string; children: React.ReactN
   );
 }
 
-function FieldLabel({ htmlFor, label, required, missing, gain }: {
-  htmlFor: string; label: string; required?: boolean; missing?: boolean; gain?: number;
+function FieldLabel({ htmlFor, label, required, missing }: {
+  htmlFor: string; label: string; required?: boolean; missing?: boolean;
 }) {
   return (
     <div className="flex items-center gap-2 mb-1">
       <label htmlFor={htmlFor} className="text-2xs text-slate-600 dark:text-gray-400 font-medium">{label}</label>
       {required && missing && <span className="text-2xs font-semibold text-amber-700 dark:text-amber-300">Required</span>}
-      {!required && missing && gain ? <span className="ml-auto text-2xs font-semibold text-slate-400 dark:text-gray-500 tabular-nums">+{gain}%</span> : null}
     </div>
   );
 }
 
 function TextField({
-  id, label, value, onChange, disabled, placeholder, type, required, missing, gain, hint, wide, autoComplete,
+  id, label, value, onChange, disabled, placeholder, type, required, missing, hint, wide, autoComplete,
 }: {
   id: string; label: string; value: string; onChange?: (v: string) => void; disabled?: boolean;
-  placeholder?: string; type?: string; required?: boolean; missing?: boolean; gain?: number;
+  placeholder?: string; type?: string; required?: boolean; missing?: boolean;
   hint?: string; wide?: boolean; autoComplete?: string;
 }) {
   return (
     <div className={wide ? 'sm:col-span-2' : undefined}>
-      <FieldLabel htmlFor={id} label={label} required={required} missing={missing} gain={gain} />
+      <FieldLabel htmlFor={id} label={label} required={required} missing={missing} />
       <input
         id={id}
         type={type ?? 'text'}

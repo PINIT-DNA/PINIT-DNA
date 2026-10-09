@@ -34,6 +34,11 @@ const HUB_EXACT = new Set([
   '/unified-investigation',
   '/certificates',
   '/verify-certificate',
+  '/scan',
+  '/scan-manifest.webmanifest',
+  '/scan-sw.js',
+  '/scan-icon-192.png',
+  '/scan-icon-512.png',
   '/admin-portal',
   '/pinithub-logo.png',
   '/share',
@@ -72,6 +77,7 @@ const HUB_PREFIXES = [
   '/admin-portal/',
   '/static/',
   '/models/',
+  '/scan/',
 ];
 
 function isHubPath(pathname: string): boolean {

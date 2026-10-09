@@ -32,6 +32,10 @@ model DnaRecord {
   /// document DnaRecord (e.g. a PDF) via these two fields.
   documentDnaRecordId   String?
   pageNumber            Int?
+  /// Public scan. Defaults hide the title and any recipient. Opt-out makes a scan look like no match.
+  publicScanOptOut        Boolean @default(false)
+  publicScanShowTitle     Boolean @default(false)
+  publicScanShowRecipient Boolean @default(false)
   documentDnaRecord     DnaRecord?         @relation("DocumentPages", fields: [documentDnaRecordId], references: [id], onDelete: Cascade)
   pages                 DnaRecord[]        @relation("DocumentPages")
   behavioralLayer       BehavioralLayer?
@@ -135,6 +139,22 @@ model ForensicProvenanceEvent {
   @@index([eventType])
   @@index([investigationId])
   @@map("forensic_provenance_events")
+}
+
+/// Maps a mark found in a file back to its owner and, when present, the recipient copy.
+/// The id is an opaque key. Do not put technique names in anything derived from this row.
+model WatermarkLookup {
+  lookupId        String   @id
+  createdAt       DateTime @default(now())
+  vaultId         String
+  dnaRecordId     String
+  ownerUserId     String
+  recipientKey    String?
+  recipientLabel  String?
+
+  @@index([ownerUserId])
+  @@index([dnaRecordId])
+  @@map("watermark_lookups")
 }
 
 // ── Local DNA Feature Index (patch-level fingerprints for crop/screenshot recovery) ──

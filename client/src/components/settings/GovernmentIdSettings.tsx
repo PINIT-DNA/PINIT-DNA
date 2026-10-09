@@ -106,7 +106,6 @@ export function GovernmentIdSettings({
   const [documentType, setDocumentType] = useState<DocumentType>('AADHAAR');
   const [saving, setSaving] = useState(false);
   const [checksKey, setChecksKey] = useState(0);
-  const [clearing, setClearing] = useState(false);
   const [verification, setVerification] = useState<VerificationRun | null>(null);
   const [activeSide, setActiveSide] = useState<Side>('front');
   const liveRef = useRef<{ embedding: number[]; padEvidence?: FacePadEvidence } | null>(null);
@@ -329,21 +328,6 @@ export function GovernmentIdSettings({
     }
   };
 
-  const clearProof = async () => {
-    setClearing(true);
-    setError('');
-    try {
-      const r = await api.delete(`${API_BASE_URL}/profile/government-id`);
-      setView((r.data as { governmentId?: GovernmentIdView }).governmentId ?? null);
-      setChecksKey((k) => k + 1);
-      onSaved?.();
-    } catch (err) {
-      setError(formatApiError(err));
-    } finally {
-      setClearing(false);
-    }
-  };
-
   const startAdd = () => { setError(''); setActiveSide('front'); setVerification(null); liveRef.current = null; resetSides(); setPurpose('save'); setStep('choose'); };
   const startSecondProof = () => { setError(''); setActiveSide('front'); setVerification(null); liveRef.current = null; resetSides(); setPurpose('second'); setStep('choose'); };
 
@@ -399,21 +383,9 @@ export function GovernmentIdSettings({
           </div>
           <div className="flex-1 min-w-0 space-y-1.5">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">{proofLine}</p>
-            <p className="text-xs text-slate-500 dark:text-gray-400">
-              Shown as <b className="text-slate-700 dark:text-gray-200">ID on file</b> next to your name, visible only to you.
-              It never appears on shared links or your public page.
-            </p>
             <p className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-gray-400">
               <Lock size={12} /> {PRIVACY_LINE}
             </p>
-            <div className="flex gap-4 pt-1">
-              <button type="button" className="text-sm font-medium text-dna-600 dark:text-dna-400" onClick={startAdd}>
-                Replace
-              </button>
-              <button type="button" disabled={clearing} className="text-sm font-medium text-slate-500 dark:text-gray-400" onClick={() => void clearProof()}>
-                {clearing ? 'Clearing…' : 'Clear'}
-              </button>
-            </div>
             <IdentityChecks refreshKey={checksKey} onAddSecondProof={startSecondProof} />
           </div>
         </div>
@@ -438,15 +410,6 @@ export function GovernmentIdSettings({
       {variant === 'security' && view && step === 'idle' && view.documentStatus === 'ON_FILE' && (
         <div className="space-y-2">
           <p className="text-sm text-slate-700 dark:text-gray-300">{proofLine}</p>
-          <div className="flex gap-4">
-            <button
-              type="button"
-              className="text-sm font-medium text-dna-600 dark:text-dna-400"
-              onClick={startAdd}
-            >
-              Replace
-            </button>
-          </div>
         </div>
       )}
 

@@ -13,6 +13,20 @@ export function watermarkLookupId(vaultId: string, dnaRecordId: string): string 
   ]).subarray(0, 8).toString('hex');
 }
 
+/** Separate id for one recipient. The owner id above stays unchanged. */
+export function watermarkRecipientLookupId(
+  vaultId: string,
+  dnaRecordId: string,
+  recipientKey: string,
+): string {
+  return vnextHmac([
+    Buffer.from('pinit-dna-b-lookup-v2'),
+    Buffer.from(vaultId, 'utf8'),
+    Buffer.from(dnaRecordId, 'utf8'),
+    Buffer.from(recipientKey, 'utf8'),
+  ]).subarray(0, 8).toString('hex');
+}
+
 export function signWatermarkBody(body: Buffer): Buffer {
   return vnextHmac([Buffer.from('pinit-dna-b-mac-v1'), body]).subarray(0, 16);
 }

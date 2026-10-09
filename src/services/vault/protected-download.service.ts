@@ -198,24 +198,6 @@ export class ProtectedDownloadService {
       identityTokenEmbedded = embedded.identityEmbedded;
       watermarkMethod = embedded.methods.join(', ') || undefined;
 
-      if (retrieved.originalMimeType.startsWith('image/')) {
-        try {
-          const { embedRobustProvenanceWatermark } = await import('../dna-vnext/robust-watermark');
-          const wm = await embedRobustProvenanceWatermark({
-            buffer: outBuffer,
-            mimeType: retrieved.originalMimeType,
-            vaultId,
-            dnaRecordId: record.dnaRecordId,
-          });
-          if (wm.embedded) {
-            outBuffer = wm.buffer;
-            watermarkMethod = [watermarkMethod, wm.method].filter(Boolean).join(', ');
-          }
-        } catch {
-          /* DNA B is additive */
-        }
-      }
-
       if (identityTokenEmbedded) {
         steps.push({
           id: 'identity_token',

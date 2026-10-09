@@ -372,7 +372,7 @@ async function readImageText(bytes: Buffer): Promise<{ text: string; confidence:
   });
 }
 
-async function extractGovernmentDocumentTextInner(mime: string, bytes: Buffer): Promise<{ text: string; confidence: number; unclear?: boolean; tokens: OcrWordBox[] }> {
+export async function extractGovernmentDocumentText(mime: string, bytes: Buffer): Promise<{ text: string; confidence: number; unclear?: boolean; tokens: OcrWordBox[] }> {
   try {
     if (mime === 'application/pdf') {
       try {
@@ -402,27 +402,3 @@ async function extractGovernmentDocumentTextInner(mime: string, bytes: Buffer): 
   }
   return { text: '', confidence: 0, tokens: [] };
 }
-
-// TEMP-ID-DEBUG-START (local development only; remove after the Aadhaar reading bug is fixed)
-// Saves each uploaded identity image and what the reader returned to a folder OUTSIDE the project.
-export async function extractGovernmentDocumentText(mime: string, bytes: Buffer): Promise<{ text: string; confidence: number; unclear?: boolean; tokens: OcrWordBox[] }> {
-  const result = await extractGovernmentDocumentTextInner(mime, bytes);
-  if (process.env.NODE_ENV !== 'production') {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const fsx = require('fs') as typeof import('fs');
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const osx = require('os') as typeof import('os');
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const pathx = require('path') as typeof import('path');
-      const dir = pathx.join(osx.tmpdir(), 'pinit-id-debug');
-      fsx.mkdirSync(dir, { recursive: true });
-      const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const ext = mime === 'application/pdf' ? 'pdf' : mime.split('/')[1] || 'bin';
-      fsx.writeFileSync(pathx.join(dir, stamp + '.' + ext), bytes);
-      fsx.writeFileSync(pathx.join(dir, stamp + '.read.json'), JSON.stringify({ mime, bytes: bytes.length, confidence: result.confidence, text: result.text, tokens: result.tokens }, null, 2));
-    } catch { /* debug only */ }
-  }
-  return result;
-}
-// TEMP-ID-DEBUG-END

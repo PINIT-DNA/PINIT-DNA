@@ -49,6 +49,8 @@ import { HomeRedirect } from './components/subscription/HomeRedirect';
 import { RequireAccountTypeOnboarding } from './components/onboarding/RequireAccountTypeOnboarding';
 import { BRAND } from './config/brand.config';
 import { ShareViewerPage } from './pages/ShareViewerPage';
+import { ScanPage } from './pages/ScanPage';
+import { ScanDetailsPage } from './pages/ScanDetailsPage';
 import { OpenPinitPage } from './pages/OpenPinitPage';
 import { HubPortfolioPage } from './pages/HubPortfolioPage';
 import { HelpPage } from './pages/HelpPage';
@@ -102,6 +104,8 @@ export const router = createBrowserRouter([
   // the signed-in shell, so the QR printed on every certificate led a buyer, a
   // client or a court to a login wall.
   { path: '/verify-certificate', element: <VerifyCertificatePage /> },
+  { path: '/scan', element: <ScanPage /> },
+  { path: '/scan/details/:token', element: <ScanDetailsPage /> },
 
   // ── Team invite join (remembers token if login is required) ────────────────
   { path: '/team/join/:token', element: <TeamJoinPage /> },

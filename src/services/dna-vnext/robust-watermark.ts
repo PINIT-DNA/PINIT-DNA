@@ -7,7 +7,8 @@ import {
 import { DNA_B_ROBUST } from '../../types/dna-vnext.types';
 import type { RobustWatermarkRecovery } from '../../types/dna-vnext.types';
 import { findProvenanceByLookupId } from './provenance';
-import { signWatermarkBody, verifyWatermarkMac, watermarkLookupId } from './crypto';
+import { findWatermarkCopy, recordWatermarkLookup } from './watermark-index';
+import { signWatermarkBody, verifyWatermarkMac, watermarkLookupId, watermarkRecipientLookupId } from './crypto';
 
 const MAGIC = Buffer.from('PIT1');
 
@@ -38,6 +39,18 @@ function toBits3x(data: Buffer): number[] {
     }
   }
   return bits;
+}
+
+function fromBits1x(bits: number[], byteLen: number): Buffer | null {
+  if (bits.length < byteLen * 8) return null;
+  const out = Buffer.alloc(byteLen);
+  for (let bi = 0; bi < byteLen * 8; bi++) {
+    if (!bits[bi]) continue;
+    const byteIndex = Math.floor(bi / 8);
+    const shift = 7 - (bi % 8);
+    out[byteIndex] = (out[byteIndex]! | (1 << shift)) & 0xff;
+  }
+  return out;
 }
 
 function fromBits3x(bits: number[], byteLen: number): Buffer | null {
@@ -96,9 +109,9 @@ function clamp(v: number): number {
  * unchanged fixed-pixel tile code. Because canonical dimensions depend only
  * on aspect ratio, and a uniform resize preserves aspect ratio, embed-time
  * and extract-time derive the same grid regardless of what resize factor
- * was applied in between. Covers uniform, aspect-ratio-preserving resize
- * only — crop and non-uniform stretch are ORB's job, not this layer's (see
- * the multi-layer agreement gate, which treats them as separate signals).
+ * was applied in between. A second native block mark covers a crop that
+ * still contains one whole block. Read-time also tries 90, 180 and 270
+ * degree turns when the upright read fails.
  */
 /** Canonical Patchwork geometry (must stay in lockstep with readBitFromTile). */
 const TILE = 16;
@@ -234,6 +247,106 @@ function embedBitInRect(rgba: Buffer, width: number, x0: number, y0: number, x1:
   }
 }
 
+/**
+ * A second copy of the same payload, written as top-vs-bottom luma in fixed
+ * 256px blocks. A crop that still contains one whole block can be read without
+ * the full-frame grid. The shift is the same on the left and the right, so it
+ * does not by itself flip the full-frame bits. Measured limit: JPEG quality 10
+ * on a 2000×1500 image no longer recovers (see the A1 pin in the transcode test).
+ */
+const CROP_SIDE = 16;
+const CROP_BLOCK = CROP_SIDE * TILE;
+const CROP_DELTA = 10;
+
+function embedBitTopBottom(rgba: Buffer, width: number, tx: number, ty: number, bit: number): void {
+  const midY = ty + TILE / 2;
+  for (let y = ty; y < ty + TILE; y++) {
+    const shift = (y < midY) === (bit === 1) ? CROP_DELTA : -CROP_DELTA;
+    for (let x = tx; x < tx + TILE; x++) {
+      const px = (y * width + x) * 4;
+      rgba[px] = clamp((rgba[px] ?? 0) + shift);
+      rgba[px + 1] = clamp((rgba[px + 1] ?? 0) + shift);
+      rgba[px + 2] = clamp((rgba[px + 2] ?? 0) + shift);
+    }
+  }
+}
+
+function embedCropBlocks(rgba: Buffer, width: number, height: number, bits: number[]): void {
+  if (bits.length > CROP_SIDE * CROP_SIDE) return;
+  if (width < CROP_BLOCK || height < CROP_BLOCK) return;
+  const cols = Math.floor(width / CROP_BLOCK);
+  const rows = Math.floor(height / CROP_BLOCK);
+  const x0 = Math.floor((width - cols * CROP_BLOCK) / 2);
+  const y0 = Math.floor((height - rows * CROP_BLOCK) / 2);
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const bx = x0 + col * CROP_BLOCK;
+      const by = y0 + row * CROP_BLOCK;
+      let bitIdx = 0;
+      for (let ty = 0; ty < CROP_SIDE; ty++) {
+        for (let tx = 0; tx < CROP_SIDE; tx++) {
+          const bit = bits[bitIdx] ?? 0;
+          embedBitTopBottom(rgba, width, bx + tx * TILE, by + ty * TILE, bit);
+          bitIdx++;
+        }
+      }
+    }
+  }
+}
+
+function readBitTopBottom(rgba: Buffer, width: number, tx: number, ty: number): number {
+  let top = 0;
+  let bottom = 0;
+  for (let y = 0; y < TILE; y++) {
+    for (let x = 0; x < TILE; x++) {
+      const px = ((ty + y) * width + (tx + x)) * 4;
+      const luma = 0.299 * (rgba[px] ?? 0) + 0.587 * (rgba[px + 1] ?? 0) + 0.114 * (rgba[px + 2] ?? 0);
+      if (y < TILE / 2) top += luma;
+      else bottom += luma;
+    }
+  }
+  return top - bottom >= 0 ? 1 : 0;
+}
+
+function decodeCropBlock(rgba: Buffer, width: number, bx: number, by: number): string | null {
+  const bits: number[] = [];
+  for (let i = 0; i < 32; i++) {
+    const tx = i % CROP_SIDE;
+    const ty = Math.floor(i / CROP_SIDE);
+    bits.push(readBitTopBottom(rgba, width, bx + tx * TILE, by + ty * TILE));
+  }
+  const magic = fromBits1x(bits, 4);
+  if (!magic || magic.toString() !== 'PIT1') return null;
+  for (let i = 32; i < CROP_SIDE * CROP_SIDE; i++) {
+    const tx = i % CROP_SIDE;
+    const ty = Math.floor(i / CROP_SIDE);
+    bits.push(readBitTopBottom(rgba, width, bx + tx * TILE, by + ty * TILE));
+  }
+  const raw = fromBits1x(bits, 30);
+  if (!raw) return null;
+  return decodePayload(raw)?.lookupId ?? null;
+}
+
+function extractCropLookup(rgba: Buffer, width: number, height: number): string | null {
+  if (width < CROP_BLOCK || height < CROP_BLOCK) return null;
+  const cx = width / 2;
+  const cy = height / 2;
+  const candidates: Array<{ x: number; y: number }> = [];
+  for (const phase of [0, 8]) {
+    for (let y = phase; y + CROP_BLOCK <= height; y += TILE) {
+      for (let x = phase; x + CROP_BLOCK <= width; x += TILE) {
+        candidates.push({ x, y });
+      }
+    }
+  }
+  candidates.sort((a, b) => ((a.x - cx) ** 2 + (a.y - cy) ** 2) - ((b.x - cx) ** 2 + (b.y - cy) ** 2));
+  for (const c of candidates) {
+    const hit = decodeCropBlock(rgba, width, c.x, c.y);
+    if (hit) return hit;
+  }
+  return null;
+}
+
 function readBitFromTile(rgba: Buffer, width: number, tx: number, ty: number): { bit: number; strength: number } {
   let leftSum = 0, rightSum = 0;
   for (let y = 0; y < TILE; y++) {
@@ -270,6 +383,7 @@ function embedBitsInRgba(rgba: Buffer, nativeWidth: number, nativeHeight: number
     }
     bitIdx++;
   }
+  embedCropBlocks(out, nativeWidth, nativeHeight, bits.filter((_, i) => i % 3 === 0));
   return out;
 }
 
@@ -306,14 +420,19 @@ export async function embedRobustProvenanceWatermark(params: {
   mimeType: string;
   vaultId: string;
   dnaRecordId: string;
-}): Promise<{ buffer: Buffer; embedded: boolean; method: string }> {
+  ownerUserId?: string;
+  recipientKey?: string;
+  recipientLabel?: string;
+}): Promise<{ buffer: Buffer; embedded: boolean; method: string; lookupId?: string }> {
   if (!isDnaVnextEnabled() || !dnaVnextConfig.watermarkOnProtectedDownload) {
     return { buffer: params.buffer, embedded: false, method: 'disabled' };
   }
   if (!params.mimeType.startsWith('image/')) {
     return { buffer: params.buffer, embedded: false, method: 'not-image' };
   }
-  const lookup = watermarkLookupId(params.vaultId, params.dnaRecordId);
+  const lookup = params.recipientKey
+    ? watermarkRecipientLookupId(params.vaultId, params.dnaRecordId, params.recipientKey)
+    : watermarkLookupId(params.vaultId, params.dnaRecordId);
   const payload = encodePayload(lookup);
   const bits = toBits3x(payload);
   const { data, info } = await sharp(params.buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
@@ -327,7 +446,17 @@ export async function embedRobustProvenanceWatermark(params: {
     : await sharp(rgba, { raw: { width: info.width, height: info.height, channels: 4 } })
       .jpeg({ quality: 100, chromaSubsampling: '4:4:4', mozjpeg: true })
       .toBuffer();
-  return { buffer: out, embedded: true, method: DNA_VNEXT_WATERMARK_VERSION };
+  if (params.ownerUserId) {
+    await recordWatermarkLookup({
+      lookupId: lookup,
+      vaultId: params.vaultId,
+      dnaRecordId: params.dnaRecordId,
+      ownerUserId: params.ownerUserId,
+      recipientKey: params.recipientKey,
+      recipientLabel: params.recipientLabel,
+    });
+  }
+  return { buffer: out, embedded: true, method: DNA_VNEXT_WATERMARK_VERSION, lookupId: lookup };
 }
 
 function emptyRecovery(): RobustWatermarkRecovery {
@@ -340,10 +469,12 @@ function emptyRecovery(): RobustWatermarkRecovery {
   };
 }
 
-export async function extractWatermarkLookupId(buffer: Buffer): Promise<string | null> {
+type MarkHit = { lookupId: string; strengthPercent: number };
+
+async function extractCanonicalMatch(buffer: Buffer): Promise<MarkHit | null> {
   const canon = await toCanonicalRaw(buffer);
   if (!canon) return null;
-  const { bits } = readBitsFromRgba(canon.data, canon.cw, canon.ch);
+  const { bits, support } = readBitsFromRgba(canon.data, canon.cw, canon.ch);
   const payloadLen = 30;
   const cycle = payloadLen * 8 * 3;
   if (bits.length < cycle) return null;
@@ -355,7 +486,38 @@ export async function extractWatermarkLookupId(buffer: Buffer): Promise<string |
   const majority = acc.map((v) => (v >= Math.ceil(copies / 2) ? 1 : 0));
   const raw = fromBits3x(majority, payloadLen);
   if (!raw) return null;
-  return decodePayload(raw)?.lookupId ?? null;
+  const lookupId = decodePayload(raw)?.lookupId;
+  if (!lookupId) return null;
+  const tiles = listTiles(canon.cw, canon.ch);
+  const strengthPercent = tiles.length ? Math.round((support.length / tiles.length) * 100) : 0;
+  return { lookupId, strengthPercent };
+}
+
+async function extractCropMatch(buffer: Buffer): Promise<MarkHit | null> {
+  const meta = await sharp(buffer).metadata();
+  if (!meta.width || !meta.height) return null;
+  const { data, info } = await sharp(buffer).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const lookupId = extractCropLookup(data, info.width, info.height);
+  if (!lookupId) return null;
+  return { lookupId, strengthPercent: 100 };
+}
+
+export async function extractWatermarkMatch(buffer: Buffer): Promise<MarkHit | null> {
+  const direct = await extractCanonicalMatch(buffer);
+  if (direct) return direct;
+  const cropped = await extractCropMatch(buffer);
+  if (cropped) return cropped;
+  for (const angle of [90, 180, 270] as const) {
+    const turned = await sharp(buffer).rotate(angle).toBuffer();
+    const hit = await extractCanonicalMatch(turned) ?? await extractCropMatch(turned);
+    if (hit) return hit;
+  }
+  return null;
+}
+
+export async function extractWatermarkLookupId(buffer: Buffer): Promise<string | null> {
+  const hit = await extractWatermarkMatch(buffer);
+  return hit?.lookupId ?? null;
 }
 
 export async function recoverRobustProvenanceWatermark(params: {
@@ -367,50 +529,31 @@ export async function recoverRobustProvenanceWatermark(params: {
     return emptyRecovery();
   }
   try {
-    const canon = await toCanonicalRaw(params.buffer);
-    if (!canon) return emptyRecovery();
-    const { bits, support } = readBitsFromRgba(canon.data, canon.cw, canon.ch);
-    const payloadLen = 30;
-    const cycle = payloadLen * 8 * 3;
-    if (bits.length < cycle) return emptyRecovery();
-    const copies = Math.floor(bits.length / cycle);
-    const acc = new Array<number>(cycle).fill(0);
-    for (let c = 0; c < copies; c++) {
-      for (let i = 0; i < cycle; i++) acc[i]! += bits[c * cycle + i] ?? 0;
+    const hit = await extractWatermarkMatch(params.buffer);
+    if (!hit) return emptyRecovery();
+    const indexed = await findWatermarkCopy(hit.lookupId);
+    if (indexed && indexed.ownerUserId !== params.ownerUserId) return emptyRecovery();
+    let vaultId = indexed?.ownerUserId === params.ownerUserId ? indexed.vaultId : undefined;
+    let dnaRecordId = indexed?.ownerUserId === params.ownerUserId ? indexed.dnaRecordId : undefined;
+    let certificateId: string | null | undefined;
+    if (!vaultId || !dnaRecordId) {
+      const rec = await findProvenanceByLookupId({
+        ownerUserId: params.ownerUserId,
+        lookupId: hit.lookupId,
+      });
+      if (!rec) return emptyRecovery();
+      vaultId = rec.vaultId;
+      dnaRecordId = rec.dnaRecordId;
+      certificateId = rec.certificateId;
     }
-    const majority = acc.map((v) => (v >= Math.ceil(copies / 2) ? 1 : 0));
-    const raw = fromBits3x(majority, payloadLen);
-    if (!raw) return emptyRecovery();
-    const decoded = decodePayload(raw);
-    if (!decoded) return emptyRecovery();
-    const rec = await findProvenanceByLookupId({
-      ownerUserId: params.ownerUserId,
-      lookupId: decoded.lookupId,
-    });
-    if (!rec) return emptyRecovery();
-
-    const tiles = listTiles(canon.cw, canon.ch);
-    const conf = tiles.length ? Math.round((support.length / tiles.length) * 100) : 0;
-    let supportRegion: RobustWatermarkRecovery['supportRegion'];
-    if (support.length) {
-      const xs = support.map((s) => s.x);
-      const ys = support.map((s) => s.y);
-      const minX = Math.min(...xs);
-      const minY = Math.min(...ys);
-      const maxX = Math.max(...xs) + 16;
-      const maxY = Math.max(...ys) + 16;
-      supportRegion = { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
-    }
-
     return {
       recovered: true,
       mechanism: DNA_B_ROBUST,
       watermarkVersion: DNA_VNEXT_WATERMARK_VERSION,
-      vaultId: rec.vaultId,
-      dnaRecordId: rec.dnaRecordId,
-      certificateId: rec.certificateId,
-      spatialConfidencePercent: conf,
-      supportRegion,
+      vaultId,
+      dnaRecordId,
+      certificateId,
+      spatialConfidencePercent: hit.strengthPercent,
       doesNotImplyPixelCoverage: true,
     };
   } catch {
