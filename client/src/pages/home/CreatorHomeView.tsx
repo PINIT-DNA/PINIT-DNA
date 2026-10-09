@@ -1,9 +1,9 @@
-import { Children, useRef, type ReactNode } from 'react';
+import { Children, useRef, type PointerEvent, type ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Archive, AlertTriangle, RefreshCw, Globe, Plus, Link2, Radio,
-  FileText, Briefcase, Shield, ShieldCheck, Share2, ChevronRight, ChevronLeft, Search,
-  Image as ImageIcon, Lock, Music, Video, File, Folder, Database, Network,
+  FileText, Briefcase, Shield, Share2, ChevronRight, ChevronLeft, Search,
+  Lock, Folder, Database, Network, Dna, FingerprintPattern, Eye, BadgeCheck,
 } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { VaultFileThumbnail } from '../../components/VaultFileThumbnail';
@@ -75,50 +75,70 @@ function HubOrExternalLink({
   return <a href={to} target="_blank" rel="noreferrer" className={className}>{children}</a>;
 }
 
-/** Purely decorative — two translucent layered plates behind a shield, built
- * entirely from CSS (no image assets, no WebGL). Occupies the hero's right
- * edge on large screens only; carries no content, so it's aria-hidden. */
-function VaultHeroVisual() {
+const DNA_LEGEND = [
+  { icon: FingerprintPattern, label: 'Identity' },
+  { icon: Shield, label: 'Provenance' },
+  { icon: Eye, label: 'Usage Tracking' },
+  { icon: Lock, label: 'Tamper Detection' },
+  { icon: BadgeCheck, label: 'Ownership Proof' },
+] as const;
+
+/** Decorative Asset DNA artwork for the home hero. The helix is the extracted
+ * reference illustration; motion is CSS-only. Carries no dashboard data. */
+function AssetDnaHeroVisual() {
+  const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const bounds = event.currentTarget.getBoundingClientRect();
+    const x = ((event.clientX - bounds.left) / bounds.width - 0.5) * 10;
+    const y = ((event.clientY - bounds.top) / bounds.height - 0.5) * 7;
+    event.currentTarget.style.setProperty('--dna-px', `${x.toFixed(2)}px`);
+    event.currentTarget.style.setProperty('--dna-py', `${y.toFixed(2)}px`);
+  };
+  const onPointerLeave = (event: PointerEvent<HTMLDivElement>) => {
+    event.currentTarget.style.setProperty('--dna-px', '0px');
+    event.currentTarget.style.setProperty('--dna-py', '0px');
+  };
+
   return (
-    <div className="hub-vault-visual" aria-hidden="true">
-      <span className="hub-vault-visual-orbit hub-vault-visual-orbit--outer" />
-      <span className="hub-vault-visual-orbit hub-vault-visual-orbit--inner" />
-      <span className="hub-vault-visual-ray hub-vault-visual-ray--one" />
-      <span className="hub-vault-visual-ray hub-vault-visual-ray--two" />
-      <span className="hub-vault-visual-plate hub-vault-visual-plate--back" />
-      <span className="hub-vault-visual-plate hub-vault-visual-plate--mid" />
-      <span className="hub-vault-visual-plate hub-vault-visual-plate--front" />
-      <span className="hub-vault-visual-shield">
-        <span className="hub-vault-visual-shield-layer hub-vault-visual-shield-layer--outer" />
-        <span className="hub-vault-visual-shield-layer hub-vault-visual-shield-layer--middle" />
-        <span className="hub-vault-visual-shield-core">
-          <ShieldCheck size={38} className="text-white" />
-        </span>
-      </span>
-      {/* Six badges in a loose hexagon around the shield — top pair, mid pair,
-          bottom pair — each a small glass tile, not a bare floating icon. */}
-      <span className="hub-vault-visual-badge hub-vault-visual-badge--top-left">
-        <ImageIcon size={13} />
-      </span>
-      <span className="hub-vault-visual-badge hub-vault-visual-badge--top-right">
-        <Lock size={13} />
-      </span>
-      <span className="hub-vault-visual-badge hub-vault-visual-badge--mid-left">
-        <FileText size={13} />
-      </span>
-      <span className="hub-vault-visual-badge hub-vault-visual-badge--mid-right">
-        <File size={13} />
-      </span>
-      <span className="hub-vault-visual-badge hub-vault-visual-badge--bottom-left">
-        <Video size={13} />
-      </span>
-      <span className="hub-vault-visual-badge hub-vault-visual-badge--bottom-right">
-        <Music size={13} />
-      </span>
-      <span className="hub-vault-visual-sparkle hub-vault-visual-sparkle--a" />
-      <span className="hub-vault-visual-sparkle hub-vault-visual-sparkle--b" />
-      <span className="hub-vault-visual-sparkle hub-vault-visual-sparkle--c" />
-      <span className="hub-vault-visual-ground" />
+    <div
+      className="hub-dna-stage"
+      aria-hidden="true"
+      onPointerMove={onPointerMove}
+      onPointerLeave={onPointerLeave}
+    >
+      <div className="hub-dna-visual">
+        <span className="hub-dna-glow" />
+        <span className="hub-dna-depth" />
+        <span className="hub-dna-particle hub-dna-particle--a" />
+        <span className="hub-dna-particle hub-dna-particle--b" />
+        <span className="hub-dna-particle hub-dna-particle--c" />
+        <span className="hub-dna-particle hub-dna-particle--d" />
+        <span className="hub-dna-particle hub-dna-particle--e" />
+        <div className="hub-dna-enter">
+          <div className="hub-dna-shift">
+            <img src="/hub-asset-dna.png" alt="" className="hub-dna-art" draggable={false} />
+          </div>
+        </div>
+      </div>
+      <div className="hub-dna-legend">
+        <div className="hub-dna-legend-head">
+          <span className="hub-dna-legend-mark">
+            <Dna size={15} />
+          </span>
+          <div className="min-w-0">
+            <p className="hub-dna-legend-title">Asset DNA</p>
+            <p className="hub-dna-legend-copy">Every asset has a unique digital DNA</p>
+          </div>
+        </div>
+        <ul className="hub-dna-legend-list">
+          {DNA_LEGEND.map(({ icon: Icon, label }) => (
+            <li key={label}>
+              <Icon size={13} />
+              <span>{label}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }
@@ -302,7 +322,7 @@ export function CreatorHomeView({
         <div className="hub-home-panel hub-home-hero overflow-hidden px-4 pt-4 pb-7 sm:px-5 sm:pt-5 sm:pb-5">
         <span className="hub-home-hero-aurora" aria-hidden="true" />
         <span className="hub-home-hero-grid" aria-hidden="true" />
-        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center gap-4">
+        <div className="relative z-10 flex flex-col lg:flex-row lg:items-center gap-4 lg:gap-6">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <div className="hub-home-avatar w-11 h-11 sm:w-12 sm:h-12 rounded-xl overflow-hidden bg-dna-500 shrink-0 ring-1 ring-black/5 dark:ring-white/10">
               {avatar ? (
@@ -338,9 +358,7 @@ export function CreatorHomeView({
               </div>
             </div>
           </div>
-          <div className="hidden lg:flex items-center justify-center w-[320px] xl:w-[390px] shrink-0">
-            <VaultHeroVisual />
-          </div>
+          <AssetDnaHeroVisual />
         </div>
         </div>
         <div className="relative z-20 -mt-4 sm:-mt-5 px-1 sm:px-2">
@@ -514,8 +532,8 @@ export function CreatorHomeView({
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
-        <section className="hub-home-block min-w-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 items-stretch">
+        <section className="hub-home-block min-w-0 h-full flex flex-col">
             <div className="flex items-center justify-between gap-3 mb-3">
               <h2 className="hub-home-section">{portfolioSectionTitle}</h2>
               {savedPortfolio?.viewUrl ? (
@@ -525,7 +543,7 @@ export function CreatorHomeView({
               ) : null}
             </div>
             {!savedPortfolio ? (
-              <div className="hub-well p-5">
+              <div className="hub-well p-5 flex-1">
                 <div className="hub-icon-raised mb-3 w-12 h-12 rounded-2xl text-dna-500 flex items-center justify-center" aria-hidden>
                   <Briefcase size={21} />
                 </div>
@@ -538,7 +556,7 @@ export function CreatorHomeView({
             ) : (
               <HubOrExternalLink
                 to={savedPortfolio.viewUrl}
-                className="hub-home-panel hub-interactive overflow-hidden group flex items-stretch max-w-md"
+                className="hub-home-panel hub-interactive overflow-hidden group flex flex-1 items-stretch w-full"
               >
                 <div className="w-24 sm:w-32 shrink-0 bg-bg-muted overflow-hidden">
                   {savedPortfolio.photoUrl ? (
@@ -549,7 +567,7 @@ export function CreatorHomeView({
                     </div>
                   )}
                 </div>
-                <div className="p-3 min-w-0 flex-1">
+                <div className="p-3 min-w-0 flex-1 flex flex-col justify-center">
                   <p className="hub-home-card-title truncate">{savedPortfolio.title}</p>
                   <p className="hub-home-meta mt-1">{savedPortfolio.status}</p>
                 </div>

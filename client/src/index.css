@@ -3695,9 +3695,10 @@ html:not(.dark) .hub-home-block {
 
 /* Hero: illuminated pane with a stronger right-side light source. */
 html:not(.dark) .hub-home-hero {
-  min-height: 214px;
+  min-height: 228px;
   background:
-    radial-gradient(circle at 77% 48%, rgba(107, 185, 255, 0.32), transparent 25%),
+    radial-gradient(circle at 64% 42%, rgba(167, 139, 250, 0.14), transparent 24%),
+    radial-gradient(circle at 76% 48%, rgba(56, 189, 248, 0.26), transparent 30%),
     radial-gradient(circle at 88% 18%, rgba(255,255,255,0.96), transparent 19%),
     linear-gradient(118deg, rgba(255,255,255,0.98) 0%, rgba(244,249,255,0.95) 46%, rgba(224,240,255,0.91) 100%);
   border-color: rgba(155, 191, 235, 0.58);
@@ -3750,143 +3751,158 @@ html:not(.dark) .hub-home-hero {
     0 0 0 4px rgba(78,151,255,.08);
 }
 
-/* Layered 3D shield scene. */
-.hub-vault-visual {
-  width: 370px;
-  height: 190px;
-  perspective: 900px;
-  transform-style: preserve-3d;
-  opacity: 1;
-  animation: hubSecurityFloat 11s ease-in-out infinite;
+/* Asset DNA illustration on the home hero's right side. */
+.hub-dna-stage {
+  --dna-px: 0px;
+  --dna-py: 0px;
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  min-height: 188px;
+  flex: 1 1 auto;
+  align-self: center;
 }
-.hub-vault-visual-orbit {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  border-radius: 50%;
-  border: 1px solid rgba(93, 164, 246, 0.22);
-  transform: translate(-50%,-50%) rotateX(66deg);
-  box-shadow: 0 0 24px rgba(86, 161, 255, 0.08);
-}
-.hub-vault-visual-orbit--outer { width: 285px; height: 155px; }
-.hub-vault-visual-orbit--inner { width: 205px; height: 112px; border-style: dashed; opacity: .7; }
-.hub-vault-visual-ray {
-  position: absolute;
-  width: 210px;
-  height: 1px;
-  left: 80px;
-  top: 95px;
-  background: linear-gradient(90deg, transparent, rgba(89,164,255,.42), transparent);
-  transform-origin: center;
-}
-.hub-vault-visual-ray--one { transform: rotate(24deg); }
-.hub-vault-visual-ray--two { transform: rotate(-22deg); }
-.hub-vault-visual-plate {
-  border: 1px solid rgba(255,255,255,.82);
-  background: linear-gradient(145deg, rgba(255,255,255,.76), rgba(143,203,255,.14));
-  box-shadow:
-    inset 0 1px 0 rgba(255,255,255,.8),
-    0 12px 26px -16px rgba(32,104,198,.46);
-  backdrop-filter: blur(7px);
-}
-.hub-vault-visual-plate--back {
-  width: 108px;
-  height: 130px;
-  left: 190px;
-  top: 28px;
-  transform: translateZ(-50px) rotateY(-24deg) rotateZ(10deg);
-  background: linear-gradient(145deg, rgba(255,255,255,.68), rgba(96,174,255,.18));
-}
-.hub-vault-visual-plate--mid {
-  width: 102px;
-  height: 126px;
-  left: 98px;
-  top: 30px;
-  transform: translateZ(-30px) rotateY(22deg) rotateZ(-8deg);
-}
-.hub-vault-visual-plate--front {
-  width: 132px;
-  height: 142px;
-  left: 119px;
-  top: 20px;
-  transform: translateZ(-12px);
-  background: linear-gradient(145deg, rgba(255,255,255,.7), rgba(135,203,255,.22));
-}
-.hub-vault-visual-shield {
-  left: 50%;
-  top: 49%;
-  width: 124px;
-  height: 142px;
-  border-radius: 0;
-  background: none;
-  box-shadow: none;
-  transform: translate(-50%,-50%) translateZ(30px);
-  filter: drop-shadow(0 18px 20px rgba(26,102,207,.26));
-  animation: hubShieldBreathe 8s ease-in-out infinite;
-}
-.hub-vault-visual-shield-layer {
-  position: absolute;
-  inset: 0;
-  clip-path: polygon(50% 0, 91% 15%, 86% 65%, 50% 100%, 14% 65%, 9% 15%);
-}
-.hub-vault-visual-shield-layer--outer {
-  background: linear-gradient(145deg, rgba(255,255,255,.92), rgba(134,208,255,.46));
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.96);
-}
-.hub-vault-visual-shield-layer--middle {
-  inset: 12px 14px 17px;
-  background: linear-gradient(145deg, rgba(222,245,255,.9), rgba(64,156,255,.62));
-  box-shadow: inset 0 0 14px rgba(255,255,255,.75);
-}
-.hub-vault-visual-shield-core {
-  position: absolute;
-  inset: 28px 31px 37px;
+.hub-dna-visual {
+  position: relative;
+  width: 100%;
+  height: 200px;
   display: flex;
   align-items: center;
   justify-content: center;
-  clip-path: polygon(50% 0, 91% 15%, 86% 65%, 50% 100%, 14% 65%, 9% 15%);
-  background: linear-gradient(150deg, #55b5ff 0%, #217bf5 49%, #1355d5 100%);
-  box-shadow:
-    inset 0 2px 5px rgba(255,255,255,.55),
-    0 0 24px rgba(45,142,255,.55);
 }
-.hub-vault-visual-badge {
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  color: #2479e8;
-  background: linear-gradient(145deg, rgba(255,255,255,.9), rgba(230,244,255,.72));
-  border: 1px solid rgba(255,255,255,.94);
+.hub-dna-glow {
+  position: absolute;
+  left: 6%;
+  right: 8%;
+  top: 12%;
+  bottom: 8%;
+  z-index: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 48% 50%, rgba(125, 211, 252, 0.55), transparent 42%),
+    radial-gradient(circle at 62% 46%, rgba(129, 140, 248, 0.22), transparent 58%);
+  filter: blur(8px);
+  animation: hubDnaGlow 5.6s ease-in-out infinite;
+}
+.hub-dna-depth {
+  position: absolute;
+  left: 16%;
+  right: 18%;
+  bottom: 4%;
+  z-index: 1;
+  height: 22px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, rgba(37, 99, 235, 0.28), transparent 70%);
+  filter: blur(8px);
+}
+.hub-dna-enter {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  animation: hubDnaEnter 0.9s cubic-bezier(.2, .8, .2, 1) both;
+}
+.hub-dna-shift {
+  width: 100%;
+  transform: translate3d(var(--dna-px), var(--dna-py), 0);
+  transition: transform 0.45s ease-out;
+  will-change: transform;
+}
+.hub-dna-art {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center left;
+  pointer-events: none;
+  user-select: none;
+  filter: drop-shadow(0 18px 24px rgba(37, 99, 235, 0.22));
+  animation: hubDnaFloat 8.5s ease-in-out infinite;
+}
+.hub-dna-particle {
+  position: absolute;
+  z-index: 3;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  pointer-events: none;
+  background: rgba(186, 230, 253, 0.95);
+  box-shadow: 0 0 10px rgba(56, 189, 248, 0.85);
+  animation: hubDnaParticle 7.5s ease-in-out infinite;
+}
+.hub-dna-particle--a { top: 18%; left: 12%; }
+.hub-dna-particle--b { top: 30%; right: 10%; width: 5px; height: 5px; animation-delay: -2.2s; }
+.hub-dna-particle--c { bottom: 22%; left: 22%; width: 4px; height: 4px; animation-delay: -4s; background: rgba(196, 181, 253, 0.9); }
+.hub-dna-particle--d { top: 58%; right: 18%; animation-delay: -1.4s; }
+.hub-dna-particle--e { bottom: 16%; right: 30%; width: 4px; height: 4px; animation-delay: -3.1s; }
+.hub-dna-legend {
+  position: absolute;
+  z-index: 5;
+  right: 0;
+  top: 50%;
+  width: 158px;
+  transform: translateY(-50%);
+  padding: 0.65rem 0.7rem 0.55rem;
+  border-radius: 16px;
+  color: #1e3a8a;
+  background: linear-gradient(180deg, rgba(255,255,255,0.88), rgba(241,248,255,0.72));
+  border: 1px solid rgba(255,255,255,0.9);
   box-shadow:
     inset 0 1px 0 #fff,
-    0 9px 18px -10px rgba(23,95,190,.55),
-    0 0 0 1px rgba(95,159,232,.12);
-  backdrop-filter: blur(9px);
+    0 12px 24px -18px rgba(37, 99, 235, 0.5);
+  backdrop-filter: blur(12px);
 }
-.hub-vault-visual-badge--top-left { left: 72px; top: 19px; animation: hubBadgeFloatA 8s ease-in-out infinite; }
-.hub-vault-visual-badge--top-right { left: 264px; top: 17px; animation: hubBadgeFloatB 10s ease-in-out infinite; }
-.hub-vault-visual-badge--mid-left { left: 34px; top: 82px; animation: hubBadgeFloatB 9s ease-in-out -2s infinite; }
-.hub-vault-visual-badge--mid-right { left: 302px; top: 78px; animation: hubBadgeFloatA 11s ease-in-out -3s infinite; }
-.hub-vault-visual-badge--bottom-left { left: 84px; top: 139px; animation: hubBadgeFloatA 10s ease-in-out -5s infinite; }
-.hub-vault-visual-badge--bottom-right { left: 251px; top: 142px; animation: hubBadgeFloatB 9s ease-in-out -4s infinite; }
-.hub-vault-visual-sparkle {
-  background: #dff4ff;
-  box-shadow: 0 0 10px rgba(69,166,255,.9);
-  animation: hubSparkle 5s ease-in-out infinite;
+.hub-dna-legend-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.45rem;
 }
-.hub-vault-visual-sparkle--a { top: 12px; left: 179px; }
-.hub-vault-visual-sparkle--b { bottom: 15px; left: 191px; animation-delay: -2s; }
-.hub-vault-visual-sparkle--c { width: 5px; height: 5px; top: 63px; left: 283px; animation-delay: -3s; }
-.hub-vault-visual-ground {
-  position: absolute;
-  width: 190px;
-  height: 24px;
-  left: 90px;
-  bottom: 2px;
-  border-radius: 50%;
-  background: rgba(48,132,239,.22);
-  filter: blur(12px);
-  transform: rotateX(72deg);
+.hub-dna-legend-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  color: #1d4ed8;
+  background: linear-gradient(180deg, #fff, #e0f2fe);
+  border: 1px solid rgba(191, 219, 254, 0.9);
+  box-shadow: inset 0 1px 0 #fff;
+}
+.hub-dna-legend-title {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.15;
+  color: #0f172a;
+}
+.hub-dna-legend-copy {
+  margin: 0.12rem 0 0;
+  font-size: 0.62rem;
+  line-height: 1.3;
+  color: #64748b;
+}
+.hub-dna-legend-list {
+  list-style: none;
+  margin: 0.45rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.28rem;
+}
+.hub-dna-legend-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #334155;
+}
+.hub-dna-legend-list svg {
+  flex-shrink: 0;
+  color: #2563eb;
 }
 
 /* Stats: distinct glass tints and tiny translucent objects on the right. */
@@ -4128,39 +4144,87 @@ html:not(.dark) .hub-sidebar-status {
 }
 
 /* Entrance and ambient motion. */
-@keyframes hubSecurityFloat {
-  0%,100% { transform: translate3d(0,0,0) rotateX(1deg) rotateY(-2deg); }
-  50% { transform: translate3d(0,-6px,0) rotateX(-1.5deg) rotateY(2deg); }
+@keyframes hubDnaEnter {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
-@keyframes hubShieldBreathe {
-  0%,100% { transform: translate(-50%,-50%) translateZ(30px) scale(1); }
-  50% { transform: translate(-50%,-52%) translateZ(36px) scale(1.025); }
+@keyframes hubDnaFloat {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50% { transform: translate3d(0, -10px, 0); }
 }
-@keyframes hubBadgeFloatA {
-  0%,100% { transform: translate3d(0,0,18px) rotate(-2deg); }
-  50% { transform: translate3d(3px,-7px,24px) rotate(3deg); }
+@keyframes hubDnaGlow {
+  0%, 100% { opacity: 0.55; transform: scale(0.96); }
+  50% { opacity: 1; transform: scale(1.05); }
 }
-@keyframes hubBadgeFloatB {
-  0%,100% { transform: translate3d(0,0,10px) rotate(2deg); }
-  50% { transform: translate3d(-4px,6px,18px) rotate(-3deg); }
-}
-@keyframes hubSparkle {
-  0%,100% { opacity: .35; transform: scale(.75); }
-  50% { opacity: 1; transform: scale(1.25); }
+@keyframes hubDnaParticle {
+  0%, 100% { opacity: 0.35; transform: translate3d(0, 4px, 0); }
+  50% { opacity: 0.95; transform: translate3d(0, -8px, 0); }
 }
 @keyframes hubAuroraBreathe {
   0%,100% { opacity: .78; transform: scale(1) translate3d(0,0,0); }
   50% { opacity: 1; transform: scale(1.05) translate3d(-8px,3px,0); }
 }
 
-@media (max-width: 1279px) {
-  .hub-vault-visual { width: 310px; transform: scale(.88); }
+@media (min-width: 1024px) {
+  .hub-dna-stage {
+    flex: 0 0 46%;
+    width: 46%;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.45rem;
+  }
+  .hub-dna-visual { width: 100%; height: 176px; }
+  .hub-dna-art { object-position: center; }
+  .hub-dna-legend {
+    position: static;
+    transform: none;
+    width: 100%;
+  }
+  .hub-dna-legend-copy { display: none; }
+  .hub-dna-legend-list {
+    grid-template-columns: 1fr 1fr;
+    column-gap: 0.75rem;
+  }
+}
+@media (min-width: 1280px) {
+  .hub-dna-stage {
+    flex-basis: 58%;
+    width: 58%;
+    min-height: 228px;
+    display: block;
+  }
+  .hub-dna-visual {
+    width: calc(100% - 184px);
+    height: 230px;
+  }
+  .hub-dna-art { object-position: center left; }
+  .hub-dna-legend {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    width: 172px;
+    transform: translateY(-50%);
+  }
+  .hub-dna-legend-copy { display: block; }
+  .hub-dna-legend-list { grid-template-columns: 1fr; }
 }
 @media (max-width: 1023px) {
   .hub-home-hero { min-height: auto; }
   .hub-home-hero-aurora { right: -14rem; opacity: .58; }
   .hub-home-hero-grid { display: none; }
   .hub-stat-visual { right: 4%; transform: translateY(-50%) scale(.86); }
+  .hub-dna-stage { width: 100%; min-height: 0; }
+  .hub-dna-visual { height: 190px; }
+  .hub-dna-art { object-position: center; }
+  .hub-dna-legend {
+    position: static;
+    transform: none;
+    width: min(100%, 280px);
+    margin: 0.35rem auto 0;
+  }
+  .hub-dna-legend-copy { display: block; }
 }
 @media (max-width: 639px) {
   .hub-main-atmosphere::before,
@@ -4171,11 +4235,15 @@ html:not(.dark) .hub-sidebar-status {
 }
 @media (prefers-reduced-motion: reduce) {
   .hub-home-hero-aurora,
-  .hub-vault-visual,
-  .hub-vault-visual-shield,
-  .hub-vault-visual-badge,
-  .hub-vault-visual-sparkle {
+  .hub-dna-enter,
+  .hub-dna-art,
+  .hub-dna-glow,
+  .hub-dna-particle {
     animation: none !important;
+  }
+  .hub-dna-shift {
+    transform: none !important;
+    transition: none !important;
   }
   .hub-home-block,
   .hub-metric-tile,
