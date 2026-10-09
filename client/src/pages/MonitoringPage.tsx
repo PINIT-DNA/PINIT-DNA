@@ -24,6 +24,7 @@ import { cn } from '../components/ui/utils';
 import { resolveAlertUrl, resolveAlertSubtitle } from '../lib/crawler-url';
 import { downloadDmcaDraft } from '../lib/dmca-draft';
 import { useSearchParams } from 'react-router-dom';
+import { MonitoringHeroVisual } from '../components/monitoring/MonitoringHeroVisual';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -228,7 +229,7 @@ function MonitorCard({ m, onCheck, onPause, onResume, onScanTypeChange, checking
   };
 
   return (
-    <div className="card">
+    <div className="card monc-card-hover">
       <div className="flex items-start gap-3">
         <div className={cn('w-2 h-2 rounded-full mt-2 shrink-0',
           m.status === 'ACTIVE' ? 'bg-success animate-pulse' :
@@ -524,49 +525,65 @@ export function MonitoringPage() {
   return (
     <div className="page-shell space-y-5 animate-fade-in">
 
-      {/* Header */}
-      <div className="flex items-center justify-end flex-wrap gap-3">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={async () => {
-              if (!monitoringLive) {
-                toast('Online monitoring is paused until the crawler build is ready');
-                return;
-              }
-              const toEnroll = notMonitored;
-              if (toEnroll.length === 0) { toast('All files are already being monitored'); return; }
-              let enrolled = 0;
-              for (const r of toEnroll) {
-                try {
-                  await api.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'CONTINUOUS' });
-                  enrolled++;
-                } catch { /* skip already enrolled */ }
-              }
-              toast.success(`Enrolled ${enrolled} files for monitoring`);
-              load();
-            }}
-            className="btn btn-secondary btn-sm"
-            title="Auto-enroll all files that aren't being monitored yet"
-            disabled={!monitoringLive}
-          >
-            <Radio size={14} /> Monitor All
-          </button>
-          <button
-            onClick={() => {
-              if (!monitoringLive) {
-                toast('Online monitoring is paused until the crawler build is ready');
-                return;
-              }
-              setEnrollOpen(true);
-            }}
-            className="btn btn-primary btn-sm"
-            disabled={!monitoringLive}
-          >
-            <Radio size={14} /> Enroll File
-          </button>
-          <button onClick={load} disabled={loading} className="btn btn-secondary btn-sm">
-            <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
-          </button>
+      {/* Hero — live monitoring command center */}
+      <div className="monc-hero monc-fade-up">
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <span className={cn('monc-status-pill', monitoringLive ? 'monc-status-pill--live' : 'monc-status-pill--paused')}>
+            <span className="monc-status-dot" />
+            {monitoringLive ? 'LIVE MONITORING' : 'MONITORING PAUSED'}
+          </span>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={async () => {
+                if (!monitoringLive) {
+                  toast('Online monitoring is paused until the crawler build is ready');
+                  return;
+                }
+                const toEnroll = notMonitored;
+                if (toEnroll.length === 0) { toast('All files are already being monitored'); return; }
+                let enrolled = 0;
+                for (const r of toEnroll) {
+                  try {
+                    await api.post(`${API_BASE_URL}/monitor/enroll/${r.id}`, { scanType: 'CONTINUOUS' });
+                    enrolled++;
+                  } catch { /* skip already enrolled */ }
+                }
+                toast.success(`Enrolled ${enrolled} files for monitoring`);
+                load();
+              }}
+              className="btn btn-secondary btn-sm"
+              title="Auto-enroll all files that aren't being monitored yet"
+              disabled={!monitoringLive}
+            >
+              <Radio size={14} /> Monitor All
+            </button>
+            <button
+              onClick={() => {
+                if (!monitoringLive) {
+                  toast('Online monitoring is paused until the crawler build is ready');
+                  return;
+                }
+                setEnrollOpen(true);
+              }}
+              className="btn btn-primary btn-sm"
+              disabled={!monitoringLive}
+            >
+              <Radio size={14} /> Enroll File
+            </button>
+            <button onClick={load} disabled={loading} className="btn btn-secondary btn-sm">
+              <RefreshCw size={13} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
+        </div>
+
+        <div className="monc-hero-grid mt-4">
+          <div>
+            <p className="monc-hero-desc text-base max-w-sm leading-relaxed">
+              Watching the web for copies of your protected assets — scanning sites, YouTube, GitHub,
+              Reddit, and Telegram for images, documents, and video matches.
+            </p>
+          </div>
+          <MonitoringHeroVisual live={monitoringLive} platforms={stats?.readiness?.platforms} />
         </div>
       </div>
 
@@ -581,31 +598,27 @@ export function MonitoringPage() {
       )}
 
       {stats?.readiness && (
-        <div className="rounded-xl border border-bg-border bg-bg-card px-4 py-3">
-          <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Monitoring readiness</p>
-          <div className="flex flex-wrap gap-2">
-            {[
-              { label: 'Crawler', ok: stats.readiness.monitoringEnabled },
-              { label: 'Engine', ok: stats.readiness.crawlerEngineEnabled },
-              { label: 'Web', ok: stats.readiness.platforms.website },
-              { label: 'YouTube', ok: stats.readiness.platforms.youtube },
-              { label: 'GitHub', ok: stats.readiness.platforms.github },
-              { label: 'Reddit', ok: stats.readiness.platforms.reddit },
-              { label: 'Telegram', ok: stats.readiness.platforms.telegram },
-            ].map((p) => (
-              <span
-                key={p.label}
-                className={cn(
-                  'text-2xs px-2 py-1 rounded-lg border',
-                  p.ok
-                    ? 'border-emerald-500/30 text-emerald-300 bg-emerald-500/10'
-                    : 'border-bg-border text-gray-500 bg-bg-elevated',
-                )}
-              >
-                {p.label}: {p.ok ? 'Ready' : 'Needs key'}
+        <div className="monc-readiness monc-fade-up" style={{ animationDelay: '60ms' }}>
+          <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Monitoring readiness</p>
+          {[
+            { label: 'Crawler', ok: stats.readiness.monitoringEnabled },
+            { label: 'Engine', ok: stats.readiness.crawlerEngineEnabled },
+            { label: 'Web', ok: stats.readiness.platforms.website },
+            { label: 'YouTube', ok: stats.readiness.platforms.youtube },
+            { label: 'GitHub', ok: stats.readiness.platforms.github },
+            { label: 'Reddit', ok: stats.readiness.platforms.reddit },
+            { label: 'Telegram', ok: stats.readiness.platforms.telegram },
+          ].map((p) => (
+            <div key={p.label} className="monc-readiness-row">
+              <span className="monc-readiness-label">
+                <span className={cn('monc-readiness-dot', p.ok ? 'monc-readiness-dot--ready' : 'monc-readiness-dot--pending')} />
+                {p.label}
               </span>
-            ))}
-          </div>
+              <span className={p.ok ? 'monc-readiness-value--ready' : 'monc-readiness-value--pending'}>
+                {p.ok ? 'Ready' : 'Needs key'}
+              </span>
+            </div>
+          ))}
         </div>
       )}
 
@@ -613,18 +626,25 @@ export function MonitoringPage() {
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
           {[
-            { label: 'Monitored',    value: stats.totalMonitored,   icon: <Shield size={14} className="text-dna-400" /> },
-            { label: 'Active',       value: stats.activeMonitors,   icon: <Radio size={14} className="text-success" /> },
-            { label: 'Total Runs',   value: stats.totalRuns,        icon: <Activity size={14} className="text-blue-400" /> },
-            { label: 'Exact Matches',value: stats.exactMatches,     icon: <AlertTriangle size={14} className="text-danger" /> },
-            { label: 'Pending',      value: stats.pendingAlerts,    icon: <Clock size={14} className="text-warning" /> },
-            { label: 'Confirmed',    value: stats.confirmedMatches, icon: <CheckCircle2 size={14} className="text-orange" /> },
-          ].map(s => (
-            <div key={s.label} className="card-sm flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-bg-elevated flex items-center justify-center shrink-0">{s.icon}</div>
-              <div>
-                <p className="text-lg font-bold text-white">{s.value}</p>
-                <p className="text-2xs text-gray-500">{s.label}</p>
+            { label: 'Monitored',     value: stats.totalMonitored,   icon: <Shield size={15} />,         tone: 'blue' },
+            { label: 'Active',        value: stats.activeMonitors,   icon: <Radio size={15} />,          tone: 'green' },
+            { label: 'Total Runs',    value: stats.totalRuns,        icon: <Activity size={15} />,       tone: 'purple' },
+            { label: 'Exact Matches', value: stats.exactMatches,     icon: <AlertTriangle size={15} />,  tone: 'orange' },
+            { label: 'Pending',       value: stats.pendingAlerts,    icon: <Clock size={15} />,          tone: 'amber' },
+            { label: 'Confirmed',     value: stats.confirmedMatches, icon: <CheckCircle2 size={15} />,   tone: 'teal' },
+          ].map((s, i) => (
+            <div
+              key={s.label}
+              className={`monc-tile monc-tile--${s.tone} monc-fade-up`}
+              style={{ animationDelay: `${90 + i * 40}ms` }}
+            >
+              <div className="monc-tile-icon">{s.icon}</div>
+              <p className="monc-tile-value">{s.value}</p>
+              <p className="monc-tile-label">{s.label}</p>
+              <div className="monc-tile-spark" aria-hidden="true">
+                {[5, 9, 6, 12, 8, 14, 10].map((h, j) => (
+                  <span key={j} style={{ height: `${h}px` }} />
+                ))}
               </div>
             </div>
           ))}
@@ -633,14 +653,14 @@ export function MonitoringPage() {
 
       {/* Crawler Engine Phase 1 */}
       {engineStats && (
-        <div className="card">
+        <div className="monc-panel monc-fade-up" style={{ animationDelay: '340ms' }}>
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-white flex items-center gap-2">
               <Globe size={14} className="text-dna-400" /> Online monitoring
             </h2>
-            <Badge variant={engineStats.crawlerStatus === 'RUNNING' ? 'success' : engineStats.crawlerStatus === 'DISABLED' ? 'muted' : 'dna'}>
-              {engineStats.crawlerStatus}
-            </Badge>
+            <span className={cn('monc-chip', engineStats.crawlerStatus === 'RUNNING' ? 'monc-chip--on' : 'monc-chip--off')}>
+              ● {engineStats.crawlerStatus}
+            </span>
           </div>
           <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
             {[
@@ -658,8 +678,7 @@ export function MonitoringPage() {
           </div>
           <div className="flex flex-wrap gap-2 text-2xs">
             {Object.entries(engineStats.platformsConnected).map(([platform, on]) => (
-              <span key={platform} className={cn('px-2 py-0.5 rounded-full border',
-                on ? 'border-success/40 text-success bg-success/10' : 'border-bg-border text-gray-600')}>
+              <span key={platform} className={cn('monc-chip', on ? 'monc-chip--on' : 'monc-chip--off')}>
                 {platform}
               </span>
             ))}
@@ -692,9 +711,14 @@ export function MonitoringPage() {
         </div>
 
         {alerts.length === 0 ? (
-          <div className="card py-8 text-center">
-            <CheckCircle2 size={24} className="text-success mx-auto mb-2" />
-            <p className="text-sm text-gray-400">No {alertTab.toLowerCase()} alerts</p>
+          <div className="monc-empty-clear monc-fade-up" style={{ animationDelay: '420ms' }}>
+            <div className="monc-empty-ring" aria-hidden="true" />
+            <div className="monc-empty-ring monc-empty-ring--2" aria-hidden="true" />
+            <div className="monc-empty-icon" aria-hidden="true">
+              <CheckCircle2 size={22} />
+            </div>
+            <p className="text-sm font-semibold text-white relative z-10">System clear</p>
+            <p className="text-xs text-gray-500 mt-0.5 relative z-10">No {alertTab.toLowerCase()} alerts</p>
           </div>
         ) : (
           <div className="space-y-3">

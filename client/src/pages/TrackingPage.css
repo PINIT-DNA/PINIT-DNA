@@ -1,0 +1,521 @@
+/* Tracking — route-scoped premium visual layer. */
+
+.tracking-page {
+  position: relative;
+  z-index: 2;
+}
+
+.tracking-page::before,
+.tracking-page::after {
+  content: "";
+  position: absolute;
+  z-index: -2;
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(32px);
+}
+
+.tracking-page::before {
+  width: 39rem;
+  height: 25rem;
+  right: -10rem;
+  top: -10rem;
+  background: radial-gradient(circle, rgba(69, 157, 255, .18), rgba(77, 202, 245, .055) 48%, transparent 72%);
+  animation: trackingAmbient 16s ease-in-out infinite;
+}
+
+.tracking-page::after {
+  width: 36rem;
+  height: 23rem;
+  left: -9rem;
+  bottom: -12rem;
+  background: radial-gradient(circle, rgba(157, 124, 255, .12), rgba(76, 199, 224, .05) 48%, transparent 72%);
+  animation: trackingAmbient 19s ease-in-out -7s infinite reverse;
+}
+
+body:has(.tracking-page) .hub-main-atmosphere {
+  background:
+    radial-gradient(ellipse 62% 39% at 72% 0%, rgba(68, 156, 255, .18), transparent 72%),
+    radial-gradient(ellipse 45% 34% at 5% 72%, rgba(92, 190, 245, .08), transparent 72%),
+    radial-gradient(ellipse 52% 34% at 73% 103%, rgba(157, 125, 255, .11), transparent 74%),
+    linear-gradient(145deg, #fbfdff 0%, #f2f7ff 52%, #f9f8ff 100%);
+}
+
+body:has(.tracking-page) .hub-main-atmosphere::before {
+  width: 35rem;
+  height: 22rem;
+  right: 1%;
+  top: 10%;
+  background:
+    repeating-radial-gradient(circle at 50% 100%, transparent 0 42px, rgba(76, 149, 237, .052) 43px 44px),
+    linear-gradient(145deg, rgba(255,255,255,.35), rgba(169,210,255,.07));
+}
+
+body:has(.tracking-page) .hub-main-atmosphere::after {
+  width: 31rem;
+  height: 17rem;
+  left: 17%;
+  bottom: -6%;
+  border-radius: 48% 52% 44% 56%;
+  background: linear-gradient(120deg, rgba(255,255,255,.3), rgba(151,124,255,.05));
+  box-shadow: 0 -28px 75px rgba(96, 159, 239, .08);
+}
+
+/* Header and route-local sidebar treatment. */
+body:has(.tracking-page) .hub-header {
+  border-bottom-color: rgba(159, 187, 223, .46) !important;
+  background: linear-gradient(90deg, rgba(255,255,255,.94), rgba(241,248,255,.88)) !important;
+  box-shadow: 0 9px 22px -21px rgba(29, 79, 151, .52);
+  backdrop-filter: blur(18px);
+}
+
+body:has(.tracking-page) .hub-header .nav-cta {
+  background: linear-gradient(180deg, #469cff, #176de8);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.42), 0 9px 18px -9px rgba(24,102,230,.74), 0 0 16px rgba(47,124,246,.1);
+}
+
+body:has(.tracking-page) .hub-sidebar {
+  background:
+    radial-gradient(circle at 0 18%, rgba(82, 157, 255, .13), transparent 28%),
+    radial-gradient(circle at 100% 78%, rgba(140, 116, 255, .07), transparent 30%),
+    linear-gradient(180deg, rgba(255,255,255,.98), rgba(245,250,255,.96));
+  border-right-color: rgba(158, 187, 224, .48);
+  box-shadow: inset -1px 0 0 rgba(255,255,255,.72), 10px 0 32px -25px rgba(30,82,157,.58) !important;
+}
+
+body:has(.tracking-page) .hub-sidebar-item--idle:hover {
+  transform: translateX(3px);
+  background: rgba(231,242,255,.78) !important;
+}
+
+body:has(.tracking-page) .hub-nav-tile {
+  background: linear-gradient(90deg, rgba(214,234,255,.95), rgba(239,247,255,.85));
+  border-color: rgba(88,153,236,.54) !important;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.9), 0 9px 19px -13px rgba(33,102,204,.6), 0 0 17px rgba(68,144,243,.09);
+}
+
+/* Existing quota banner becomes the tracking hero surface. */
+body:has(.tracking-page) .hub-quota-banner {
+  position: relative;
+  z-index: 1;
+  min-height: 112px;
+  align-items: flex-start;
+  overflow: hidden;
+  padding: 1.25rem 1.4rem;
+  border-color: rgba(125, 174, 235, .54) !important;
+  background:
+    radial-gradient(circle at 72% 50%, rgba(80, 170, 255, .22), transparent 28%),
+    linear-gradient(105deg, rgba(255,255,255,.93), rgba(234,246,255,.86));
+  box-shadow: inset 0 1px 0 #fff, inset 0 -1px 0 rgba(96,161,231,.1), 0 14px 29px -21px rgba(29,91,183,.54);
+  backdrop-filter: blur(17px);
+}
+
+body:has(.tracking-page) .hub-quota-banner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  transform: translateX(-115%);
+  background: linear-gradient(105deg, transparent 30%, rgba(255,255,255,.58) 50%, transparent 70%);
+  animation: trackingSweep 10s ease-in-out infinite;
+}
+
+body:has(.tracking-page) .hub-quota-banner > div:first-child,
+body:has(.tracking-page) .hub-quota-banner > div:last-child {
+  position: relative;
+  z-index: 4;
+}
+
+body:has(.tracking-page) .hub-quota-banner > div:last-child {
+  margin-top: 2rem;
+}
+
+/* Lightweight 3D tracking graphic visually occupies the quota card's open right side. */
+.tracking-hero-visual {
+  position: absolute;
+  z-index: 3;
+  width: 430px;
+  height: 126px;
+  right: 1.5%;
+  top: -142px;
+  pointer-events: none;
+  perspective: 850px;
+  transform-style: preserve-3d;
+}
+
+.tracking-hero-glow {
+  position: absolute;
+  width: 250px;
+  height: 100px;
+  left: 54%;
+  top: 53%;
+  transform: translate(-50%,-50%);
+  border-radius: 50%;
+  background: rgba(57,151,255,.25);
+  filter: blur(27px);
+  animation: trackingGlow 9s ease-in-out infinite;
+}
+
+.tracking-hero-orbit {
+  position: absolute;
+  left: 54%;
+  top: 55%;
+  border-radius: 50%;
+  border: 1px solid rgba(62,147,242,.27);
+  transform: translate(-50%,-50%) rotateX(68deg);
+}
+
+.tracking-hero-orbit--outer { width: 370px; height: 112px; }
+.tracking-hero-orbit--inner { width: 265px; height: 79px; border-style: dashed; opacity:.72; }
+
+.tracking-chart-card {
+  position: absolute;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #267ce9;
+  border: 1px solid rgba(255,255,255,.92);
+  background: linear-gradient(145deg,rgba(255,255,255,.91),rgba(143,204,255,.3));
+  box-shadow: inset 0 1px 0 #fff,0 17px 25px -17px rgba(27,96,201,.62);
+  backdrop-filter: blur(8px);
+}
+
+.tracking-chart-card--back {
+  width: 105px;
+  height: 82px;
+  left: 252px;
+  top: 22px;
+  border-radius: 14px;
+  transform: translateZ(-25px) rotateY(-18deg) rotateZ(4deg);
+  opacity:.72;
+}
+
+.tracking-chart-card--middle {
+  width: 112px;
+  height: 88px;
+  left: 124px;
+  top: 22px;
+  border-radius: 15px;
+  transform: translateZ(-12px) rotateY(18deg) rotateZ(-4deg);
+  opacity:.82;
+}
+
+.tracking-chart-card--front {
+  width: 118px;
+  height: 96px;
+  left: 182px;
+  top: 13px;
+  border-radius: 17px;
+  transform: translateZ(20px) rotateY(-4deg);
+  background: linear-gradient(150deg,rgba(255,255,255,.94),rgba(92,174,255,.48));
+  animation: trackingChartFloat 10s ease-in-out infinite;
+}
+
+.tracking-float-icon {
+  position: absolute;
+  z-index: 8;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #277de9;
+  border-radius: 10px;
+  border: 1px solid rgba(255,255,255,.92);
+  background: linear-gradient(145deg,rgba(255,255,255,.94),rgba(222,240,255,.75));
+  box-shadow: inset 0 1px 0 #fff,0 10px 18px -13px rgba(27,94,193,.66);
+  backdrop-filter: blur(8px);
+}
+
+.tracking-float-icon--document { left: 52px; top: 19px; animation:trackingIconFloatA 9s ease-in-out infinite; }
+.tracking-float-icon--radar { right: 28px; top: 25px; animation:trackingIconFloatB 11s ease-in-out -3s infinite; }
+.tracking-float-icon--shield { right: 48px; bottom: 4px; color:#7556dc; animation:trackingIconFloatA 10s ease-in-out -5s infinite; }
+
+.tracking-particle {
+  position:absolute;
+  z-index:7;
+  border-radius:50%;
+  background:#58b3ff;
+  box-shadow:0 0 10px currentColor;
+  animation:trackingDot 7s ease-in-out infinite;
+}
+
+.tracking-particle--one { width:6px;height:6px;left:105px;top:84px; }
+.tracking-particle--two { width:5px;height:5px;right:89px;top:14px;color:#a782ed;background:#a782ed;animation-delay:-2s; }
+.tracking-particle--three { width:4px;height:4px;left:314px;top:105px;color:#49d4bd;background:#49d4bd;animation-delay:-4s; }
+
+.tracking-hero-ground {
+  position:absolute;
+  width:210px;
+  height:23px;
+  left:54%;
+  bottom:0;
+  transform:translateX(-50%) rotateX(70deg);
+  border-radius:50%;
+  background:rgba(39,126,235,.23);
+  filter:blur(12px);
+}
+
+/* Shared guide, without touching the shared component implementation. */
+.tracking-section-guide {
+  position:relative;
+  z-index:5;
+}
+
+.tracking-section-guide > div {
+  gap:0 !important;
+  padding:.45rem !important;
+  overflow:hidden;
+  border-radius:1rem !important;
+  border-color:rgba(147,181,225,.52) !important;
+  background:linear-gradient(145deg,rgba(255,255,255,.91),rgba(241,248,255,.82)) !important;
+  box-shadow:inset 0 1px 0 #fff,0 16px 30px -24px rgba(29,83,162,.5);
+  backdrop-filter:blur(16px);
+}
+
+.tracking-section-guide > div > div {
+  position:relative;
+  min-height:58px;
+  display:flex;
+  flex-direction:column;
+  justify-content:center;
+  padding:.55rem .8rem;
+  border-radius:.75rem;
+  transition:transform .22s ease,background .22s ease,box-shadow .22s ease,opacity .22s ease;
+}
+
+.tracking-section-guide > div > div + div::before {
+  content:"";
+  position:absolute;
+  left:-1px;
+  top:20%;
+  bottom:20%;
+  width:1px;
+  background:linear-gradient(transparent,rgba(140,172,213,.33),transparent);
+}
+
+.tracking-section-guide > div > div:first-child {
+  opacity:1 !important;
+  background:linear-gradient(145deg,rgba(231,243,255,.95),rgba(246,250,255,.86));
+  border:1px solid rgba(104,161,232,.46);
+  box-shadow:inset 0 1px 0 #fff,0 9px 18px -13px rgba(34,105,208,.58),0 0 15px rgba(65,143,242,.08);
+  animation:trackingActivePulse 5s ease-in-out infinite;
+}
+
+.tracking-section-guide > div > div:hover { transform:translateY(-2px);opacity:1 !important; }
+
+/* Channel/category pills. */
+.tracking-channel-pills {
+  position:relative;
+  z-index:4;
+}
+
+.tracking-channel-pills > span {
+  min-height:31px;
+  padding:.42rem .72rem;
+  border-color:rgba(151,181,219,.52) !important;
+  background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(243,248,255,.84));
+  box-shadow:inset 0 1px 0 #fff,0 8px 15px -13px rgba(28,76,146,.5);
+  transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease;
+}
+
+.tracking-channel-pills > span:hover {
+  transform:translateY(-2px);
+  border-color:rgba(85,148,230,.58) !important;
+  box-shadow:inset 0 1px 0 #fff,0 12px 20px -15px rgba(29,91,183,.58);
+}
+
+.tracking-channel-pills > span:first-child {
+  color:#fff !important;
+  border-color:rgba(33,104,209,.42) !important;
+  background:linear-gradient(180deg,#4a9eff,#1c70e9);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.42),0 9px 18px -10px rgba(25,101,226,.72);
+}
+
+.tracking-channel-pills > span:first-child svg { color:#fff !important; }
+
+/* Existing filter row. */
+.tracking-filter-pills {
+  position:relative;
+  z-index:4;
+}
+
+.tracking-filter-pills > button {
+  min-height:32px;
+  border:1px solid rgba(153,182,219,.5);
+  background:linear-gradient(145deg,rgba(255,255,255,.9),rgba(242,247,255,.82));
+  box-shadow:inset 0 1px 0 #fff,0 7px 14px -13px rgba(29,77,148,.48);
+  transition:transform .2s ease,box-shadow .2s ease,border-color .2s ease;
+}
+
+.tracking-filter-pills > button:hover { transform:translateY(-2px); }
+
+.tracking-filter-pills > button.bg-brand-600 {
+  color:#1764d8 !important;
+  border-color:rgba(73,139,229,.52);
+  background:linear-gradient(145deg,#eef6ff,#dcecff);
+  box-shadow:inset 0 1px 0 #fff,0 9px 18px -13px rgba(34,105,208,.58),0 0 13px rgba(63,143,242,.08);
+}
+
+/* Asset list card. */
+.tracking-asset-list { position:relative;z-index:4; }
+
+.tracking-asset-card {
+  position:relative;
+  min-height:91px;
+  overflow:hidden;
+  padding-left:6.3rem !important;
+  border-radius:1rem !important;
+  border-color:rgba(140,180,228,.56) !important;
+  background:
+    radial-gradient(circle at 75% 50%,rgba(73,165,255,.11),transparent 24%),
+    linear-gradient(145deg,rgba(255,255,255,.95),rgba(241,248,255,.84)) !important;
+  box-shadow:inset 0 1px 0 #fff,inset 0 -1px 0 rgba(100,162,229,.08),0 5px 11px rgba(33,75,137,.05),0 22px 40px -29px rgba(29,91,182,.52);
+  backdrop-filter:blur(16px);
+  transition:transform .26s cubic-bezier(.2,.8,.2,1),box-shadow .26s ease,border-color .26s ease;
+}
+
+.tracking-asset-card::before {
+  content:"";
+  position:absolute;
+  z-index:0;
+  width:150px;
+  height:120px;
+  right:20%;
+  top:50%;
+  transform:translateY(-50%) perspective(300px) rotateY(-18deg) rotateZ(5deg);
+  border-radius:24px;
+  border:1px solid rgba(255,255,255,.72);
+  background:linear-gradient(145deg,rgba(255,255,255,.3),rgba(88,171,255,.11));
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.72);
+  opacity:.62;
+}
+
+.tracking-asset-card::after {
+  content:"";
+  position:absolute;
+  z-index:0;
+  width:8rem;
+  height:8rem;
+  right:18%;
+  top:-3rem;
+  border-radius:50%;
+  background:rgba(76,165,255,.12);
+  filter:blur(20px);
+}
+
+.tracking-asset-card:hover {
+  transform:translateY(-4px) scale(1.002);
+  border-color:rgba(65,138,232,.66) !important;
+  box-shadow:inset 0 1px 0 #fff,0 10px 18px rgba(36,86,157,.07),0 26px 42px -28px rgba(29,98,201,.62),0 0 23px rgba(61,145,245,.08);
+}
+
+.tracking-asset-card:active { transform:translateY(1px); }
+
+.tracking-asset-content,
+.tracking-asset-metrics { position:relative;z-index:3; }
+
+.tracking-asset-visual {
+  position:absolute;
+  z-index:3;
+  left:1.35rem;
+  top:50%;
+  width:54px;
+  height:54px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  transform:translateY(-50%) perspective(250px) rotateY(-8deg);
+  color:#4b96ee;
+  border-radius:15px;
+  border:1px solid rgba(255,255,255,.92);
+  background:linear-gradient(145deg,rgba(255,255,255,.94),rgba(200,228,255,.69));
+  box-shadow:inset 0 1px 0 #fff,0 14px 22px -15px rgba(30,98,200,.64),0 0 15px rgba(72,151,244,.08);
+}
+
+.tracking-asset-metrics > span {
+  border:1px solid rgba(158,184,217,.4);
+  background:rgba(255,255,255,.72) !important;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 6px 12px -12px rgba(29,76,145,.45);
+  backdrop-filter:blur(8px);
+}
+
+body:has(.tracking-page) .pinit-ask-fab {
+  border:1px solid rgba(255,255,255,.42);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.4),0 13px 26px -12px rgba(27,104,226,.72),0 0 20px rgba(63,145,255,.13);
+  backdrop-filter:blur(12px);
+}
+
+@keyframes trackingAmbient {
+  0%,100% { transform:translate3d(0,0,0) scale(1);opacity:.7; }
+  50% { transform:translate3d(-12px,8px,0) scale(1.06);opacity:1; }
+}
+
+@keyframes trackingSweep {
+  0%,64%,100% { transform:translateX(-115%); }
+  80% { transform:translateX(115%); }
+}
+
+@keyframes trackingGlow {
+  0%,100% { transform:translate(-50%,-50%) scale(1);opacity:.7; }
+  50% { transform:translate(-50%,-50%) scale(1.08);opacity:1; }
+}
+
+@keyframes trackingChartFloat {
+  0%,100% { transform:translateZ(20px) rotateY(-4deg) translateY(0); }
+  50% { transform:translateZ(26px) rotateY(3deg) translateY(-6px) scale(1.02); }
+}
+
+@keyframes trackingIconFloatA {
+  0%,100% { transform:translate3d(0,0,15px) rotate(-2deg); }
+  50% { transform:translate3d(4px,-6px,22px) rotate(3deg); }
+}
+
+@keyframes trackingIconFloatB {
+  0%,100% { transform:translate3d(0,0,10px) rotate(2deg); }
+  50% { transform:translate3d(-4px,6px,18px) rotate(-3deg); }
+}
+
+@keyframes trackingDot {
+  0%,100% { transform:translate3d(0,0,0) scale(.75);opacity:.4; }
+  50% { transform:translate3d(3px,-7px,0) scale(1.2);opacity:1; }
+}
+
+@keyframes trackingActivePulse {
+  0%,100% { box-shadow:inset 0 1px 0 #fff,0 9px 18px -13px rgba(34,105,208,.5),0 0 12px rgba(65,143,242,.06); }
+  50% { box-shadow:inset 0 1px 0 #fff,0 11px 21px -13px rgba(34,105,208,.65),0 0 18px rgba(65,143,242,.11); }
+}
+
+@media (max-width:1023px) {
+  .tracking-hero-visual { right:-3%;transform:scale(.86);transform-origin:right center; }
+  .tracking-asset-card::before,.tracking-asset-card::after { opacity:.38; }
+}
+
+@media (max-width:767px) {
+  body:has(.tracking-page) .hub-quota-banner { min-height:92px; }
+  .tracking-hero-visual { right:-15%;top:-126px;transform:scale(.65);opacity:.68; }
+  .tracking-asset-card { padding-left:5rem !important; }
+  .tracking-asset-visual { left:1rem;width:46px;height:46px; }
+}
+
+@media (max-width:479px) {
+  .tracking-hero-visual { display:none; }
+  body:has(.tracking-page) .hub-quota-banner { min-height:auto; }
+  .tracking-section-guide > div > div { padding:.45rem; }
+  .tracking-asset-card { padding-left:4.4rem !important; }
+  .tracking-asset-visual { left:.8rem;width:42px;height:42px; }
+}
+
+@media (prefers-reduced-motion:reduce) {
+  .tracking-page::before,
+  .tracking-page::after,
+  body:has(.tracking-page) .hub-quota-banner::before,
+  .tracking-hero-glow,
+  .tracking-chart-card--front,
+  .tracking-float-icon,
+  .tracking-particle,
+  .tracking-section-guide > div > div:first-child {
+    animation:none !important;
+  }
+}

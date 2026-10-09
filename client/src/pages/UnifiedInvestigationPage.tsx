@@ -13,6 +13,7 @@ import { InvestigationLivePanel } from '../components/InvestigationLivePanel';
 import { InvestigationSideBySideCompare } from '../components/InvestigationSideBySideCompare';
 import { InvestigationCompositionPanel } from '../components/InvestigationCompositionPanel';
 import { VideoCompositionPanel } from '../components/VideoCompositionPanel';
+import { IntelligenceCoreVisual } from '../components/intelligence/IntelligenceCoreVisual';
 import type { SpatialInvestigationViewModel, SpatialHierarchyViewModel } from '../components/SpatialAuthInvestigationPanel';
 import type { InvestigationLiveSnapshot } from '../services/dashboard.api';
 import {
@@ -697,7 +698,7 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
   const totalSteps = pipeline.length || 16;
 
   return (
-    <div className="page-shell w-full max-w-5xl space-y-6 min-w-0">
+    <div className="page-shell w-full max-w-6xl space-y-6 min-w-0">
       {contextVaultId && (
         <div className="rounded-xl border border-dna-500/30 bg-dna-500/10 px-4 py-3 flex flex-wrap items-center justify-between gap-2">
           <div className="min-w-0">
@@ -732,28 +733,18 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
       )}
 
       {!report && !investigating && (
-        <div className="flex gap-2">
+        <div className="aiw-tabs aiw-fade-up">
           <button
             type="button"
             onClick={() => { setMode('upload'); }}
-            className={cn(
-              'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2',
-              mode === 'upload'
-                ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
-                : 'bg-bg-elevated text-gray-400 border border-bg-border',
-            )}
+            className={cn('aiw-tab', mode === 'upload' && 'aiw-tab--active')}
           >
             <Upload size={14} /> Upload Asset
           </button>
           <button
             type="button"
             onClick={() => { setMode('scan'); setFile(null); setError(null); setScannerKey((k) => k + 1); }}
-            className={cn(
-              'flex-1 py-2.5 px-4 rounded-xl text-sm font-semibold transition-all flex items-center justify-center gap-2',
-              mode === 'scan'
-                ? 'bg-dna-500/15 text-dna-400 border border-dna-500/30'
-                : 'bg-bg-elevated text-gray-400 border border-bg-border',
-            )}
+            className={cn('aiw-tab', mode === 'scan' && 'aiw-tab--active')}
           >
             <ScanLine size={14} /> Asset Scan
           </button>
@@ -765,7 +756,8 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           onDragOver={(e) => e.preventDefault()}
           onDrop={handleDrop}
           onClick={() => inputRef.current?.click()}
-          className="card border-2 border-dashed text-center py-12 cursor-pointer hover:border-dna-500/50 border-bg-border transition-colors"
+          className="aiw-dropzone aiw-fade-up"
+          style={{ animationDelay: '60ms' }}
         >
           <input
             ref={inputRef}
@@ -778,9 +770,9 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
               e.target.value = '';
             }}
           />
-          <Upload size={32} className="text-gray-500 mx-auto mb-3" />
-          <p className="text-sm text-gray-400">Drop a suspected asset here or click to upload</p>
-          <p className="text-2xs text-gray-600 mt-1">
+          <div className="aiw-dropzone-icon"><Upload size={22} /></div>
+          <p className="text-sm font-semibold text-slate-600">Drop a suspected asset here or click to upload</p>
+          <p className="text-2xs text-gray-500 mt-1.5">
             Image · PDF · DOCX · PPTX · XLSX · TXT/CSV · Video · Audio · ZIP — runs automatically
           </p>
         </div>
@@ -794,6 +786,47 @@ export function UnifiedInvestigationPage({ adminMode = false }: { adminMode?: bo
           onCaptureError={handleScanCaptureError}
           onCancel={() => { setMode('upload'); handleReset(); }}
         />
+      )}
+
+      {!report && !investigating && (
+        <div className="aiw-panel aiw-fade-up" style={{ animationDelay: '120ms' }}>
+          <div className="aiw-panel-grid">
+            <IntelligenceCoreVisual />
+            <div>
+              <p className="text-xs font-bold text-dna-500 uppercase tracking-wider mb-1">AI asset intelligence</p>
+              <h2 className="text-lg font-bold text-slate-800 mb-1">AI intelligence ready</h2>
+              <p className="text-sm text-gray-500 max-w-md leading-relaxed mb-4">
+                Upload an asset above to begin analysis — Pinit AI inspects, compares, and reports back
+                through the stages below.
+              </p>
+              <div className="aiw-pipeline mb-5">
+                {['Upload', 'Inspect', 'Compare', 'Intelligence'].map((step, i, arr) => (
+                  <div key={step} className="flex items-center">
+                    <span className="aiw-pipeline-step">
+                      <span className="aiw-pipeline-dot" />
+                      {step}
+                    </span>
+                    {i < arr.length - 1 && <span className="aiw-pipeline-arrow" aria-hidden="true" />}
+                  </div>
+                ))}
+              </div>
+              <p className="text-2xs font-semibold text-gray-500 uppercase tracking-wider mb-2">What this checks</p>
+              <div className="aiw-checks">
+                {[
+                  { label: 'Ownership confidence', color: '#2f7cf6' },
+                  { label: 'DNA match', color: '#8b5cf6' },
+                  { label: 'Tamper analysis', color: '#f59e0b' },
+                  { label: 'History & leaks', color: '#16a34a' },
+                ].map((c) => (
+                  <span key={c.label} className="aiw-check">
+                    <span className="aiw-check-dot" style={{ background: c.color }} />
+                    {c.label}
+                  </span>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       {error && !investigating && (

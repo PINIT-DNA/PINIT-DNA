@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import {
-  Check, Eye, FileText, Globe, Loader2, Lock, Plus, Save, Share2, Trash2, X,
+  Check, Eye, FileText, Globe, Image as ImageIcon, Loader2, Lock, Plus, Save, Share2,
+  ShieldCheck, Sparkles, Trash2, X,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { api, listVaultRecords, previewVaultFile } from '../../services/dashboard.api';
@@ -10,6 +11,7 @@ import type { VaultRecord } from '../../types/dashboard.types';
 import { ProfilePhotoPicker } from './ProfilePhotoPicker';
 import { addVaultToNamedCollection, planAddVaultToPortfolio } from '../../lib/portfolio-add-vault';
 import { hubPortfolioHref } from '../../lib/hub-portfolio-url';
+import './PortfolioEditor.css';
 
 /**
  * The portfolio builder. One builder, in HUB.
@@ -100,6 +102,68 @@ type SectionId = (typeof SECTIONS)[number]['id'];
 
 const uid = () => Math.random().toString(36).slice(2, 9);
 const asArray = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : []);
+
+function PortfolioAtmosphere() {
+  return (
+    <div className="pe-atmosphere" aria-hidden="true">
+      <svg className="pe-atmosphere__dna" viewBox="0 0 360 170" fill="none">
+        <defs>
+          <linearGradient id="portfolio-dna-a" x1="20" y1="18" x2="338" y2="153" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#73D8FF" />
+            <stop offset=".48" stopColor="#2185F4" />
+            <stop offset="1" stopColor="#745BE5" />
+          </linearGradient>
+          <linearGradient id="portfolio-dna-b" x1="338" y1="12" x2="24" y2="156" gradientUnits="userSpaceOnUse">
+            <stop stopColor="#A78BFA" />
+            <stop offset=".52" stopColor="#4BC5FF" />
+            <stop offset="1" stopColor="#176AE4" />
+          </linearGradient>
+          <filter id="portfolio-dna-glow" x="-30%" y="-45%" width="160%" height="190%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feColorMatrix in="blur" values="0 0 0 0 0.08 0 0 0 0 0.48 0 0 0 0 1 0 0 0 .52 0" />
+            <feMerge>
+              <feMergeNode />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+        <g filter="url(#portfolio-dna-glow)">
+          <path className="pe-atmosphere__strand pe-atmosphere__strand--a" d="M23 32C78 7 105 12 143 52C183 94 207 116 257 99C300 84 326 45 341 18" stroke="url(#portfolio-dna-a)" strokeWidth="13" strokeLinecap="round" />
+          <path className="pe-atmosphere__strand pe-atmosphere__strand--b" d="M22 139C68 151 101 143 135 104C173 61 202 33 249 52C292 69 318 115 340 147" stroke="url(#portfolio-dna-b)" strokeWidth="13" strokeLinecap="round" />
+          <g className="pe-atmosphere__rungs" strokeLinecap="round">
+            <path d="M54 24L49 143" />
+            <path d="M88 22L79 145" />
+            <path d="M119 36L110 130" />
+            <path d="M147 57L138 101" />
+            <path d="M178 83L168 76" />
+            <path d="M207 105L198 52" />
+            <path d="M239 104L230 47" />
+            <path d="M271 92L261 57" />
+            <path d="M301 65L291 87" />
+            <path d="M329 31L322 128" />
+          </g>
+        </g>
+      </svg>
+      <div className="pe-atmosphere__orbit pe-atmosphere__orbit--outer" />
+      <div className="pe-atmosphere__orbit pe-atmosphere__orbit--inner" />
+      <div className="pe-atmosphere__tile pe-atmosphere__tile--back">
+        <Sparkles size={18} />
+      </div>
+      <div className="pe-atmosphere__tile pe-atmosphere__tile--front">
+        <ImageIcon size={35} />
+      </div>
+      <div className="pe-atmosphere__badge">
+        <ShieldCheck size={17} />
+      </div>
+      <i className="pe-atmosphere__cube pe-atmosphere__cube--one" />
+      <i className="pe-atmosphere__cube pe-atmosphere__cube--two" />
+      <i className="pe-atmosphere__particle pe-atmosphere__particle--one" />
+      <i className="pe-atmosphere__particle pe-atmosphere__particle--two" />
+      <i className="pe-atmosphere__particle pe-atmosphere__particle--three" />
+      <div className="pe-atmosphere__shadow" />
+    </div>
+  );
+}
 
 function emptyForm(): Form {
   return {
@@ -676,7 +740,8 @@ export function PortfolioEditor() {
   }
 
   return (
-    <div className="pe">
+    <div className="pe portfolio-premium-editor">
+      <PortfolioAtmosphere />
       <header className="pe-toolbar">
         <div className="pe-toolbar__id">
           <h2>Portfolio</h2>

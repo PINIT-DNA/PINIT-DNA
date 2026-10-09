@@ -14,17 +14,17 @@ export function AssetQuotaBanner() {
 
   return (
     <div
-      className={`mb-4 rounded-xl border px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 ${
+      className={`hub-quota-banner mb-4 rounded-xl border px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 ${
         exhausted
           ? 'border-amber-500/40 bg-amber-500/10'
           : 'border-dna-500/25 bg-dna-500/5'
       }`}
     >
       <div className="text-sm">
-        <span className="text-white font-medium">
+        <span className="hub-quota-value font-medium">
           {used} of {limit} protected assets used
         </span>
-        <span className="text-gray-400 ml-2">
+        <span className="hub-quota-meta ml-2">
           {exhausted ? '— upgrade for unlimited' : `· ${remaining} remaining`}
         </span>
       </div>

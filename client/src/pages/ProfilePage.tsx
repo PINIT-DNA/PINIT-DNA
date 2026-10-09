@@ -24,6 +24,7 @@ import {
   NOTIFICATION_SEVERITY_BORDER,
   resolveNotificationDeepLink,
 } from '../lib/notification-config';
+import './ProfilePage.css';
 
 type Tab = 'profile' | 'portfolio' | 'security' | 'notifications' | 'activity' | 'settings';
 
@@ -35,6 +36,29 @@ const BASE_TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'activity', label: 'Activity', icon: <Clock size={14} /> },
   { id: 'settings', label: 'Settings', icon: <Activity size={14} /> },
 ];
+
+function ProfileIdentityVisual() {
+  return (
+    <div className="profile-identity-visual" aria-hidden="true">
+      <span className="profile-identity-glow" />
+      <span className="profile-identity-orbit profile-identity-orbit--outer" />
+      <span className="profile-identity-orbit profile-identity-orbit--inner" />
+      <span className="profile-identity-card profile-identity-card--back" />
+      <span className="profile-identity-card profile-identity-card--front">
+        <span className="profile-identity-avatar"><User size={34} /></span>
+        <span className="profile-identity-line profile-identity-line--one" />
+        <span className="profile-identity-line profile-identity-line--two" />
+      </span>
+      <span className="profile-identity-float profile-identity-float--shield"><Shield size={17} /></span>
+      <span className="profile-identity-float profile-identity-float--award"><Award size={17} /></span>
+      <span className="profile-identity-float profile-identity-float--work"><Briefcase size={17} /></span>
+      <span className="profile-identity-particle profile-identity-particle--one" />
+      <span className="profile-identity-particle profile-identity-particle--two" />
+      <span className="profile-identity-particle profile-identity-particle--three" />
+      <span className="profile-identity-ground" />
+    </div>
+  );
+}
 
 export function ProfilePage() {
   const [params] = useSearchParams();
@@ -122,11 +146,12 @@ export function ProfilePage() {
   }
 
   return (
-    <div className={`page-shell w-full ${tab === 'portfolio' ? 'max-w-6xl' : 'max-w-5xl'}`}>
+    <div className={`profile-premium-page page-shell w-full ${tab === 'portfolio' ? 'portfolio-premium-page max-w-6xl' : 'max-w-5xl'}`}>
       {tab !== 'portfolio' && (
-      <div className="card mb-6">
+      <div className="profile-summary-card card mb-6">
+        <ProfileIdentityVisual />
         <div className="flex items-start gap-4 flex-wrap">
-          <div className="w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0 overflow-hidden">
+          <div className="profile-summary-avatar w-16 h-16 rounded-full bg-gradient-to-br from-dna-500 to-purple flex items-center justify-center text-xl font-bold text-white shrink-0 overflow-hidden">
             {profile?.avatarUrl
               ? <img src={profile.avatarUrl} alt="" className="w-full h-full object-cover" />
               : (profile?.fullName?.split(' ').map((w: string) => w[0]).join('').toUpperCase().slice(0, 2) || 'P')}
@@ -144,7 +169,7 @@ export function ProfilePage() {
         </div>
 
         {stats && (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-4">
+          <div className="profile-stat-grid grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-2 mt-4">
             <StatMini icon={<Dna size={12} />} label="DNA" value={stats.dnaGenerated} />
             <StatMini icon={<Archive size={12} />} label="Assets" value={stats.filesProtected} />
             <StatMini icon={<Share2 size={12} />} label="Shares" value={stats.activeShares} />
@@ -157,7 +182,7 @@ export function ProfilePage() {
       )}
 
       {/* Tab bar */}
-      <div className="flex gap-1 mb-4 overflow-x-auto pb-1">
+      <div className="profile-tab-bar flex gap-1 mb-4 overflow-x-auto pb-1">
         {tabs.map(t => (
           <button
             key={t.id}
@@ -220,7 +245,7 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
   };
 
   return (
-    <div className="card space-y-4">
+    <div className="profile-information-card card space-y-4">
       <h2 className="text-sm font-semibold text-white flex items-center gap-2"><User size={14} className="text-dna-400" /> Personal Information</h2>
 
       <ProfilePhotoPicker
@@ -250,7 +275,7 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
         <textarea
           value={form.bio}
           onChange={e => setForm({ ...form, bio: e.target.value })}
-          className="w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-white resize-none h-20 focus:outline-none focus:border-dna-500"
+          className="profile-field w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-white resize-none h-20 focus:outline-none focus:border-dna-500"
           placeholder="Tell us about yourself..."
         />
       </div>
@@ -259,7 +284,7 @@ function ProfileTab({ profile, onUpdate }: { profile: any; onUpdate: (p: any) =>
         <p role="alert" className="text-xs text-red-400 mb-2">{saveError}</p>
       )}
 
-      <button onClick={handleSave} disabled={saving} className="btn btn-primary btn-sm text-xs">
+      <button onClick={handleSave} disabled={saving} className="profile-save-button btn btn-primary btn-sm text-xs">
         {saving ? <RefreshCw size={12} className="animate-spin" /> : saved ? '✓ Saved' : <><Save size={12} /> Save Changes</>}
       </button>
     </div>
@@ -654,7 +679,7 @@ function SettingsTab() {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Saved .pinit file');
+      toast.success('File downloaded');
     } catch {
       toast.error('Failed to download owner backup');
     } finally {
@@ -766,7 +791,7 @@ function Field({ label, value, onChange, disabled, placeholder, type }: {
         onChange={onChange ? e => onChange(e.target.value) : undefined}
         disabled={disabled}
         placeholder={placeholder}
-        className={`w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-white focus:outline-none focus:border-dna-500 ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+        className={`profile-field w-full px-3 py-2 bg-bg-elevated border border-bg-border rounded-lg text-xs text-white focus:outline-none focus:border-dna-500 ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
       />
     </div>
   );
@@ -774,7 +799,7 @@ function Field({ label, value, onChange, disabled, placeholder, type }: {
 
 function StatMini({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
   return (
-    <div className="bg-bg-elevated border border-bg-border rounded-lg p-2 text-center">
+    <div className="profile-stat-mini bg-bg-elevated border border-bg-border rounded-lg p-2 text-center">
       <div className="flex items-center justify-center gap-1 text-dna-400 mb-0.5">{icon}</div>
       <p className="text-sm font-bold text-white">{value}</p>
       <p className="text-2xs text-gray-500">{label}</p>

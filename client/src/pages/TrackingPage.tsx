@@ -11,12 +11,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
-import { Share2, BadgeCheck, Globe, ShoppingBag, Radar, AlertTriangle, Sparkles } from 'lucide-react';
+import {
+  Share2, BadgeCheck, Globe, ShoppingBag, Radar, AlertTriangle, Sparkles,
+  Image as ImageIcon, BarChart3, Eye, FileText, Link2,
+} from 'lucide-react';
 import toast from 'react-hot-toast';
 import { listTrackedAssets, type TrackedAsset } from '../services/tracking.api';
 import { SkeletonCard } from '../components/ui/Skeleton';
 import { EmptyState } from '../components/ui/EmptyState';
 import { ShareSectionGuide } from '../components/nav/ShareSectionGuide';
+import './TrackingPage.css';
 
 type Filter = 'all' | 'shared' | 'sold' | 'attention';
 
@@ -43,6 +47,26 @@ function Metric({ value, label, warn = false }: { value: number | null; label: s
       <b className="font-mono font-medium tabular-nums">{value}</b>
       {label}
     </span>
+  );
+}
+
+function TrackingHeroVisual() {
+  return (
+    <div className="tracking-hero-visual" aria-hidden="true">
+      <span className="tracking-hero-glow" />
+      <span className="tracking-hero-orbit tracking-hero-orbit--outer" />
+      <span className="tracking-hero-orbit tracking-hero-orbit--inner" />
+      <span className="tracking-chart-card tracking-chart-card--back"><Eye size={19} /></span>
+      <span className="tracking-chart-card tracking-chart-card--middle"><Link2 size={18} /></span>
+      <span className="tracking-chart-card tracking-chart-card--front"><BarChart3 size={38} /></span>
+      <span className="tracking-float-icon tracking-float-icon--document"><FileText size={17} /></span>
+      <span className="tracking-float-icon tracking-float-icon--radar"><Radar size={17} /></span>
+      <span className="tracking-float-icon tracking-float-icon--shield"><BadgeCheck size={17} /></span>
+      <span className="tracking-particle tracking-particle--one" />
+      <span className="tracking-particle tracking-particle--two" />
+      <span className="tracking-particle tracking-particle--three" />
+      <span className="tracking-hero-ground" />
+    </div>
   );
 }
 
@@ -107,11 +131,14 @@ export function TrackingPage() {
   }
 
   return (
-    <div className="space-y-5">
-      <ShareSectionGuide current="tracking" />
+    <div className="tracking-page space-y-5">
+      <TrackingHeroVisual />
+      <div className="tracking-section-guide">
+        <ShareSectionGuide current="tracking" />
+      </div>
       {/* What is counted where. Each channel is separate, so link views never get
           mixed up with certificate checks. */}
-      <div className="flex flex-wrap gap-2">
+      <div className="tracking-channel-pills flex flex-wrap gap-2">
         {CHANNELS.map((c) => (
           <span
             key={c.key}
@@ -122,7 +149,7 @@ export function TrackingPage() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="tracking-filter-pills flex flex-wrap gap-2">
         {([
           ['all', `All ${counts.all}`],
           ['shared', `Shared ${counts.shared}`],
@@ -144,7 +171,7 @@ export function TrackingPage() {
         ))}
       </div>
 
-      <ul className="space-y-2.5">
+      <ul className="tracking-asset-list space-y-2.5">
         {shown.map((a) => {
           const needsLook = a.channels.screenshotAttempts > 0 || a.channels.foundOnline > 0;
           return (
@@ -152,13 +179,16 @@ export function TrackingPage() {
               <button
                 type="button"
                 onClick={() => navigate(`/tracking/${a.assetId}`)}
-                className={`flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4 text-left hover:border-brand-500 dark:bg-gray-900 ${
+                className={`tracking-asset-card flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border bg-white p-4 text-left hover:border-brand-500 dark:bg-gray-900 ${
                   needsLook
                     ? 'border-l-4 border-l-amber-500 border-gray-200 dark:border-gray-800'
                     : 'border-gray-200 dark:border-gray-800'
                 }`}
               >
-                <div className="min-w-0">
+                <span className="tracking-asset-visual" aria-hidden="true">
+                  <ImageIcon size={23} />
+                </span>
+                <div className="tracking-asset-content min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="truncate font-semibold text-gray-900 dark:text-white">{a.filename}</span>
                     <span className="rounded border border-gray-200 px-1.5 py-0.5 font-mono text-[10px] uppercase text-gray-500 dark:border-gray-700">
@@ -179,7 +209,7 @@ export function TrackingPage() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap justify-end gap-1.5">
+                <div className="tracking-asset-metrics flex flex-wrap justify-end gap-1.5">
                   <Metric value={a.channels.shares} label="links" />
                   <Metric value={a.channels.livingPages || null} label="living" />
                   <Metric value={a.channels.fileShares || null} label="files" />

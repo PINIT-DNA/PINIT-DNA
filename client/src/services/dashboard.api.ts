@@ -391,7 +391,7 @@ export async function protectedDownloadFromVault(
       tepCode: headers['x-tep-code'],
       downloadEventId: headers['x-pinit-download-event-id'],
       tracking: headers['x-pinit-tep-tracking'],
-      filename: named || 'file.pinit',
+      filename: named || 'file',
     };
   } catch (err) {
     throw new Error(await readBlobApiError(err));

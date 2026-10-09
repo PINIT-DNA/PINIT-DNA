@@ -916,7 +916,7 @@ function BusinessSettingsTab({ profile }: { profile: ProfileData }) {
       a.download = filename;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Saved .pinit file');
+      toast.success('File downloaded');
     } catch {
       toast.error('Failed to download owner backup');
     } finally {

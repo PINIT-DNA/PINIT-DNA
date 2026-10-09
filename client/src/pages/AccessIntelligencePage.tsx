@@ -35,6 +35,9 @@ import { formatDistanceToNow } from 'date-fns';
 import { DashboardFilesMap, type DashboardFileMapPoint } from '../components/maps/DashboardFilesMap';
 import { VaultFileThumbnail } from '../components/VaultFileThumbnail';
 import { ShareSectionGuide } from '../components/nav/ShareSectionGuide';
+import { ShareHeroVisual } from '../components/sharing/ShareHeroVisual';
+import { ShareEmptyState } from '../components/sharing/ShareEmptyState';
+import { cn } from '../components/ui/utils';
 import { getOwnerActivity, type ActivityEvent } from '../services/tracking.api';
 
 interface ShareLink {
@@ -189,6 +192,11 @@ export function AccessIntelligencePage() {
   const openFileShares = filteredFileShares.filter((s) => s.kind === 'file_open' && s.token);
   const exchangeCtx = exchangeLinks[0] ?? null;
   const activeFiles = openFileShares.filter((s) => s.status === 'ACTIVE');
+  // Real existing state — never fabricated — drives the hero visual's pulse.
+  const anySharingLive = activeLinks.length > 0
+    || openFileShares.some((s) => s.status === 'ACTIVE')
+    || livingLinks.some((l) => l.isActive)
+    || exchangeLinks.some((l) => l.isActive);
   const totalFileViews = openFileShares.reduce((s, f) => s + (f.viewCount ?? 0), 0);
   const fileCountries = new Set(openFileShares.map((s) => s.geoCountry).filter(Boolean));
 
@@ -265,9 +273,35 @@ export function AccessIntelligencePage() {
   }
 
   return (
-    <div className="page-shell w-full max-w-5xl">
+    <div className="page-shell w-full max-w-6xl">
       <ShareSectionGuide current="sharing" />
-      <div className="flex items-end justify-end mb-6 gap-3 mt-4">
+
+      <div className="shr-hero shr-fade-up mt-4">
+        <div className="shr-hero-grid">
+          <div>
+            <p className="text-xs font-bold text-dna-500 uppercase tracking-wider mb-1">Secure sharing</p>
+            <h2 className="text-lg font-bold text-slate-800 mb-1">Protect, share, and track every open</h2>
+            <p className="text-sm text-gray-500 max-w-md leading-relaxed">
+              Every link you send stays connected back to the protected asset — who opened it, where, and
+              whether access is still live.
+            </p>
+            <div className="shr-lifecycle" aria-hidden="true">
+              {['Protected asset', 'Secure link', 'Recipient', 'Access', 'Tracking'].map((step, i, arr) => (
+                <div key={step} className="flex items-center">
+                  <span className="shr-lifecycle-step">
+                    <span className="shr-lifecycle-dot" />
+                    {step}
+                  </span>
+                  {i < arr.length - 1 && <span className="shr-lifecycle-arrow" />}
+                </div>
+              ))}
+            </div>
+          </div>
+          <ShareHeroVisual live={anySharingLive} />
+        </div>
+      </div>
+
+      <div className="flex items-end justify-end mb-6 gap-3">
         <button
           type="button"
           onClick={() => (tab === 'files' ? loadFileShares() : loadLinks())}
@@ -364,7 +398,7 @@ export function AccessIntelligencePage() {
         </div>
       )}
 
-      <div className="flex flex-wrap gap-2 mb-5">
+      <div className="shr-tabs mb-5 shr-fade-up" style={{ animationDelay: '60ms' }}>
         <TabButton
           active={tab === 'links'}
           onClick={() => setTab('links')}
@@ -413,17 +447,13 @@ export function AccessIntelligencePage() {
           </div>
 
           {hubLinks.length === 0 ? (
-            <div className="card text-center py-16">
-              <Shield size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">
-                {vaultFilter ? 'No activity yet' : 'No shares yet'}
-              </p>
-              <p className="text-2xs text-gray-500 mt-1">
-                {vaultFilter
-                  ? 'Activity will appear here when someone accesses or interacts with your shared asset.'
-                  : 'Create a secure link to share an asset. Exchange licenses, living pages, files, and portfolio stay in their own tabs.'}
-              </p>
-            </div>
+            <ShareEmptyState
+              icon={Shield}
+              title={vaultFilter ? 'No activity yet' : 'No shares yet'}
+              description={vaultFilter
+                ? 'Activity will appear here when someone accesses or interacts with your shared asset.'
+                : 'Create a secure link to share an asset. Exchange licenses, living pages, files, and portfolio stay in their own tabs.'}
+            />
           ) : (
             <div className="space-y-3">
               {hubLinks
@@ -441,7 +471,7 @@ export function AccessIntelligencePage() {
                       key={link.id}
                       type="button"
                       onClick={() => navigate(`/access-intelligence/${encodeURIComponent(link.token)}`)}
-                      className="w-full text-left card hover:border-dna-500/30 transition-all group"
+                      className="w-full text-left card hover:border-dna-500/30 transition-all group shr-row-hover"
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
@@ -524,11 +554,11 @@ export function AccessIntelligencePage() {
             <StatCard icon={<Globe size={14} />} label="Countries" value={new Set(exchangeLinks.flatMap((l) => l.activityStats?.countries ?? [])).size} color="text-orange-400" />
           </div>
           {exchangeLinks.length === 0 ? (
-            <div className="card text-center py-16">
-              <Globe size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No Exchange licensed deliveries yet</p>
-              <p className="text-2xs text-gray-500 mt-1">When a buyer receives a licensed file from Pinit Exchange, that share is tracked here — not mixed with Hub asset links.</p>
-            </div>
+            <ShareEmptyState
+              icon={Globe}
+              title="No Exchange licensed deliveries yet"
+              description="When a buyer receives a licensed file from Pinit Exchange, that share is tracked here — not mixed with Hub asset links."
+            />
           ) : (
             <div className="space-y-3">
               {exchangeLinks
@@ -542,7 +572,7 @@ export function AccessIntelligencePage() {
                       key={link.id}
                       type="button"
                       onClick={() => navigate(`/access-intelligence/${encodeURIComponent(link.token)}`)}
-                      className="w-full text-left card hover:border-dna-500/30 transition-all group"
+                      className="w-full text-left card hover:border-dna-500/30 transition-all group shr-row-hover"
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
@@ -588,11 +618,11 @@ export function AccessIntelligencePage() {
             <StatCard icon={<Globe size={14} />} label="Published" value={portfolioEvents.filter((e) => e.type === 'PORTFOLIO_PUBLISHED').length} color="text-green-400" />
           </div>
           {portfolioEvents.length === 0 ? (
-            <div className="card text-center py-16">
-              <Briefcase size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No portfolio shares yet</p>
-              <p className="text-2xs text-gray-500 mt-1">Publishing or sharing your public portfolio is tracked here, separate from asset links and living pages.</p>
-            </div>
+            <ShareEmptyState
+              icon={Briefcase}
+              title="No portfolio shares yet"
+              description="Publishing or sharing your public portfolio is tracked here, separate from asset links and living pages."
+            />
           ) : (
             <div className="space-y-3">
               {portfolioEvents
@@ -603,7 +633,7 @@ export function AccessIntelligencePage() {
                     key={ev.id}
                     type="button"
                     onClick={() => navigate('/profile?tab=portfolio')}
-                    className="w-full text-left card hover:border-dna-500/30 transition-all group"
+                    className="w-full text-left card hover:border-dna-500/30 transition-all group shr-row-hover"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
@@ -635,11 +665,11 @@ export function AccessIntelligencePage() {
             <StatCard icon={<Globe size={14} />} label="Countries" value={new Set(livingLinks.flatMap((l) => l.activityStats?.countries ?? [])).size} color="text-orange-400" />
           </div>
           {livingLinks.length === 0 ? (
-            <div className="card text-center py-16">
-              <Sparkles size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No living pages shared yet</p>
-              <p className="text-2xs text-gray-500 mt-1">Use Share on a Living Asset to send a read-only story page. Opens are tracked here, separate from file and link shares.</p>
-            </div>
+            <ShareEmptyState
+              icon={Sparkles}
+              title="No living pages shared yet"
+              description="Use Share on a Living Asset to send a read-only story page. Opens are tracked here, separate from file and link shares."
+            />
           ) : (
             <div className="space-y-3">
               {livingLinks
@@ -653,7 +683,7 @@ export function AccessIntelligencePage() {
                       key={link.id}
                       type="button"
                       onClick={() => navigate(`/access-intelligence/${encodeURIComponent(link.token)}`)}
-                      className="w-full text-left card hover:border-dna-500/30 transition-all group"
+                      className="w-full text-left card hover:border-dna-500/30 transition-all group shr-row-hover"
                     >
                       <div className="flex items-start justify-between gap-4">
                         <div className="flex-1 min-w-0">
@@ -699,13 +729,11 @@ export function AccessIntelligencePage() {
           </div>
 
           {openFileShares.length === 0 ? (
-            <div className="card text-center py-16">
-              <Send size={40} className="text-gray-500 mx-auto mb-3" />
-              <p className="text-sm text-gray-500">No shares yet</p>
-              <p className="text-2xs text-gray-500 mt-1">
-                Create a Share File package to send the protected file itself. That trail stays here, not on Asset links.
-              </p>
-            </div>
+            <ShareEmptyState
+              icon={Send}
+              title="No shares yet"
+              description="Create a Share File package to send the protected file itself. That trail stays here, not on Asset links."
+            />
           ) : (
             <div className="space-y-3">
               {openFileShares.map((share) => {
@@ -719,7 +747,7 @@ export function AccessIntelligencePage() {
                     key={`file_open-${share.id}`}
                     type="button"
                     onClick={() => openAccessIntelligence(share)}
-                    className="w-full text-left card hover:border-dna-500/30 transition-all group"
+                    className="w-full text-left card hover:border-dna-500/30 transition-all group shr-row-hover"
                   >
                     <div className="flex items-start justify-between gap-4">
                       <div className="flex-1 min-w-0">
@@ -827,27 +855,33 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex items-center gap-2 px-3 py-2 rounded-xl text-xs font-semibold border transition-colors ${
-        active
-          ? 'bg-dna-500/15 border-dna-500/40 text-white'
-          : 'bg-bg-elevated border-bg-border text-gray-400 hover:text-white hover:border-dna-500/30'
-      }`}
+      className={cn('shr-tab', active && 'shr-tab--active')}
     >
       {icon}
       {label}
-      <span className={`text-2xs px-1.5 py-0.5 rounded-md ${active ? 'bg-dna-500/25 text-dna-300' : 'bg-bg-surface text-gray-500'}`}>
-        {count}
-      </span>
+      <span className="shr-tab-count">{count}</span>
     </button>
   );
 }
 
+// Existing per-metric Tailwind text-color classes map to one of the premium
+// tile's five accent tones — purely a visual mapping, same colors as before.
+const STAT_TONE: Record<string, string> = {
+  'text-cyan-400': 'cyan',
+  'text-blue-400': 'blue',
+  'text-green-400': 'green',
+  'text-orange-400': 'orange',
+  'text-dna-400': 'blue',
+  'text-violet-400': 'purple',
+};
+
 function StatCard({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) {
+  const tone = STAT_TONE[color] ?? 'blue';
   return (
-    <div className="card-sm text-center">
-      <div className={`flex items-center justify-center gap-1 ${color} mb-1`}>{icon}</div>
-      <p className="text-lg font-bold text-white">{value}</p>
-      <p className="text-2xs text-gray-500">{label}</p>
+    <div className={`shr-tile shr-tile--${tone}`}>
+      <div className="shr-tile-icon">{icon}</div>
+      <p className="shr-tile-value">{value}</p>
+      <p className="shr-tile-label">{label}</p>
     </div>
   );
 }

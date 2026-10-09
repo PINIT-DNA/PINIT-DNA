@@ -308,7 +308,7 @@ export function CertificatesPage() {
   };
 
   return (
-    <div className="page-shell max-w-[1600px] space-y-4 animate-fade-in pb-10">
+    <div className="page-shell max-w-[1600px] space-y-4 animate-fade-in pb-10 font-bold [&_*]:font-bold">
       <ShareSectionGuide current="credentials" />
       {loading ? (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
