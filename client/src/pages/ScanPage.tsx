@@ -4,7 +4,7 @@ import { API_BASE_URL } from '../config/api.config';
 import { cameraErrorMessage, openCameraStream, releaseMediaStream, setTorch } from '../lib/camera-stream';
 
 type Verdict = 'protected' | 'possible' | 'not_found';
-type Phase = 'welcome' | 'live' | 'blocked' | 'checking' | 'result' | 'install';
+type Phase = 'welcome' | 'live' | 'blocked' | 'checking' | 'result';
 
 interface ScanBody {
   success?: boolean;
@@ -18,10 +18,6 @@ interface ScanBody {
   anotherRegistration?: boolean;
   detailsToken?: string;
   error?: string;
-}
-
-interface BeforeInstallPromptEvent extends Event {
-  prompt: () => Promise<void>;
 }
 
 function formatWhen(iso: string | undefined, withTime: boolean): string | null {
@@ -83,7 +79,6 @@ export function ScanPage() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  const promptRef = useRef<BeforeInstallPromptEvent | null>(null);
   const [phase, setPhase] = useState<Phase>('welcome');
   const [ready, setReady] = useState(false);
   const [torchOn, setTorchOn] = useState(false);
@@ -93,10 +88,6 @@ export function ScanPage() {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [checkStep, setCheckStep] = useState(1);
   const [extraNote, setExtraNote] = useState<string | null>(null);
-  const [canInstall, setCanInstall] = useState(false);
-  const [installSeen, setInstallSeen] = useState(() => {
-    try { return localStorage.getItem('pinit-scan-install') === '1'; } catch { return true; }
-  });
   const booted = useRef(false);
 
   useEffect(() => {
@@ -104,10 +95,6 @@ export function ScanPage() {
     font.rel = 'stylesheet';
     font.href = 'https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap';
     document.head.appendChild(font);
-    const manifest = document.createElement('link');
-    manifest.rel = 'manifest';
-    manifest.href = '/scan-manifest.webmanifest';
-    document.head.appendChild(manifest);
     const apple = document.createElement('link');
     apple.rel = 'apple-touch-icon';
     apple.href = '/scan-icon-192.png';
@@ -115,20 +102,11 @@ export function ScanPage() {
     const previous = document.title;
     document.title = 'PINIT Scan';
     document.documentElement.classList.add('pinit-scan-lock');
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/scan-sw.js').catch(() => {});
-    const onPrompt = (event: Event) => {
-      event.preventDefault();
-      promptRef.current = event as BeforeInstallPromptEvent;
-      setCanInstall(true);
-    };
-    window.addEventListener('beforeinstallprompt', onPrompt);
     return () => {
       font.remove();
-      manifest.remove();
       apple.remove();
       document.title = previous;
       document.documentElement.classList.remove('pinit-scan-lock');
-      window.removeEventListener('beforeinstallprompt', onPrompt);
       releaseMediaStream(streamRef.current, videoRef.current);
     };
   }, []);
@@ -264,18 +242,6 @@ export function ScanPage() {
     setResult(null);
     setExtraNote(null);
     setStatus(null);
-    const standalone = window.matchMedia('(display-mode: standalone)').matches;
-    if (!installSeen && !standalone) {
-      try { localStorage.setItem('pinit-scan-install', '1'); } catch { /* private mode */ }
-      setInstallSeen(true);
-      setPhase('install');
-      return;
-    }
-    if (streamRef.current) setPhase('live');
-    else setPhase('welcome');
-  };
-
-  const afterInstall = () => {
     if (streamRef.current) setPhase('live');
     else setPhase('welcome');
   };
@@ -285,7 +251,7 @@ export function ScanPage() {
   return (
     <div className="pinit-scan-shell">
       <style>{scanCss}</style>
-      <div className={`pinit-scan ${phase === 'welcome' || phase === 'blocked' || phase === 'install' ? 's-open' : ''} ${phase === 'blocked' ? 's-block' : ''} ${phase === 'result' ? 'res' : ''} ${phase === 'live' || phase === 'checking' ? 'cam' : ''}`}>
+      <div className={`pinit-scan ${phase === 'welcome' || phase === 'blocked' ? 's-open' : ''} ${phase === 'blocked' ? 's-block' : ''} ${phase === 'result' ? 'res' : ''} ${phase === 'live' || phase === 'checking' ? 'cam' : ''}`}>
         {(phase === 'live' || phase === 'checking') && (
           <>
             <div className="feed" />
@@ -304,15 +270,13 @@ export function ScanPage() {
             <div className="mid">
               <div className="emblem"><img src="/pinit-hub-emblem.png" alt="" /></div>
               <div className="brand">PINIT Scan</div>
-              <h3>See who protected any asset.</h3>
-              <p>Point your camera at an image. We tell you if it is protected in PINIT, by whom, and since when.</p>
+              <h3>Scan to verify.</h3>
             </div>
             <div className="grow" />
             <div className="pad stack">
               {status && <p className="warn">{status}</p>}
               <button type="button" className="btn primary" onClick={() => void startCamera()}><IconCamera />Open camera</button>
               <button type="button" className="btn ghost" onClick={() => fileRef.current?.click()}><IconPhoto />Choose a photo</button>
-              <p className="small center">Nothing is sent until you tap Capture. The image is checked and then discarded. It is not added to PINIT.</p>
             </div>
           </>
         )}
@@ -422,30 +386,6 @@ export function ScanPage() {
                   <Link to={`/scan/details/${result.detailsToken}`} className="btn line full">View Asset Details</Link>
                 )}
               </div>
-            </div>
-          </>
-        )}
-
-        {phase === 'install' && (
-          <>
-            <div className="grow" />
-            <div className="mid">
-              <div className="emblem"><img src="/pinit-hub-emblem.png" alt="" /></div>
-              <div className="brand">PINIT Scan</div>
-            </div>
-            <div className="callout">
-              <b>Add PINIT Scan to your home screen</b>
-              <div className="os">iPhone</div>
-              <ol><li>Tap <strong>Share</strong> in Safari</li><li>Tap <strong>Add to Home Screen</strong></li></ol>
-              <div className="os">Android</div>
-              <ol><li>Tap <strong>Install</strong> when Chrome offers it</li></ol>
-            </div>
-            <div className="grow" />
-            <div className="pad stack">
-              {canInstall && (
-                <button type="button" className="btn primary" onClick={() => void promptRef.current?.prompt()}>Install</button>
-              )}
-              <button type="button" className="btn primary" onClick={afterInstall}>Got it</button>
             </div>
           </>
         )}

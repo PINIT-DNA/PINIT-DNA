@@ -3,7 +3,6 @@ import { Fingerprint, Check } from 'lucide-react';
 import { StepHead } from './parts';
 import {
   assertDeviceCredential,
-  registerDeviceCredential,
   type BiometricResult,
 } from '../../lib/webauthn';
 
@@ -66,14 +65,16 @@ export function BiometricStep({
   }, [phase, attempt]);
 
   async function run() {
+    // Registration must not call navigator.credentials.create(). That is the
+    // browser "Choose where to save your passkey" dialog. Fingerprint stays
+    // optional through Skip and is not marked verified.
+    if (mode === 'register') return;
     setPhase('scanning');
     setDone(false);
     setProgress(8);
     setError('');
     try {
-      const result = mode === 'register'
-        ? await registerDeviceCredential()
-        : await assertDeviceCredential(claimedShortId);
+      const result = await assertDeviceCredential(claimedShortId);
       if (result.simulated) {
         throw new Error('Simulated device hashes are not accepted. Use a real passkey.');
       }
@@ -140,7 +141,7 @@ export function BiometricStep({
           </button>
         </div>
       )}
-      {(REQUIRE_PASSKEY || hold) && phase === 'idle' && !done && (
+      {mode === 'login' && (REQUIRE_PASSKEY || hold) && phase === 'idle' && !done && (
         <button type="button" className="pa-btn" style={{ marginTop: 12 }} onClick={() => void run()}>
           <Fingerprint size={16} /> Add fingerprint
         </button>
