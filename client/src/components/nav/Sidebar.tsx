@@ -313,12 +313,12 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
               'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
               'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
               homeActive
-                ? 'bg-dna-50 text-dna-700 border border-dna-100'
+                ? 'hub-nav-active bg-dna-500 text-white border border-dna-500'
                 : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
             )
           }
         >
-          <LayoutDashboard size={15} className={cn('shrink-0', homeActive ? 'text-dna-600' : 'text-slate-400')} />
+          <LayoutDashboard size={15} className={cn('shrink-0', homeActive ? 'text-white' : 'text-slate-400')} />
           <span className="text-[13px]">Home</span>
         </NavLink>
         {navGroups.map((group) => {
@@ -368,7 +368,7 @@ export function Sidebar({ open = false, onClose }: SidebarProps) {
                             'group flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium transition-colors',
                             'focus:outline-none focus-visible:ring-2 focus-visible:ring-dna-500',
                             isActive
-                              ? 'bg-dna-50 text-dna-700 border border-dna-100'
+                              ? 'hub-nav-active bg-dna-500 text-white border border-dna-500'
                               : 'text-slate-600 hover:text-slate-900 hover:bg-slate-50 border border-transparent',
                           );
                         }}

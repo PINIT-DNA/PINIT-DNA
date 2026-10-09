@@ -208,7 +208,7 @@ export function InvestigationScanner({
         </div>
       )}
 
-      <div className="relative w-full mx-auto max-w-lg aspect-[3/4] sm:aspect-[4/3] rounded-2xl overflow-hidden bg-black border border-bg-border">
+      <div className="on-dark relative w-full mx-auto max-w-lg aspect-[3/4] sm:aspect-[4/3] rounded-2xl overflow-hidden bg-black border border-bg-border">
         <video
           ref={videoRef}
           className="absolute inset-0 w-full h-full object-cover"

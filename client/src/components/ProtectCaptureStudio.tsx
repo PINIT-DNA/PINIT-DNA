@@ -473,7 +473,7 @@ export function ProtectCaptureStudio({ onFileReady }: ProtectCaptureStudioProps)
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
     >
-      <div className="relative aspect-[3/4] w-full overflow-hidden rounded-[28px] bg-[#111318] shadow-[0_18px_50px_rgba(0,0,0,0.35)] ring-1 ring-black/20">
+      <div className="on-dark relative aspect-[3/4] w-full overflow-hidden rounded-[28px] bg-[#111318] shadow-[0_18px_50px_rgba(0,0,0,0.35)] ring-1 ring-black/20">
         <video
           ref={videoRef}
           className={`absolute inset-0 h-full w-full object-cover ${ready ? '' : 'invisible'} ${facing === 'user' ? 'scale-x-[-1]' : ''}`}

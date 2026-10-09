@@ -12,7 +12,7 @@ export function DashboardLayout() {
 
   return (
     <AccountViewModeProvider>
-      <div className="flex h-[100dvh] bg-bg-base overflow-hidden">
+      <div className="hub-app flex h-[100dvh] bg-bg-base overflow-hidden">
         <Sidebar open={navOpen} onClose={() => setNavOpen(false)} />
 
         {navOpen && (
@@ -25,7 +25,7 @@ export function DashboardLayout() {
 
         <div className="flex-1 flex flex-col overflow-hidden min-w-0 lg:ml-60">
           <Topbar onMenu={() => setNavOpen(true)} />
-          <main className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 pb-24 lg:pb-6 mobile-main">
+          <main className="hub-main flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 pb-24 lg:pb-6 mobile-main">
             <DashboardGate />
           </main>
         </div>
@@ -42,8 +42,8 @@ export function DashboardLayout() {
             duration: 4000,
             style: {
               background: '#ffffff',
-              color: '#0f172a',
-              border: '1px solid #e2e8f0',
+              color: '#10213F',
+              border: '1px solid #DCE6F5',
               borderRadius: '12px',
               fontSize: '13px',
               maxWidth: 'min(100vw - 24px, 360px)',

@@ -1,5 +1,5 @@
 /**
- * New account creation is open unless REGISTRATION_OPEN=false.
+ * New account creation is closed unless REGISTRATION_OPEN=true.
  * Existing sign-in is not part of this gate.
  */
 import { Request, Response, NextFunction } from 'express';

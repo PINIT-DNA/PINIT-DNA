@@ -352,7 +352,7 @@ export function DocumentScanner({
     <div className="space-y-3">
       {cameraActive ? (
         <div className="space-y-3">
-          <div className="relative w-full mx-auto max-w-lg aspect-[4/3] max-h-[min(42vh,280px)] sm:max-h-[340px] rounded-2xl overflow-hidden border-2 border-dna-500/30 bg-black">
+          <div className="on-dark relative w-full mx-auto max-w-lg aspect-[4/3] max-h-[min(42vh,280px)] sm:max-h-[340px] rounded-2xl overflow-hidden border-2 border-dna-500/30 bg-black">
             <video
               ref={videoRef}
               className="absolute inset-0 w-full h-full object-cover"

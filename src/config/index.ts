@@ -114,12 +114,12 @@ export const config = {
   apiPrefix: optional('API_PREFIX', '/api/v1'),
 
   /**
-   * New Pinit accounts are open.
-   * Set REGISTRATION_OPEN=false on the API to close sign-up again.
+   * New Pinit accounts are closed.
+   * Set REGISTRATION_OPEN=true on the API only to open sign-up again.
    * Login for existing accounts is unaffected.
    */
   registration: {
-    open: optional('REGISTRATION_OPEN', 'true').toLowerCase() !== 'false',
+    open: optional('REGISTRATION_OPEN', 'false').toLowerCase() === 'true',
   },
 
   hub: {

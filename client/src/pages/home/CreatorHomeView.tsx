@@ -208,14 +208,14 @@ export function CreatorHomeView({
 
   return (
     <div className="hub-home w-full max-w-[1400px] mx-auto animate-fade-in space-y-8 pb-10">
-      <section className="hub-home-panel relative overflow-hidden px-5 py-7 sm:px-8 sm:py-8">
+      <section className="hub-home-hero relative overflow-hidden px-5 py-7 sm:px-8 sm:py-8">
         <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-6">
           <div className="flex items-start gap-5 min-w-0">
-            <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl overflow-hidden bg-dna-500 shrink-0 ring-1 ring-black/5 dark:ring-white/10">
+            <div className="hub-home-avatar w-16 h-16 sm:w-[72px] sm:h-[72px] rounded-2xl overflow-hidden shrink-0">
               {avatar ? (
                 <img src={avatar} alt={displayName ? `${displayName} profile photo` : 'Profile photo'} className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-xl font-semibold text-white" aria-hidden>
+                <div className="w-full h-full flex items-center justify-center text-2xl font-semibold text-white" aria-hidden>
                   {initialsFrom(displayName || 'P')}
                 </div>
               )}
@@ -223,7 +223,7 @@ export function CreatorHomeView({
             <div className="min-w-0">
               <p className="hub-home-kicker mb-2">{kicker}</p>
               <h1 className="hub-home-hero-title">
-                {hello}{displayName ? `, ${displayName}` : ''}
+                {hello}{displayName ? `, ${displayName}` : ''} <span aria-hidden>👋</span>
               </h1>
               <p className="hub-home-lede mt-3">
                 {lede}
@@ -236,7 +236,7 @@ export function CreatorHomeView({
               </div>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-4 shrink-0">
+          <div className="flex flex-col items-start lg:items-end gap-4 shrink-0">
             {profile?.profileStrength && profile.profileStrength.percent < 100 && (
               <ProfileCompletionCard strength={profile.profileStrength} place="dashboard" />
             )}
@@ -251,31 +251,44 @@ export function CreatorHomeView({
             </div>
           </div>
         </div>
-        <div className="relative mt-8 grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-          {loadingStats ? (
-            <p className="hub-home-meta col-span-2 lg:col-span-4">Loading your workspace…</p>
-          ) : (
-            <>
-              <div className="hub-home-stat">
-                <p className="hub-home-metric tabular-nums">{protectedCount}</p>
-                <p className="hub-home-meta mt-1">Protected assets</p>
-              </div>
-              <div className="hub-home-stat">
-                <p className="hub-home-metric tabular-nums">{projectCount}</p>
-                <p className="hub-home-meta mt-1">{projectStatLabel}</p>
-              </div>
-              <div className="hub-home-stat">
-                <p className="hub-home-metric tabular-nums">{portfolioItemCount}</p>
-                <p className="hub-home-meta mt-1">{portfolioItemLabel}</p>
-              </div>
-              <div className="hub-home-stat">
-                <p className="hub-home-metric tabular-nums">{activeShareCount}</p>
-                <p className="hub-home-meta mt-1">Active shares</p>
-              </div>
-            </>
-          )}
-        </div>
       </section>
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {loadingStats ? (
+          <p className="hub-home-meta col-span-2 lg:col-span-4">Loading your workspace…</p>
+        ) : (
+          <>
+            <div className="hub-home-stat hub-home-stat-blue">
+              <span className="hub-home-stat-icon" aria-hidden><Archive size={18} /></span>
+              <div>
+                <p className="hub-home-metric tabular-nums">{protectedCount}</p>
+                <p className="hub-home-meta mt-0.5">Protected assets</p>
+              </div>
+            </div>
+            <div className="hub-home-stat hub-home-stat-violet">
+              <span className="hub-home-stat-icon" aria-hidden><Briefcase size={18} /></span>
+              <div>
+                <p className="hub-home-metric tabular-nums">{projectCount}</p>
+                <p className="hub-home-meta mt-0.5">{projectStatLabel}</p>
+              </div>
+            </div>
+            <div className="hub-home-stat hub-home-stat-green">
+              <span className="hub-home-stat-icon" aria-hidden><FileText size={18} /></span>
+              <div>
+                <p className="hub-home-metric tabular-nums">{portfolioItemCount}</p>
+                <p className="hub-home-meta mt-0.5">{portfolioItemLabel}</p>
+              </div>
+            </div>
+            <div className="hub-home-stat hub-home-stat-amber">
+              <span className="hub-home-stat-icon" aria-hidden><Share2 size={18} /></span>
+              <div>
+                <p className="hub-home-metric tabular-nums">{activeShareCount}</p>
+                <p className="hub-home-meta mt-0.5">Active shares</p>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
 
       <div className="hub-home-block">
         <p className="hub-home-kicker mb-3">Quick actions</p>
@@ -355,7 +368,7 @@ export function CreatorHomeView({
               <Link to="/vault" className="hub-home-link">My Assets</Link>
             </div>
             {recentAssets.length === 0 ? (
-              <div className="px-2 py-10 text-center">
+              <div className="hub-home-empty">
                 <p className="hub-home-body">No assets yet.</p>
                 <p className="hub-home-meta mt-1">Protect your first asset to start building your protected library.</p>
                 <Link to="/generate" className="btn btn-primary btn-sm mt-4 inline-flex gap-2">
@@ -403,7 +416,7 @@ export function CreatorHomeView({
               ) : null}
             </div>
             {!savedPortfolio ? (
-              <div>
+              <div className="hub-home-empty">
                 <p className="hub-home-body">No saved portfolio yet.</p>
                 <p className="hub-home-meta mt-1">Create and save a portfolio to see it here — this box is not a list of protected assets.</p>
                 <Link to="/profile?tab=portfolio" className="btn btn-secondary btn-sm mt-4 inline-flex">
@@ -468,7 +481,7 @@ export function CreatorHomeView({
             </div>
             <div className="space-y-2">
               {filteredActivity.length === 0 ? (
-                <div className="py-8 text-center">
+                <div className="hub-home-empty">
                   <p className="hub-home-body">{ACTIVITY_FILTERS.find((t) => t.id === activityFilter)?.empty ?? 'No activity yet.'}</p>
                   {activityFilter === 'exchange' && onOpenExchange ? (
                     <button type="button" className="btn btn-secondary btn-sm mt-3" onClick={onOpenExchange}>

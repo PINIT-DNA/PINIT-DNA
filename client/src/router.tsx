@@ -61,9 +61,21 @@ import { PreRegisterRoute } from './pages/auth/PreRegisterGateway';
 import { PreRegisterAccountTypePage } from './pages/auth/PreRegisterAccountTypePage';
 import { FaceLoginPage } from './pages/auth/FaceLoginPage';
 import { RequireAuth } from './components/auth/RequireAuth';
+import { getAccessToken } from './lib/auth';
 // Master Admin now lives in its own app (master-admin/, port 3003) — see
 // lib/open-master-admin.ts. ./admin/* stays on disk unreferenced until that
 // app is verified end-to-end, then gets removed.
+
+function VerifyCertificateEntry() {
+  if (!getAccessToken()) return <VerifyCertificatePage />;
+  return (
+    <RequireAuth>
+      <RequireAccountTypeOnboarding>
+        <DashboardLayout />
+      </RequireAccountTypeOnboarding>
+    </RequireAuth>
+  );
+}
 
 export const router = createBrowserRouter([
   // ── Auth (public) ─────────────────────────────────────────────────────────
@@ -103,7 +115,11 @@ export const router = createBrowserRouter([
   // GET /certificates/verify/:id unauthenticated; only this route was left inside
   // the signed-in shell, so the QR printed on every certificate led a buyer, a
   // client or a court to a login wall.
-  { path: '/verify-certificate', element: <VerifyCertificatePage /> },
+  {
+    path: '/verify-certificate',
+    element: <VerifyCertificateEntry />,
+    children: [{ index: true, element: <VerifyCertificatePage embedded /> }],
+  },
   { path: '/scan', element: <ScanPage /> },
   { path: '/scan/details/:token', element: <ScanDetailsPage /> },
 
@@ -188,7 +204,6 @@ export const router = createBrowserRouter([
       { path: 'link/:token', element: <LinkIntelligencePage /> },
       { path: 'help', element: <HelpPage /> },
       { path: 'certificates', element: <CertificatesPage /> },
-      { path: 'verify-certificate', element: <Navigate to="/verify-certificate" replace /> },
       // 'admin-portal' retired — duplicate of the Master Admin console (master-admin/, port 3003).
       { path: '*', element: <NotFoundPage /> },
     ],

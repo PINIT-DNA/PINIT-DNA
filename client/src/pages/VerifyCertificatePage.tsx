@@ -7,8 +7,8 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import { Shield, CheckCircle2, XCircle, AlertTriangle, Dna, Lock, Award, RefreshCw, Copy, Ban, ShieldCheck, FileText } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { ArrowLeft, Shield, CheckCircle2, XCircle, AlertTriangle, Dna, Lock, Award, RefreshCw, Copy, Ban, ShieldCheck, FileText } from 'lucide-react';
 import { verifyCertificateApi } from '../services/dashboard.api';
 import { PinitCertificateDocument } from '@pinit/certificate';
 import { EVIDENCE_NOTICE } from '../shared/certificate/PinitCertificateDocument';
@@ -16,6 +16,7 @@ import type { CertVerificationResult } from '../types/dashboard.types';
 import { format } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getDnaRecord, getVaultRecord } from '../services/dashboard.api';
+import { getAccessToken } from '../lib/auth';
 import { Badge } from '../components/ui/Badge';
 import { cn } from '../components/ui/utils';
 import { formatBytes } from '../hooks/useApi';
@@ -120,7 +121,8 @@ const STATUS_CFG = {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export function VerifyCertificatePage() {
+export function VerifyCertificatePage({ embedded = false }: { embedded?: boolean } = {}) {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [dnaId,    setDnaId]    = useState('');
   const [vaultId,  setVaultId]  = useState('');
@@ -193,30 +195,38 @@ export function VerifyCertificatePage() {
   };
 
   const statusCfg = result ? STATUS_CFG[result.status] : null;
+  const hasResult = Boolean(result || certResult);
+  const goBack = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx ?? 0;
+    if (idx > 0) navigate(-1);
+    else navigate(getAccessToken() ? '/certificates' : '/');
+  };
 
   return (
-    <div className="page-shell space-y-3 mx-auto animate-fade-in">
-      {/*
-        This page is reached publicly, by scanning the QR on a certificate. Whoever
-        scans it has no Pinit account and no other context, so the page has to say
-        where they have landed — an unbranded form is a poor place to be told that
-        something is authentic. Signed-in users reach the same page and lose
-        nothing by seeing it.
-      */}
-      <div className="flex items-center gap-2.5 px-1 pb-1">
-        <div className="w-8 h-8 rounded-lg bg-dna-500/20 flex items-center justify-center shrink-0">
-          <ShieldCheck size={16} className="text-dna-400" />
+    <div className={embedded ? 'page-shell space-y-4 mx-auto w-full max-w-3xl animate-fade-in' : 'verify-cert-page min-h-[100dvh] flex flex-col'}>
+      {!embedded && (
+      <header className="h-14 shrink-0 flex items-center gap-3 px-4 sm:px-6 border-b border-[#DCE6F5] bg-white/95">
+        <button type="button" onClick={goBack} className="btn btn-secondary btn-sm gap-1.5 shrink-0">
+          <ArrowLeft size={15} /> Back
+        </button>
+        <div className="flex items-center gap-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-lg bg-dna-500/15 flex items-center justify-center shrink-0">
+            <ShieldCheck size={16} className="text-dna-600" />
+          </div>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold text-[#10213F] leading-tight">Pinit HUB</p>
+            <p className="text-2xs text-[#61718B] leading-tight truncate">
+              Certificate verification · independent of the certificate holder
+            </p>
+          </div>
         </div>
-        <div className="min-w-0">
-          <p className="text-sm font-semibold text-white leading-tight">Pinit HUB</p>
-          <p className="text-2xs text-gray-500 leading-tight">
-            Certificate verification · independent of the certificate holder
-          </p>
-        </div>
-      </div>
+      </header>
+      )}
+      <div className={embedded ? undefined : `flex-1 flex flex-col px-4 sm:px-6 py-8 ${hasResult ? 'justify-start' : 'justify-center'}`}>
+    <div className={embedded ? 'contents' : 'page-shell space-y-4 mx-auto w-full max-w-3xl animate-fade-in'}>
 
       {/* Input form */}
-      <div className="card space-y-4">
+      <div className="card space-y-5 sm:p-8">
         <div className="flex items-center gap-2 mb-2">
           <Shield size={18} className="text-dna-400" />
           <h2 className="text-sm font-semibold text-white">Enter Certificate Details</h2>
@@ -588,6 +598,8 @@ export function VerifyCertificatePage() {
       <p className="text-2xs text-gray-600 text-center pt-2 pb-4">
         Verified against Pinit HUB records · a certificate can be checked by anyone who holds it
       </p>
+    </div>
+      </div>
     </div>
   );
 }
