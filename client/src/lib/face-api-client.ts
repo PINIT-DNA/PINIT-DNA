@@ -22,8 +22,10 @@ export interface FaceAuthResponse {
 
 async function postFace(path: string, body: unknown): Promise<{ status: number; data: FaceAuthResponse }> {
   const isLogin = path === '/login';
-  const attempts = isLogin ? 2 : 4;
-  const timeout = isLogin ? 15_000 : 70_000;
+  // A login capture is single-use: the server rejects a resend as a replay,
+  // so wait long enough for one answer instead of retrying.
+  const attempts = isLogin ? 1 : 4;
+  const timeout = isLogin ? 45_000 : 70_000;
   let lastErr: unknown;
   for (let i = 0; i < attempts; i++) {
     const attemptStart = typeof performance !== 'undefined' ? performance.now() : Date.now();
