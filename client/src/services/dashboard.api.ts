@@ -67,14 +67,16 @@ export function formatApiError(err: unknown): string {
         : 'Backend offline — start the API from project root: npm run dev';
     }
     if (typeof data?.error === 'string' && data.error) return data.error;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const isProd = Boolean((import.meta as any).env?.PROD);
     if (ax.response?.status === 503) {
-      return 'Service unavailable — ensure the backend is running on port 4000';
+      return isProd
+        ? 'Pinit is temporarily unavailable. Please try again in a minute.'
+        : 'Service unavailable — ensure the backend is running on port 4000';
     }
     if (!ax.response) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const isProd = Boolean((import.meta as any).env?.PROD);
       return isProd
-        ? 'Backend waking up — Render cold start can take up to 60s. Tap Retry.'
+        ? 'Can’t reach Pinit right now. Check your connection and tap Retry.'
         : 'Cannot reach API — start the backend (npm run dev) and retry';
     }
     return ax.message;
