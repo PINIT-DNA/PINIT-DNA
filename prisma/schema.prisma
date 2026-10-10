@@ -97,6 +97,7 @@ model DnaRecord {
   @@index([ownerUserId])
   @@index([documentDnaRecordId])
   @@index([videoDnaRecordId])
+  @@index([sha256Hash])
   @@map("dna_records")
 }
 
@@ -185,6 +186,7 @@ model LocalFeatureIndex {
   ownerUser      User                  @relation(fields: [ownerUserId], references: [id], onDelete: Cascade)
 
   @@index([ownerUserId])
+  @@index([createdAt])
   @@map("local_feature_indexes")
 }
 
@@ -324,6 +326,8 @@ model CryptoLayer {
   blake3Hash     String?   @db.Char(64)
   dnaRecord      DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
+  @@index([sha256Hash])
+  @@index([normalizedHash])
   @@map("crypto_layers")
 }
 
@@ -350,6 +354,7 @@ model PerceptualLayer {
   dHash64     String    @db.Char(16)
   dnaRecord   DnaRecord @relation(fields: [dnaRecordId], references: [id], onDelete: Cascade)
 
+  @@index([createdAt])
   @@map("perceptual_layers")
 }
 

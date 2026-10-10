@@ -98,14 +98,15 @@ export class SteganographyLayer {
       const payloadHmac = ownershipPayloadHmac(signature.tileHex);
       const stegoTraceHmac = payloadHmac;
 
-      const carrierPath = path.resolve(
-        config.upload.tempDir,
-        `carrier_l6_${dnaRecordId}.png`,
-      );
-
-      await sharp(carrier, { raw: { width, height, channels: 3 } })
-        .png()
-        .toFile(carrierPath);
+      // Nothing reads the carrier file in production; writing a full-size PNG
+      // there only costs seconds and fills the ephemeral disk.
+      let carrierPath: string | null = null;
+      if (process.env.NODE_ENV !== 'production') {
+        carrierPath = path.resolve(config.upload.tempDir, `carrier_l6_${dnaRecordId}.png`);
+        await sharp(carrier, { raw: { width, height, channels: 3 } })
+          .png()
+          .toFile(carrierPath);
+      }
 
       const result: StegoLayerResult = {
         layer: 6,

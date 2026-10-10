@@ -161,6 +161,7 @@ export async function generateDna(
     req.file.mimetype,
     req.file.originalname,
     req,
+    { deferOrb: true },
   );
 
   if (dupResult.isDuplicate) {
@@ -353,6 +354,15 @@ export async function generateDna(
     });
 
     res.status(201).json(response);
+
+    duplicateCheckService.screenOrbAfterProtect({
+      buffer,
+      mimeType: req.file?.mimetype ?? '',
+      originalName: req.file?.originalname ?? '',
+      sha256: dupResult.sha256Hash ?? duplicateCheckService.computeSha256(buffer),
+      req,
+      newDnaRecordId: result.dnaRecordId,
+    });
   } catch (err) {
     // "not yet implemented" errors from the router → 422
     if (err instanceof Error && err.message.includes('not yet available')) {

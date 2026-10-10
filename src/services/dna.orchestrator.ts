@@ -22,7 +22,7 @@ import { processAdvancedLayers } from './layers/layers-11-15.service';
 import { TOTAL_DNA_LAYERS } from '../constants/dna-layers';
 import { BehavioralLayer } from './layers/layer7.behavioral';
 import { RelationshipLayer } from './layers/layer8.relationship';
-import { OriginLayer } from './layers/layer9.origin';
+import { OriginLayer, startNoiseResidual } from './layers/layer9.origin';
 import { EvolutionLayer } from './layers/layer10.evolution';
 import sharp from 'sharp';
 
@@ -52,6 +52,8 @@ import {
 import { persistEnterpriseDnaPackage } from './dna/enterprise-dna-package.service';
 import { reverseGeocodePlace } from '../lib/reverse-geocode';
 import { prnuCameraService } from './forensics/prnu-camera.service';
+
+const GEOCODE_WAIT_MS = 1500;
 
 async function mergeProtectCaptureIntoMetadata(
   metadataResult: unknown,
@@ -85,7 +87,13 @@ async function mergeProtectCaptureIntoMetadata(
   const protectLng = hasGps ? universalCtx!.gpsLongitude! : null;
   const geoLat = result.data.gpsLatitude ?? protectLat;
   const geoLng = result.data.gpsLongitude ?? protectLng;
-  const place = geoLat != null && geoLng != null ? await reverseGeocodePlace(geoLat, geoLng) : null;
+  // Place name is display-only; a slow geocoder must not hold up Protect.
+  const place = geoLat != null && geoLng != null
+    ? await Promise.race([
+        reverseGeocodePlace(geoLat, geoLng),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), GEOCODE_WAIT_MS)),
+      ])
+    : null;
   const exif = result.data.exifData && typeof result.data.exifData === 'object'
     ? result.data.exifData
     : {};
@@ -197,21 +205,18 @@ export class DnaOrchestrator {
     });
 
     const tLayers = Date.now();
-    // ── Run layers 1–4 in parallel ────────────────────────────────────────────
-    const [cryptoResult, structuralResult, perceptualResult, semanticResult] =
+    // Layer 9's AI call needs only the bytes, so it overlaps Layers 1–6.
+    const noisePrefetch = startNoiseResidual(image);
+    // ── Run layers 1–5 in parallel ────────────────────────────────────────────
+    // Layer 5's link to Layer 1 is the file SHA-256, which is already known here.
+    const [cryptoResult, structuralResult, perceptualResult, semanticResult, metadataResult] =
       await Promise.all([
         this.runLayer(() => this.layer1.generate(image, sha256Hash), 'layer1'),
         this.runLayer(() => this.layer2.generate(image, dnaRecordId), 'layer2'),
         this.runLayer(() => this.layer3.generate(image), 'layer3'),
         this.runLayer(() => this.layer4.generate(image), 'layer4'),
+        this.runLayer(() => this.layer5.generate(image, dnaRecordId, sha256Hash), 'layer5'),
       ]);
-
-    // ── Layer 5 runs after Layer 1 — embeds a cryptographic link to L1 hash ──
-    const layer1HashForMeta = (cryptoResult as CryptoLayerResult).data?.sha256Hash;
-    const metadataResult = await this.runLayer(
-      () => this.layer5.generate(image, dnaRecordId, layer1HashForMeta),
-      'layer5'
-    );
     await mergeProtectCaptureIntoMetadata(metadataResult, universalCtx);
 
     let widthPx = universalCtx?.captureContext?.width ?? null;
@@ -273,7 +278,7 @@ export class DnaOrchestrator {
             userAgent: universalCtx?.userAgent,
             country:   universalCtx?.country,
             city:      universalCtx?.city,
-          }, { contentId: layer1Hash }), 'layer9'
+          }, { contentId: layer1Hash }, noisePrefetch), 'layer9'
         ),
         this.runLayer(
           () => this.layer10.generate(image, dnaRecordId, layer1Hash),

@@ -128,16 +128,21 @@ export function VaultStep({ file, dnaRecordId, custodyLocation, campaignId, onCo
 
     // If the POST hangs after the backend already committed, My Assets is the
     // source of truth — complete as soon as this DNA appears in the vault list.
-    const poll = window.setInterval(() => {
-      if (cancelled || finishedRef.current) return;
-      void findListed().then((listed) => {
-        if (listed) finish(listed);
-      });
-    }, 2000);
+    // Waits before the first check so it never competes with a normal store.
+    let poll: number | undefined;
+    const pollStart = window.setTimeout(() => {
+      poll = window.setInterval(() => {
+        if (cancelled || finishedRef.current) return;
+        void findListed().then((listed) => {
+          if (listed) finish(listed);
+        });
+      }, 4000);
+    }, 10_000);
 
     return () => {
       cancelled = true;
-      window.clearInterval(poll);
+      window.clearTimeout(pollStart);
+      if (poll !== undefined) window.clearInterval(poll);
     };
   }, [file, dnaRecordId, campaignId, onComplete, onError]);
 

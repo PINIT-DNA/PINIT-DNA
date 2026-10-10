@@ -88,7 +88,10 @@ export class StructuralLayer {
       // "making tiny 1-bit changes to pixels that sit exactly on edges"
       let carrierPath: string | null = null;
 
-      if (edgePixelCount >= signatureBits.length && dnaRecordId) {
+      // Nothing reads the carrier file in production; writing a full-size PNG
+      // there only costs seconds and fills the ephemeral disk.
+      const writeCarrier = process.env.NODE_ENV !== 'production';
+      if (writeCarrier && edgePixelCount >= signatureBits.length && dnaRecordId) {
         const carrierRgb = Buffer.from(rawRgb); // copy
 
         for (let i = 0; i < signatureBits.length; i++) {

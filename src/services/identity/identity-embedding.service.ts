@@ -263,8 +263,9 @@ export class IdentityEmbeddingService {
         carrier[blueIdx] = (carrier[blueIdx]! & 0xfe) | bit;
       }
 
+      // Lossless either way; level 2 encodes several times faster than the default 6.
       const outBuffer = await sharp(carrier, { raw: { width, height, channels: 3 } })
-        .png()
+        .png({ compressionLevel: 2 })
         .toBuffer();
 
       // Also append binary tail as backup
@@ -282,7 +283,14 @@ export class IdentityEmbeddingService {
   async extractImageLSB(buffer: Buffer): Promise<string | null> {
     try {
       const sharp = (await import('sharp')).default;
-      const { data: rawRgb } = await sharp(buffer)
+      // The payload sits in the first (8 + 1000) * 8 pixels; decode only those rows.
+      const { width = 0, height = 0 } = await sharp(buffer).metadata();
+      const maxPayloadPixels = (8 + 1000) * 8;
+      const rows = width > 0 ? Math.min(height, Math.ceil(maxPayloadPixels / width)) : height;
+      const region = width > 0 && rows > 0 && rows < height
+        ? sharp(buffer).extract({ left: 0, top: 0, width, height: rows })
+        : sharp(buffer);
+      const { data: rawRgb } = await region
         .removeAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });

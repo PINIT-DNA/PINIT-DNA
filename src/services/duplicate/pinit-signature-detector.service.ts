@@ -13,6 +13,23 @@ import { resolveShareTokenFromText } from '../share/share-token-resolver';
 
 const WATERMARK_CODE_RE = /WM-[A-Z0-9]{4,}-[A-Z0-9]{4,}/gi;
 
+/** Loading the OCR model costs seconds, so one worker is kept for the process. */
+let ocrWorker: Promise<import('tesseract.js').Worker> | null = null;
+
+function getOcrWorker(): Promise<import('tesseract.js').Worker> {
+  if (!ocrWorker) {
+    ocrWorker = import('tesseract.js').then(({ createWorker }) => createWorker('eng', 1, { logger: () => {} }));
+    ocrWorker.catch(() => { ocrWorker = null; });
+  }
+  return ocrWorker;
+}
+
+function resetOcrWorker(): void {
+  const stale = ocrWorker;
+  ocrWorker = null;
+  void stale?.then((w) => w.terminate()).catch(() => {});
+}
+
 /** OCR-only markers — never match raw PNG/JPEG bytes (too many false positives). */
 const VISIBLE_MARKERS: RegExp[] = [
   /PINIT\s*[-·\s]*DNA/i,
@@ -180,13 +197,10 @@ const shareToken = await resolveShareTokenFromText(combinedText);
       let watermarkCode: string | undefined;
       let fullText = '';
 
-      const allVariants = await this._ocrVariants(buffer);
-      const variants = fast ? allVariants.slice(0, 1) : allVariants;
-      let worker: import('tesseract.js').Worker | undefined;
+      const variants = fast ? await this._fastOcrVariant(buffer) : await this._ocrVariants(buffer);
 
       try {
-        const { createWorker } = await import('tesseract.js');
-        worker = await createWorker('eng', 1, { logger: () => {} });
+        const worker = await getOcrWorker();
 
         for (const variant of variants) {
           const { data } = await worker.recognize(variant.buffer);
@@ -204,8 +218,7 @@ const shareToken = await resolveShareTokenFromText(combinedText);
         }
       } catch (err) {
         logger.warn('[PinitSignature] OCR failed', { error: String(err) });
-      } finally {
-        if (worker) await worker.terminate();
+        resetOcrWorker();
       }
 
       return { signals, watermarkCode, fullText };
@@ -214,6 +227,21 @@ const shareToken = await resolveShareTokenFromText(combinedText);
     return (
       await withTimeoutSoft(run, fast ? 4_000 : 12_000, 'pinit-signature-ocr')
     ) ?? { signals: [], fullText: '' };
+  }
+
+  /** Upload-path OCR: one downscaled pass, the same image `_ocrVariants` reads first. */
+  private async _fastOcrVariant(buffer: Buffer): Promise<Array<{ label: string; buffer: Buffer }>> {
+    try {
+      const png = await sharp(buffer)
+        .resize(2000, 2000, { fit: 'inside', withoutEnlargement: true })
+        .withMetadata({ density: 72 })
+        .png()
+        .toBuffer();
+      return [{ label: 'full', buffer: png }];
+    } catch (err) {
+      logger.warn('[PinitSignature] OCR preprocess failed — using raw buffer', { error: String(err) });
+      return [{ label: 'raw', buffer }];
+    }
   }
 
   /** Preprocess image regions to surface faint diagonal share-viewer watermarks. */

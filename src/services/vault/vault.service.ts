@@ -245,73 +245,80 @@ export class VaultService {
     // DNA-time enroll uses the raw upload. Identity embedding (LSB/DCT/tail)
     // changes many pixels, so protected downloads would look "100% tampered".
     // Upsert the package from the exact bytes that enter the vault.
-    if ((originalMimeType.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(originalFileName))) {
-      try {
-        const { tryEnrollSpatialAuthAfterDna } = await import('../spatial/enroll.service');
-        const spatialEnroll = await tryEnrollSpatialAuthAfterDna({
-          imageBuffer: fileToEncrypt,
-          dnaRecordId,
-          ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
-          // Dense 1×1 HMAC (~minutes on megapixel images) must not block /vault/store.
-          // 8×8 HKCA still enrolls when SPATIAL_PIXEL_AUTH_ENABLED.
-          skipPixel1: true,
-        });
-        if (spatialEnroll) {
-          logger.info('Vault — spatial auth re-enrolled on post-embed bytes', {
+    // Runs alongside the storage upload below: CPU work overlapping network I/O.
+    const spatialReEnroll = (async () => {
+      if ((originalMimeType.startsWith('image/') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(originalFileName))) {
+        try {
+          const { tryEnrollSpatialAuthAfterDna } = await import('../spatial/enroll.service');
+          const spatialEnroll = await tryEnrollSpatialAuthAfterDna({
+            imageBuffer: fileToEncrypt,
             dnaRecordId,
-            vaultId,
-            width: spatialEnroll.width,
-            height: spatialEnroll.height,
-            blockCount: spatialEnroll.blockCount,
+            ownerUserId: dnaRecord.ownerUserId ?? ownerUserId,
+            // Dense 1×1 HMAC (~minutes on megapixel images) must not block /vault/store.
+            // 8×8 HKCA still enrolls when SPATIAL_PIXEL_AUTH_ENABLED.
+            skipPixel1: true,
+          });
+          if (spatialEnroll) {
+            logger.info('Vault — spatial auth re-enrolled on post-embed bytes', {
+              dnaRecordId,
+              vaultId,
+              width: spatialEnroll.width,
+              height: spatialEnroll.height,
+              blockCount: spatialEnroll.blockCount,
+            });
+          }
+        } catch (spatialErr) {
+          logger.warn('Vault — spatial re-enroll failed (non-fatal)', {
+            dnaRecordId,
+            error: String(spatialErr),
           });
         }
-      } catch (spatialErr) {
-        logger.warn('Vault — spatial re-enroll failed (non-fatal)', {
-          dnaRecordId,
-          error: String(spatialErr),
-        });
       }
-    }
+    })();
 
     // ── Store encrypted file (local in dev, Supabase in production) ──────
-    let encryptedFilePath: string;
-    if (USE_LOCAL) {
-      encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
-      logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
-      // Share links open on pinithub.com (production API). Local-only files
-      // 404 there. Mirror to Supabase whenever credentials exist.
-      if (isCloudStorageConfigured()) {
+    const storeEncrypted = async (): Promise<string> => {
+      let encryptedFilePath: string;
+      if (USE_LOCAL) {
+        encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
+        logger.debug('Vault — stored locally', { vaultId, encryptedFilePath });
+        // Share links open on pinithub.com (production API). Local-only files
+        // 404 there. Mirror to Supabase whenever credentials exist.
+        if (isCloudStorageConfigured()) {
+          try {
+            const cloudPath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
+            encryptedFilePath = cloudPath;
+            logger.info('Vault — mirrored local encrypt to Supabase for public shares', {
+              vaultId,
+              cloudPath,
+            });
+          } catch (mirrorErr) {
+            logger.warn('Vault — Supabase mirror failed; pinithub.com share links will not open this file', {
+              vaultId,
+              error: mirrorErr instanceof Error ? mirrorErr.message : String(mirrorErr),
+            });
+          }
+        }
+      } else {
         try {
-          const cloudPath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
-          encryptedFilePath = cloudPath;
-          logger.info('Vault — mirrored local encrypt to Supabase for public shares', {
-            vaultId,
-            cloudPath,
-          });
-        } catch (mirrorErr) {
-          logger.warn('Vault — Supabase mirror failed; pinithub.com share links will not open this file', {
-            vaultId,
-            error: mirrorErr instanceof Error ? mirrorErr.message : String(mirrorErr),
-          });
+          encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
+          logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
+        } catch (uploadErr) {
+          if (process.env['NODE_ENV'] !== 'production' && isCloudStorageRestricted(uploadErr)) {
+            encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
+            logger.warn('Vault — Supabase storage restricted; stored locally for this session', {
+              vaultId,
+              encryptedFilePath,
+              reason: uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
+            });
+          } else {
+            throw uploadErr;
+          }
         }
       }
-    } else {
-      try {
-        encryptedFilePath = await uploadVaultFile(vaultId, encResult.encryptedBuffer, ownerUserId);
-        logger.debug('Vault — uploaded to Supabase Storage', { vaultId, encryptedFilePath });
-      } catch (uploadErr) {
-        if (process.env['NODE_ENV'] !== 'production' && isCloudStorageRestricted(uploadErr)) {
-          encryptedFilePath = await writeLocal(vaultId, encResult.encryptedBuffer);
-          logger.warn('Vault — Supabase storage restricted; stored locally for this session', {
-            vaultId,
-            encryptedFilePath,
-            reason: uploadErr instanceof Error ? uploadErr.message : String(uploadErr),
-          });
-        } else {
-          throw uploadErr;
-        }
-      }
-    }
+      return encryptedFilePath;
+    };
+    const [encryptedFilePath] = await Promise.all([storeEncrypted(), spatialReEnroll]);
 
     // ── Persist vault record ───────────────────────────────────────────────
     const record = await prisma.vaultRecord.create({

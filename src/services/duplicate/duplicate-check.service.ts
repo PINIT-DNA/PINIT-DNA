@@ -144,6 +144,7 @@ export class DuplicateCheckService {
     mimeType: string,
     originalName: string,
     req: Request,
+    opts: { deferOrb?: boolean } = {},
   ): Promise<DuplicateCheckResult> {
 
     const sha256 = this.computeSha256(buffer);
@@ -238,7 +239,8 @@ export class DuplicateCheckService {
       };
     }
 
-    // ── 2–4. Independent detectors in parallel (same budget) ────────────────
+    // ── 2–6. Independent detectors in parallel (same budget) ────────────────
+    // Each one only reads; the first hit in this priority order wins.
     if (hasBudget()) {
       const detectors: Array<Promise<DuplicateCheckResult | null | undefined>> = [
         withTimeoutSoft(
@@ -258,30 +260,22 @@ export class DuplicateCheckService {
           4_000,
           'duplicate-pinit-signature',
         ));
+        // ── 5. Normalized pixel hash (survives metadata / re-save)
+        detectors.push(withTimeoutSoft(
+          () => this._checkNormalizedHash(buffer, mimeType, originalName, sha256, uploaderIp, req),
+          6_000,
+          'duplicate-normalized-hash',
+        ));
+        // ── 6. pHash near-duplicate (share watermark / compression)
+        detectors.push(withTimeoutSoft(
+          () => this._checkPHashNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp),
+          5_000,
+          'duplicate-phash',
+        ));
       }
       const hits = await Promise.all(detectors);
       const hit = hits.find((r) => r && r.isDuplicate);
       if (hit) return hit;
-    }
-
-    // ── 5. Normalized pixel hash (images — survives metadata / re-save) ───────
-    if (mimeType.startsWith('image/') && hasBudget()) {
-      const normalizedMatch = await withTimeoutSoft(
-        () => this._checkNormalizedHash(buffer, mimeType, originalName, sha256, uploaderIp, req),
-        6_000,
-        'duplicate-normalized-hash',
-      );
-      if (normalizedMatch) return normalizedMatch;
-    }
-
-    // ── 6. pHash near-duplicate (images — share watermark / compression) ─────
-    if (mimeType.startsWith('image/') && hasBudget()) {
-      const nearMatch = await withTimeoutSoft(
-        () => this._checkPHashNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp),
-        5_000,
-        'duplicate-phash',
-      );
-      if (nearMatch) return nearMatch;
     }
 
     // ── 7. ORB near-duplicate (images — survives crop/rotation) ──────────────
@@ -289,7 +283,8 @@ export class DuplicateCheckService {
     // pHash's global hash degrades under a meaningful crop, but ORB keypoints
     // inside the surviving region still match against descriptors already
     // stored at protect time (LocalFeatureIndex.orbDescriptors).
-    if (mimeType.startsWith('image/') && hasBudget()) {
+    // Protect defers this to screenOrbAfterProtect(): it is up to 150 AI calls.
+    if (mimeType.startsWith('image/') && !opts.deferOrb && hasBudget()) {
       const startedAt = Date.now();
       const orbMatch = await withTimeoutSoft(
         () => this._checkOrbNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp),
@@ -816,6 +811,40 @@ export class DuplicateCheckService {
   // descriptors already stored at protect time (LocalFeatureIndex.
   // orbDescriptors) — no buffer refetch, no re-extraction of a vault original.
 
+  /**
+   * ORB crop/rotation screen for Protect, run after the response. The upload is
+   * already protected; a corroborated cross-account match is logged as a
+   * duplicate attempt (with custody evidence) instead of refusing the upload.
+   */
+  screenOrbAfterProtect(params: {
+    buffer: Buffer;
+    mimeType: string;
+    originalName: string;
+    sha256: string;
+    req: Request;
+    newDnaRecordId: string;
+  }): void {
+    const { buffer, mimeType, originalName, sha256, req, newDnaRecordId } = params;
+    if (!mimeType.startsWith('image/')) return;
+    const uploaderIp = resolveClientIp(req);
+    const uploaderUserId = (req as { user?: { sub?: string } }).user?.sub;
+    void withTimeoutSoft(
+      () => this._checkOrbNearDuplicate(buffer, sha256, req, originalName, mimeType, uploaderIp, uploaderUserId),
+      DUPLICATE_ORB_BUDGET_MS,
+      'duplicate-orb-after-protect',
+    ).then((match) => {
+      if (match?.isDuplicate) {
+        logger.warn('[DuplicateCheck] ORB match found after Protect — logged as duplicate attempt', {
+          newDnaRecordId,
+          existingRecordId: match.existingRecordId,
+          ownerShortId: match.ownerShortId,
+        });
+      }
+    }).catch((err) => {
+      logger.warn('[DuplicateCheck] ORB after-protect screen failed (non-fatal)', { error: String(err) });
+    });
+  }
+
   private async _checkOrbNearDuplicate(
     buffer: Buffer,
     sha256: string,
@@ -823,6 +852,7 @@ export class DuplicateCheckService {
     originalName: string,
     mimeType: string,
     uploaderIp: string,
+    excludeOwnerUserId?: string,
   ): Promise<DuplicateCheckResult | null> {
     try {
       // Extract the probe's ORB descriptors ONCE and match a lean descriptor-set
@@ -842,6 +872,11 @@ export class DuplicateCheckService {
         where: {
           orbDescriptors: { not: Prisma.DbNull },
           status: 'COMPLETE',
+          // Same-account matches are always allowed, so after Protect they would
+          // only crowd out other accounts (including the new upload itself).
+          ...(excludeOwnerUserId
+            ? { ownerUserId: { not: excludeOwnerUserId } }
+            : {}),
           dnaRecord: { is: { ownerUserId: { not: null } } },
         },
         select: { dnaRecordId: true, orbDescriptors: true },

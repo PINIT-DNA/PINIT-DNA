@@ -47,12 +47,23 @@ import {
 } from '../dna/identity-generation-logger';
 import { aiService } from '../ai/ai-embeddings.service';
 
+export type NoiseResidual = { descriptor: string; gridSize: number; method: string } | null;
+
+/** Starts the AI noise-residual call; null when Layer 9 would not make it. */
+export function startNoiseResidual(image: ImageInput): Promise<NoiseResidual> | null {
+  if (isDnaDeterministicModeEnabled() || !image.mimeType?.startsWith('image/') || !image.buffer?.length) {
+    return null;
+  }
+  return aiService.extractNoiseResidual(image.buffer, image.mimeType, image.originalName).catch(() => null);
+}
+
 export class OriginLayer {
   async generate(
     image: ImageInput,
     dnaRecordId: string,
     ctx?: { ip?: string; userAgent?: string; country?: string; city?: string },
     identityCtx?: { contentId: string },
+    prefetchedNoise?: Promise<NoiseResidual> | null,
   ): Promise<OriginLayerResult> {
     const start = Date.now();
     const deterministic = isDnaDeterministicModeEnabled();
@@ -74,10 +85,11 @@ export class OriginLayer {
       // Deterministic mode's contract (same input -> same hash, no external
       // calls) stays exactly as it was — the content-derived descriptor
       // below only applies to normal-mode, non-deterministic identity.
-      let noiseResidual: { descriptor: string; gridSize: number; method: string } | null = null;
+      let noiseResidual: NoiseResidual = null;
       if (!deterministic && image.mimeType?.startsWith('image/') && image.buffer?.length) {
         try {
-          noiseResidual = await aiService.extractNoiseResidual(image.buffer, image.mimeType, image.originalName);
+          noiseResidual = await (prefetchedNoise
+            ?? aiService.extractNoiseResidual(image.buffer, image.mimeType, image.originalName));
         } catch {
           noiseResidual = null; // fails soft — falls through to metadata-only hash below
         }

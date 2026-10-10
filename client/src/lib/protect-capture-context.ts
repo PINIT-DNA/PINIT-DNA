@@ -66,13 +66,25 @@ function readImageSize(file: File): Promise<{ width: number; height: number } | 
   });
 }
 
+async function geolocationPermission(): Promise<PermissionState | 'unknown'> {
+  try {
+    const status = await navigator.permissions?.query({ name: 'geolocation' as PermissionName });
+    return status?.state ?? 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
 export async function collectProtectCaptureContext(file: File): Promise<ProtectCaptureContext & { location: CustodyLocation | null }> {
-  const locPromise = requestCustodyLocation();
+  // Location is optional: never hold the upload waiting on a permission prompt.
+  const permission = await geolocationPermission();
+  const locPromise = permission === 'denied' ? Promise.resolve(null) : requestCustodyLocation();
+  const waitMs = permission === 'granted' ? 1500 : 500;
   const dims = await readImageSize(file);
   const method = readProtectMethod(file);
   const loc = await Promise.race([
     locPromise,
-    new Promise<CustodyLocation | null>((resolve) => setTimeout(() => resolve(null), 4000)),
+    new Promise<CustodyLocation | null>((resolve) => setTimeout(() => resolve(null), waitMs)),
   ]);
   return {
     location: loc,
